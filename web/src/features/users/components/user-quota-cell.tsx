@@ -31,6 +31,7 @@ import { cn } from '@/lib/utils'
 type UserQuotaCellProps = {
   used: number
   remaining: number
+  unlimited: boolean
 }
 
 function getQuotaProgressColor(percentage: number): string {
@@ -45,6 +46,24 @@ export function UserQuotaCell(props: UserQuotaCellProps) {
   const percentage = total > 0 ? (props.remaining / total) * 100 : 0
   const formattedRemaining = formatQuota(props.remaining)
   const formattedTotal = formatQuota(total)
+
+  if (props.unlimited) {
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <div className='flex min-w-0 cursor-help items-baseline gap-2' />
+          }
+        >
+          <span className='text-lg font-semibold tabular-nums'>∞</span>
+          <span className='text-muted-foreground truncate text-xs tabular-nums'>
+            {t('Used:')} {formatQuota(props.used)}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>{t('Unlimited quota')}</TooltipContent>
+      </Tooltip>
+    )
+  }
 
   if (total === 0) {
     return (

@@ -54,7 +54,9 @@ const defaultBillingSettings: BillingSettings = {
   TopupGroupRatio: '',
   GroupRatio: '',
   UserUsableGroups: '',
-  GroupGroupRatio: '',
+  'group_ratio_setting.user_group_ratio': '{}',
+  'group_ratio_setting.include_channel_ratio': '{}',
+  UserGroupRatioMigrationConflicts: '[]',
   AutoGroups: '',
   MaxTokenAutoGroups: 5,
   DefaultUseAutoGroup: false,
@@ -103,9 +105,6 @@ const defaultBillingSettings: BillingSettings = {
   WaffoPancakeReturnURL: '',
   WaffoPancakeStoreID: '',
   WaffoPancakeProductID: '',
-  'checkin_setting.enabled': false,
-  'checkin_setting.min_quota': 1000,
-  'checkin_setting.max_quota': 10000,
 }
 
 export function BillingSettings() {

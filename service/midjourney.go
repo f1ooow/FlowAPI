@@ -39,6 +39,7 @@ func PrepareMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.
 	task.Quota = 0
 	task.TokenId = 0
 	task.BillingChannelId = 0
+	task.BillingSource = ""
 	if !shouldBill {
 		return false, nil
 	}
@@ -53,6 +54,10 @@ func PrepareMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.
 	}
 
 	task.Quota = quota
+	task.BillingSource = relayInfo.BillingSource
+	if relayInfo.UserUnlimitedQuota {
+		task.BillingSource = BillingSourceUnlimited
+	}
 	task.BillingChannelId = task.ChannelId
 	if relayInfo.ChannelMeta != nil && relayInfo.ChannelId > 0 {
 		task.BillingChannelId = relayInfo.ChannelId
@@ -100,9 +105,11 @@ func RefundMidjourneyQuota(ctx context.Context, task *model.Midjourney, reason s
 		return true
 	}
 
-	if err := model.IncreaseUserQuota(task.UserId, quota, false); err != nil {
-		logger.LogWarn(ctx, fmt.Sprintf("退还 Midjourney 用户额度失败 task %s: %s", task.MjId, err.Error()))
-		return false
+	if task.BillingSource != BillingSourceUnlimited {
+		if err := model.IncreaseUserQuota(task.UserId, quota, false); err != nil {
+			logger.LogWarn(ctx, fmt.Sprintf("退还 Midjourney 用户额度失败 task %s: %s", task.MjId, err.Error()))
+			return false
+		}
 	}
 
 	if task.TokenId > 0 {

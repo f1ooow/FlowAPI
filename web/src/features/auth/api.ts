@@ -21,13 +21,9 @@ import axios from 'axios'
 import { api, refreshAuthentication, type RefreshOutcome } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { getAffiliateCode } from './lib/storage'
-import type { TelegramAuthorization } from './lib/telegram-login'
 import type {
   LoginPayload,
   LoginResponse,
-  Login2FAResponse,
-  TwoFAPayload,
   RegisterPayload,
   ApiResponse,
 } from './types'
@@ -51,14 +47,6 @@ export async function login(payload: LoginPayload) {
     },
     { skipAuthRefresh: true }
   )
-  return res.data
-}
-
-// Two-factor authentication login
-export async function login2fa(payload: TwoFAPayload) {
-  const res = await api.post<Login2FAResponse>('/api/user/login/2fa', payload, {
-    skipAuthRefresh: true,
-  })
   return res.data
 }
 
@@ -128,55 +116,6 @@ export async function sendPasswordResetEmail(
 }
 
 // ----------------------------------------------------------------------------
-// OAuth
-// ----------------------------------------------------------------------------
-
-// Start GitHub OAuth flow
-export async function githubOAuthStart(clientId: string, state: string) {
-  const url = `https://github.com/login/oauth/authorize?client_id=${clientId}&state=${state}&scope=user:email`
-  window.open(url)
-}
-
-// Get OAuth state for CSRF protection
-export async function createOAuthFlow(
-  provider: string,
-  intent: 'login' | 'bind'
-): Promise<string> {
-  const aff = intent === 'login' ? getAffiliateCode() : ''
-  const res = await api.post(
-    '/api/oauth/state',
-    { provider, intent, aff: aff || undefined },
-    { skipAuthRefresh: intent === 'login' }
-  )
-  if (res.data?.success) {
-    if (typeof res.data.data === 'string') return res.data.data
-    if (typeof res.data.data?.flow_token === 'string') {
-      return res.data.data.flow_token
-    }
-  }
-  throw new Error(res.data?.message || 'Failed to initialize OAuth')
-}
-
-// WeChat login by authorization code
-export async function wechatLoginByCode(code: string): Promise<ApiResponse> {
-  const res = await api.get('/api/oauth/wechat', { params: { code } })
-  return res.data
-}
-
-export async function telegramLogin(
-  authorization: TelegramAuthorization
-): Promise<ApiResponse> {
-  const res = await api.get('/api/oauth/telegram/login', {
-    params: authorization,
-    disableDuplicate: true,
-    skipAuthRefresh: true,
-    skipBusinessError: true,
-    skipErrorHandler: true,
-  })
-  return res.data
-}
-
-// ----------------------------------------------------------------------------
 // Registration
 // ----------------------------------------------------------------------------
 
@@ -199,12 +138,12 @@ export async function sendEmailVerification(
   return res.data
 }
 
-// Bind email to OAuth account
+// Bind an email address to the current password account
 export async function bindEmail(
   email: string,
   code: string
 ): Promise<ApiResponse> {
-  const res = await api.post('/api/oauth/email/bind', {
+  const res = await api.post('/api/user/email/bind', {
     email,
     code,
   })

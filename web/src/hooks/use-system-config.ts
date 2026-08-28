@@ -59,6 +59,18 @@ function toNumber(value: unknown, fallback: number): number {
   return fallback
 }
 
+function normalizeLogo(logo?: string): string {
+  if (
+    !logo ||
+    logo === '/flow-api-mark.svg' ||
+    logo === '/flow-api-logo.svg' ||
+    logo === '/flow-api-logo.png'
+  ) {
+    return DEFAULT_LOGO
+  }
+  return logo
+}
+
 /**
  * Map `/api/status` response data to our persisted system config structure
  */
@@ -92,9 +104,15 @@ export function mapStatusDataToConfig(
     ),
   }
 
+  const systemName = data.system_name?.trim()
+  const logo = data.logo?.trim()
+
   return {
-    systemName: data.system_name || DEFAULT_SYSTEM_NAME,
-    logo: data.logo || DEFAULT_LOGO,
+    systemName:
+      !systemName || systemName === 'New API'
+        ? DEFAULT_SYSTEM_NAME
+        : systemName,
+    logo: normalizeLogo(logo),
     footerHtml: data.footer_html,
     demoSiteEnabled: data.demo_site_enabled,
     displayTokenStatEnabled: data.display_token_stat_enabled,
@@ -120,13 +138,13 @@ function preloadImage(
   onError: () => void
 ): () => void {
   const img = new Image()
-  img.onload = onLoad
-  img.onerror = onError
+  img.addEventListener('load', onLoad)
+  img.addEventListener('error', onError)
   img.src = src
 
   return () => {
-    img.onload = null
-    img.onerror = null
+    img.removeEventListener('load', onLoad)
+    img.removeEventListener('error', onError)
   }
 }
 
@@ -151,6 +169,7 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
     setLoadedLogoUrl,
     setLoading,
   } = useSystemConfigStore()
+  const logo = normalizeLogo(config.logo)
 
   // Load config from backend
   const loadConfig = useCallback(async () => {
@@ -172,8 +191,6 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
 
   // Preload logo image when URL changes
   useEffect(() => {
-    const { logo } = config
-
     // Skip if logo is already loaded
     if (!logo || logo === loadedLogoUrl) return
 
@@ -194,11 +211,12 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
       }
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config.logo, loadedLogoUrl, setLoadedLogoUrl])
+  }, [logo, loadedLogoUrl, setLoadedLogoUrl])
 
   return {
     ...config,
+    logo,
     loading,
-    logoLoaded: config.logo === loadedLogoUrl && !!loadedLogoUrl,
+    logoLoaded: logo === loadedLogoUrl && !!loadedLogoUrl,
   }
 }

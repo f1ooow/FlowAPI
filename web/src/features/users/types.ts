@@ -37,12 +37,9 @@ export const userSchema = z.object({
   username: z.string(),
   display_name: z.string(),
   password: z.string().optional(),
-  github_id: z.string().optional(),
-  oidc_id: z.string().optional(),
-  wechat_id: z.string().optional(),
-  telegram_id: z.string().optional(),
   email: z.string().optional(),
   quota: z.number(),
+  unlimited_quota: z.boolean().default(false),
   used_quota: z.number(),
   request_count: z.number(),
   group: z.string(),
@@ -51,7 +48,6 @@ export const userSchema = z.object({
   aff_quota: z.number().optional(),
   aff_history_quota: z.number().optional(),
   inviter_id: z.number().optional(),
-  linux_do_id: z.string().optional(),
   status: userStatusSchema,
   role: userRoleSchema,
   created_at: z.number().optional(),
@@ -143,6 +139,12 @@ export interface ManageUserQuotaPayload {
   action: 'add_quota'
   mode: QuotaAdjustMode
   value: number
+}
+
+export interface ManageUserUnlimitedQuotaPayload {
+  id: number
+  action: 'set_unlimited_quota'
+  enabled: boolean
 }
 
 // ============================================================================

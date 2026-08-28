@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
@@ -72,67 +71,15 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	// 检查是否启用2FA
-	twoFAEnabled, err := model.IsTwoFAEnabled(user.Id)
-	if err != nil {
-		common.SysLog(fmt.Sprintf("Login failed to load 2FA status for user %d: %v", user.Id, err))
-		common.ApiErrorI18n(c, i18n.MsgDatabaseError)
-		return
-	}
-	if twoFAEnabled {
-		expiresAt := time.Now().Add(5 * time.Minute)
-		payload, err := common.Marshal(twoFALoginFlowPayload{AuthVersion: user.AuthVersion})
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
-		flowToken, _, err := model.CreateAuthFlow(model.AuthFlowCreate{
-			Purpose:   model.AuthFlowPurposeTwoFALogin,
-			UserId:    user.Id,
-			Payload:   string(payload),
-			ExpiresAt: expiresAt,
-		})
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"message": i18n.T(c, i18n.MsgUserRequire2FA),
-			"success": true,
-			"data": map[string]interface{}{
-				"require_2fa": true,
-				"flow_token":  flowToken,
-				"expires_at":  expiresAt.Unix(),
-			},
-		})
-		return
-	}
-
 	setupLogin(&user, c)
 }
 
 // loginMethodFromContext 根据请求路径推导登录方式，用于登录审计日志。
 func loginMethodFromContext(c *gin.Context) string {
-	switch c.FullPath() {
-	case "/api/user/login":
+	if c.FullPath() == "/api/user/login" {
 		return "password"
-	case "/api/user/login/2fa":
-		return "2fa"
-	case "/api/user/passkey/login/finish":
-		return "passkey"
-	case "/api/oauth/wechat":
-		return "wechat"
-	case "/api/oauth/telegram/login":
-		return "telegram"
-	case "/api/oauth/:provider":
-		if provider := c.Param("provider"); provider != "" {
-			return "oauth:" + provider
-		}
-		return "oauth"
-	default:
-		return "unknown"
 	}
+	return "unknown"
 }
 
 // recordLoginAudit 记录登录成功审计日志（对所有用户启用，仅记录成功，不记录失败）。
@@ -516,13 +463,9 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"role":              user.Role,
 		"status":            user.Status,
 		"email":             user.Email,
-		"github_id":         user.GitHubId,
-		"discord_id":        user.DiscordId,
-		"oidc_id":           user.OidcId,
-		"wechat_id":         user.WeChatId,
-		"telegram_id":       user.TelegramId,
 		"group":             user.Group,
 		"quota":             user.Quota,
+		"unlimited_quota":   user.UnlimitedQuota,
 		"used_quota":        user.UsedQuota,
 		"request_count":     user.RequestCount,
 		"aff_code":          user.AffCode,
@@ -530,7 +473,6 @@ func buildSelfUserData(user *model.User) map[string]interface{} {
 		"aff_quota":         user.AffQuota,
 		"aff_history_quota": user.AffHistoryQuota,
 		"inviter_id":        user.InviterId,
-		"linux_do_id":       user.LinuxDOId,
 		"setting":           user.Setting,
 		"stripe_customer":   user.StripeCustomer,
 		"sidebar_modules":   userSetting.SidebarModules, // 正确提取sidebar_modules字段
@@ -569,13 +511,6 @@ func calculateUserPermissions(userRole int) map[string]interface{} {
 // 根据用户角色生成默认的边栏配置
 func generateDefaultSidebarConfig(userRole int) string {
 	defaultConfig := map[string]interface{}{}
-
-	// 聊天区域 - 所有用户都可以访问
-	defaultConfig["chat"] = map[string]interface{}{
-		"enabled":    true,
-		"playground": true,
-		"chat":       true,
-	}
 
 	// 控制台区域 - 所有用户都可以访问
 	defaultConfig["console"] = map[string]interface{}{
@@ -1075,10 +1010,11 @@ func updateAdminPermissionsForUserInTx(c *gin.Context, tx *gorm.DB, userID int, 
 }
 
 type ManageRequest struct {
-	Id     int    `json:"id"`
-	Action string `json:"action"`
-	Value  int    `json:"value"`
-	Mode   string `json:"mode"`
+	Id      int    `json:"id"`
+	Action  string `json:"action"`
+	Value   int    `json:"value"`
+	Mode    string `json:"mode"`
+	Enabled *bool  `json:"enabled"`
 }
 
 // ManageUser Only admin user can do this
@@ -1200,6 +1136,25 @@ func ManageUser(c *gin.Context) {
 			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 			return
 		}
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "",
+		})
+		return
+	case "set_unlimited_quota":
+		if req.Enabled == nil {
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+		oldValue := user.UnlimitedQuota
+		if err := model.SetUserUnlimitedQuota(user.Id, *req.Enabled); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		recordManageAuditFor(c, user.Id, "user.unlimited_quota", map[string]interface{}{
+			"from": oldValue,
+			"to":   *req.Enabled,
+		})
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
 			"message": "",

@@ -211,6 +211,10 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		if apiErr := service.PreConsumeBilling(c, info.PriceData.Quota, info); apiErr != nil {
 			return nil, service.TaskErrorFromAPIError(apiErr)
 		}
+	} else if info.Billing != nil {
+		if err := info.Billing.Reserve(info.PriceData.Quota); err != nil {
+			return nil, service.TaskErrorWrapperLocal(err, "reserve_billing_failed", http.StatusForbidden)
+		}
 	}
 
 	// 8. 构建请求体

@@ -23,6 +23,15 @@ type FundingSource interface {
 	Refund() error
 }
 
+// UnlimitedFunding records usage without touching the user's wallet balance.
+// Token-level quota is still reserved and settled by BillingSession.
+type UnlimitedFunding struct{}
+
+func (u *UnlimitedFunding) Source() string       { return BillingSourceUnlimited }
+func (u *UnlimitedFunding) PreConsume(int) error { return nil }
+func (u *UnlimitedFunding) Settle(int) error     { return nil }
+func (u *UnlimitedFunding) Refund() error        { return nil }
+
 // ---------------------------------------------------------------------------
 // WalletFunding — 钱包资金来源实现
 // ---------------------------------------------------------------------------

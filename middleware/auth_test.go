@@ -153,8 +153,6 @@ func TestTryUserAuthCredentialClassification(t *testing.T) {
 	}
 	accessToken, _, err := service.IssueAccessToken(identity)
 	require.NoError(t, err)
-	securityProof, _, err := service.IssueSecurityProof(identity, "2fa", []string{"channel.key.read"})
-	require.NoError(t, err)
 	externalToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"iss": "external-issuer",
 		"aud": "external-audience",
@@ -186,7 +184,6 @@ func TestTryUserAuthCredentialClassification(t *testing.T) {
 		{name: "valid internal access jwt", token: accessToken, wantStatus: http.StatusOK, wantUserID: internalUser.Id},
 		{name: "expired internal access jwt", token: issueExpiredDashboardAccessToken(t, identity), wantStatus: http.StatusUnauthorized, wantErrorCode: "AUTH_TOKEN_EXPIRED"},
 		{name: "tampered internal access jwt", token: tamperDashboardToken(accessToken), wantStatus: http.StatusUnauthorized, wantErrorCode: "AUTH_UNAUTHORIZED"},
-		{name: "security proof used as access", token: securityProof, wantStatus: http.StatusUnauthorized, wantErrorCode: "AUTH_UNAUTHORIZED"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

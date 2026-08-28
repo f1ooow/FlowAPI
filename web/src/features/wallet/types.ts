@@ -230,6 +230,8 @@ export interface UserWalletData {
   username: string
   /** Current quota balance */
   quota: number
+  /** Whether wallet deductions are bypassed while usage remains tracked */
+  unlimited_quota?: boolean
   /** Total used quota */
   used_quota: number
   /** Total request count */

@@ -16,24 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { UserProfile, UserSettings } from '../types'
+import type { UserProfile } from '../types'
 
 // ============================================================================
 // Profile Formatting Utilities
 // ============================================================================
-
-/**
- * Parse user settings from JSON string
- */
-export function parseUserSettings(settingsJson?: string): UserSettings {
-  if (!settingsJson) return {}
-
-  try {
-    return JSON.parse(settingsJson) as UserSettings
-  } catch {
-    return {}
-  }
-}
 
 /**
  * Get display name or fallback to username

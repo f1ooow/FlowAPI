@@ -89,9 +89,13 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 	if relayInfo.UsePrice {
 		return nil
 	}
-	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
-	if err != nil {
-		return err
+	userQuota := relayInfo.UserQuota
+	if !relayInfo.UserUnlimitedQuota {
+		var err error
+		userQuota, err = model.GetUserQuota(relayInfo.UserId, false)
+		if err != nil {
+			return err
+		}
 	}
 
 	token, err := model.GetTokenByKey(strings.TrimPrefix(relayInfo.TokenKey, "sk-"), false)
@@ -125,7 +129,7 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 	quota, clamp := calculateAudioQuota(quotaInfo)
 	noteQuotaClamp(relayInfo, clamp)
 
-	if userQuota < quota {
+	if !relayInfo.UserUnlimitedQuota && userQuota < quota {
 		return fmt.Errorf("user quota is not enough, user quota: %s, need quota: %s", logger.FormatQuota(userQuota), logger.FormatQuota(quota))
 	}
 
@@ -416,6 +420,8 @@ func postConsumeQuotaWithResult(relayInfo *relaycommon.RelayInfo, quota int, pre
 			}
 			relayInfo.SubscriptionPostDelta += delta
 		}
+	} else if relayInfo != nil && (relayInfo.UserUnlimitedQuota || relayInfo.BillingSource == BillingSourceUnlimited) {
+		relayInfo.BillingSource = BillingSourceUnlimited
 	} else {
 		// Wallet
 		if quota > 0 {
@@ -441,7 +447,7 @@ func postConsumeQuotaWithResult(relayInfo *relaycommon.RelayInfo, quota int, pre
 		result.TokenApplied = true
 	}
 
-	if sendEmail {
+	if sendEmail && relayInfo.BillingSource != BillingSourceUnlimited {
 		if (quota + preConsumedQuota) != 0 {
 			checkAndSendQuotaNotify(relayInfo, quota, preConsumedQuota)
 		}

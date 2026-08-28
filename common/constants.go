@@ -12,7 +12,7 @@ import (
 
 var StartTime = time.Now().Unix() // unit: second
 var Version = "v0.0.0"            // this hard coding will be replaced automatically when building, no need to manually change
-var SystemName = "New API"
+var SystemName = "Flow API"
 var Footer = ""
 var Logo = ""
 var TopUpLink = ""
@@ -62,10 +62,6 @@ var MaxRecentItems = 1000
 var PasswordLoginEnabled = true
 var PasswordRegisterEnabled = true
 var EmailVerificationEnabled = false
-var GitHubOAuthEnabled = false
-var LinuxDOOAuthEnabled = false
-var WeChatAuthEnabled = false
-var TelegramOAuthEnabled = false
 var TurnstileCheckEnabled = false
 var RegisterEnabled = true
 
@@ -105,21 +101,8 @@ var SMTPAccount = ""
 var SMTPFrom = ""
 var SMTPToken = ""
 
-var GitHubClientId = ""
-var GitHubClientSecret = ""
-var LinuxDOClientId = ""
-var LinuxDOClientSecret = ""
-var LinuxDOMinimumTrustLevel = 0
-
-var WeChatServerAddress = ""
-var WeChatServerToken = ""
-var WeChatAccountQRCodeImageURL = ""
-
 var TurnstileSiteKey = ""
 var TurnstileSecretKey = ""
-
-var TelegramBotToken = ""
-var TelegramBotName = ""
 
 var QuotaForNewUser = 0
 var QuotaForInviter = 0

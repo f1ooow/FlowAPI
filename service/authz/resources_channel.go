@@ -49,7 +49,7 @@ func init() {
 			{
 				Action:         ActionSecretView,
 				LabelKey:       "View channel secrets",
-				DescriptionKey: "Reserved for viewing complete channel keys after secure verification.",
+				DescriptionKey: "Reserved for viewing complete channel keys.",
 			},
 		},
 	})

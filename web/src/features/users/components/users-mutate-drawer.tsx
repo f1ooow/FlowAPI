@@ -89,7 +89,7 @@ import {
   transformFormDataToPayload,
   transformUserToFormDefaults,
 } from '../lib'
-import { type User } from '../types'
+import type { User } from '../types'
 import { UserQuotaDialog } from './user-quota-dialog'
 import { useUsers } from './users-provider'
 
@@ -110,6 +110,7 @@ export function UsersMutateDrawer({
   const currentUser = useAuthStore((s) => s.auth.user)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false)
+  const [unlimitedQuota, setUnlimitedQuota] = useState(false)
 
   // Fetch groups
   const { data: groupsData } = useQuery({
@@ -135,17 +136,24 @@ export function UsersMutateDrawer({
   // Load existing data when updating
   useEffect(() => {
     if (open && isUpdate && currentRow) {
+      setUnlimitedQuota(currentRow.unlimited_quota)
       // For update, fetch fresh data
-      getUser(currentRow.id).then((result) => {
-        if (result.success && result.data) {
-          form.reset(transformUserToFormDefaults(result.data))
-        }
-      })
+      void getUser(currentRow.id)
+        .then((result) => {
+          if (result.success && result.data) {
+            form.reset(transformUserToFormDefaults(result.data))
+            setUnlimitedQuota(result.data.unlimited_quota)
+          }
+        })
+        .catch(() => {
+          toast.error(t(ERROR_MESSAGES.UNEXPECTED))
+        })
     } else if (open && !isUpdate) {
+      setUnlimitedQuota(false)
       // For create, reset to defaults
       form.reset(USER_FORM_DEFAULT_VALUES)
     }
-  }, [open, isUpdate, currentRow, form])
+  }, [open, isUpdate, currentRow, form, t])
 
   const { meta: currencyMeta } = getCurrencyDisplay()
   const currencyLabel = getCurrencyLabel()
@@ -195,18 +203,22 @@ export function UsersMutateDrawer({
               : t(ERROR_MESSAGES.CREATE_FAILED))
         )
       }
-    } catch (_error) {
+    } catch {
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  const refreshUserData = async () => {
+  const refreshUserData = async (nextUnlimited?: boolean) => {
     if (!currentRow) return
+    if (nextUnlimited !== undefined) {
+      setUnlimitedQuota(nextUnlimited)
+    }
     const result = await getUser(currentRow.id)
     if (result.success && result.data) {
       form.reset(transformUserToFormDefaults(result.data))
+      setUnlimitedQuota(result.data.unlimited_quota)
     }
     triggerRefresh()
   }
@@ -278,7 +290,8 @@ export function UsersMutateDrawer({
                             { value: '10', label: t('Admin') },
                           ]}
                           onValueChange={(value) =>
-                            value !== null && field.onChange(parseInt(value))
+                            value !== null &&
+                            field.onChange(Number.parseInt(value))
                           }
                           value={String(field.value)}
                         >
@@ -360,12 +373,10 @@ export function UsersMutateDrawer({
                       <FormItem>
                         <FormLabel>{t('Group')}</FormLabel>
                         <Select
-                          items={[
-                            ...groups.map((group) => ({
-                              value: group,
-                              label: group,
-                            })),
-                          ]}
+                          items={groups.map((group) => ({
+                            value: group,
+                            label: group,
+                          }))}
                           onValueChange={field.onChange}
                           value={field.value}
                         >
@@ -389,44 +400,77 @@ export function UsersMutateDrawer({
                     )}
                   />
 
-                  <FormField
-                    control={form.control}
-                    name='quota_dollars'
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>
-                          {t('Remaining Quota ({{currency}})', {
-                            currency: currencyLabel,
-                          })}
-                        </FormLabel>
-                        <div className='flex gap-2'>
-                          <FormControl>
-                            <Input
-                              value={
-                                tokensOnly
-                                  ? String(field.value || 0)
-                                  : (field.value || 0).toFixed(6)
-                              }
-                              readOnly
-                              className='flex-1'
-                            />
-                          </FormControl>
-                          <Button
-                            type='button'
-                            variant='outline'
-                            onClick={() => setQuotaDialogOpen(true)}
-                          >
-                            <Pencil className='mr-1 h-4 w-4' />
-                            {t('Adjust Quota')}
-                          </Button>
+                  {unlimitedQuota ? (
+                    <div className='space-y-2'>
+                      <Label>{t('Remaining quota')}</Label>
+                      <div className='flex items-center justify-between gap-3 rounded-md border px-3 py-2'>
+                        <div className='flex min-w-0 items-center gap-3'>
+                          <span className='text-2xl leading-none font-semibold tabular-nums'>
+                            ∞
+                          </span>
+                          <div className='min-w-0'>
+                            <p className='truncate text-sm font-medium'>
+                              {t('Unlimited quota')}
+                            </p>
+                            <p className='text-muted-foreground text-xs'>
+                              {t(
+                                'Usage is tracked without deducting the user balance'
+                              )}
+                            </p>
+                          </div>
                         </div>
-                        <FormDescription>
-                          {formatQuota(parseQuotaFromDollars(field.value || 0))}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                        <Button
+                          type='button'
+                          variant='outline'
+                          onClick={() => setQuotaDialogOpen(true)}
+                        >
+                          <Pencil className='mr-1 h-4 w-4' />
+                          {t('Quota settings')}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <FormField
+                      control={form.control}
+                      name='quota_dollars'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            {t('Remaining Quota ({{currency}})', {
+                              currency: currencyLabel,
+                            })}
+                          </FormLabel>
+                          <div className='flex gap-2'>
+                            <FormControl>
+                              <Input
+                                value={
+                                  tokensOnly
+                                    ? String(field.value || 0)
+                                    : (field.value || 0).toFixed(6)
+                                }
+                                readOnly
+                                className='flex-1'
+                              />
+                            </FormControl>
+                            <Button
+                              type='button'
+                              variant='outline'
+                              onClick={() => setQuotaDialogOpen(true)}
+                            >
+                              <Pencil className='mr-1 h-4 w-4' />
+                              {t('Quota settings')}
+                            </Button>
+                          </div>
+                          <FormDescription>
+                            {formatQuota(
+                              parseQuotaFromDollars(field.value || 0)
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
 
                   <FormField
                     control={form.control}
@@ -591,6 +635,7 @@ export function UsersMutateDrawer({
           onOpenChange={setQuotaDialogOpen}
           userId={currentRow.id}
           currentQuota={parseQuotaFromDollars(currentQuotaRaw || 0)}
+          currentUnlimited={unlimitedQuota}
           onSuccess={refreshUserData}
         />
       )}

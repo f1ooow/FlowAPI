@@ -143,6 +143,7 @@ export function SummaryCards() {
 
   const summaryTimeRange = useMemo(() => computeTimeRange(1), [])
   const remainQuota = Number(user?.quota ?? 0)
+  const unlimitedQuota = Boolean(user?.unlimited_quota)
   const usedQuota = Number(user?.used_quota ?? 0)
   const requestCount = Number(user?.request_count ?? 0)
 
@@ -206,13 +207,17 @@ export function SummaryCards() {
     [usageTrendQuery.data?.data]
   )
 
-  const healthLevel = getHealthLevel(remainQuota, recentUsage)
+  const healthLevel = unlimitedQuota
+    ? ('healthy' as const)
+    : getHealthLevel(remainQuota, recentUsage)
   const healthCfg = HEALTH_CONFIG[healthLevel]
   const runwayDays = getRunwayDays(remainQuota, recentUsage)
 
   const todayUsageDisplay = formatQuota(recentUsage)
   let runwayDisplay: string
-  if (runwayDays !== null) {
+  if (unlimitedQuota) {
+    runwayDisplay = '∞'
+  } else if (runwayDays !== null) {
     if (runwayDays < 1) {
       runwayDisplay = t('Less than 1 day left')
     } else if (runwayDays > 999) {
@@ -303,7 +308,7 @@ export function SummaryCards() {
             </div>
 
             <div className='font-mono text-xl font-semibold tracking-tight sm:text-2xl'>
-              {formatQuota(remainQuota)}
+              {unlimitedQuota ? '∞' : formatQuota(remainQuota)}
             </div>
 
             <div className='grid grid-cols-2 gap-2'>

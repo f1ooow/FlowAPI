@@ -54,11 +54,6 @@ export const HEADER_NAV_DEFAULT: HeaderNavModulesConfig = {
 }
 
 export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
-  chat: {
-    enabled: true,
-    playground: true,
-    chat: true,
-  },
   console: {
     enabled: true,
     detail: true,
@@ -79,7 +74,6 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
     redemption: true,
     user: true,
     setting: true,
-    subscription: true,
   },
 }
 

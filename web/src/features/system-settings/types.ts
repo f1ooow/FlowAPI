@@ -129,56 +129,21 @@ export type AuthSettings = {
   EmailAliasRestrictionEnabled: boolean
   EmailDomainWhitelist: string
   ServerAddress: string
-  GitHubOAuthEnabled: boolean
-  GitHubClientId: string
-  GitHubClientSecret: string
-  'discord.enabled': boolean
-  'discord.client_id': string
-  'discord.client_secret': string
-  'oidc.enabled': boolean
-  'oidc.display_name': string
-  'oidc.client_id': string
-  'oidc.client_secret': string
-  'oidc.well_known': string
-  'oidc.authorization_endpoint': string
-  'oidc.token_endpoint': string
-  'oidc.user_info_endpoint': string
-  TelegramOAuthEnabled: boolean
-  TelegramBotToken: string
-  TelegramBotName: string
-  LinuxDOOAuthEnabled: boolean
-  LinuxDOClientId: string
-  LinuxDOClientSecret: string
-  LinuxDOMinimumTrustLevel: string
-  WeChatAuthEnabled: boolean
-  WeChatServerAddress: string
-  WeChatServerToken: string
-  WeChatAccountQRCodeImageURL: string
   TurnstileCheckEnabled: boolean
   TurnstileSiteKey: string
   TurnstileSecretKey: string
-  'passkey.enabled': boolean
-  'passkey.rp_display_name': string
-  'passkey.rp_id': string
-  'passkey.origins': string
-  'passkey.allow_insecure_origin': boolean
-  'passkey.user_verification': 'required' | 'preferred' | 'discouraged'
-  'passkey.attachment_preference': '' | 'platform' | 'cross-platform'
 }
 
 export type ContentSettings = {
   'console_setting.api_info': string
   'console_setting.announcements': string
-  'console_setting.faq': string
   'console_setting.uptime_kuma_groups': string
   'console_setting.api_info_enabled': boolean
   'console_setting.announcements_enabled': boolean
-  'console_setting.faq_enabled': boolean
   'console_setting.uptime_kuma_enabled': boolean
   DataExportEnabled: boolean
   DataExportDefaultTime: string
   DataExportInterval: number
-  Chats: string
   DrawingEnabled: boolean
   MjNotifyEnabled: boolean
   MjAccountFilterEnabled: boolean
@@ -335,9 +300,6 @@ export type BillingSettings = {
   // section (saved via /api/option/waffo-pancake/save).
   WaffoPancakeStoreID: string
   WaffoPancakeProductID: string
-  'checkin_setting.enabled': boolean
-  'checkin_setting.min_quota': number
-  'checkin_setting.max_quota': number
 }
 
 export type OperationsSettings = {

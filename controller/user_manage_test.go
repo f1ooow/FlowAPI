@@ -159,3 +159,25 @@ func TestManageUserDeleteReturnsImmediatelyAndUnknownActionFails(t *testing.T) {
 	assert.EqualValues(t, 1, unchanged.AuthVersion)
 	assert.Equal(t, common.UserStatusEnabled, unchanged.Status)
 }
+
+func TestManageUserSetsUnlimitedQuotaExplicitly(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	user := model.User{
+		Username: "managed-unlimited-user", Password: "password", Role: common.RoleCommonUser,
+		Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1,
+	}
+	require.NoError(t, db.Create(&user).Error)
+
+	recorder := performManageUserRequest(t, fmt.Sprintf(`{"id":%d,"action":"set_unlimited_quota","enabled":true}`, user.Id))
+	assert.Contains(t, recorder.Body.String(), `"success":true`)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.True(t, user.UnlimitedQuota)
+
+	recorder = performManageUserRequest(t, fmt.Sprintf(`{"id":%d,"action":"set_unlimited_quota","enabled":false}`, user.Id))
+	assert.Contains(t, recorder.Body.String(), `"success":true`)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.False(t, user.UnlimitedQuota)
+
+	recorder = performManageUserRequest(t, fmt.Sprintf(`{"id":%d,"action":"set_unlimited_quota"}`, user.Id))
+	assert.Contains(t, recorder.Body.String(), `"success":false`)
+}

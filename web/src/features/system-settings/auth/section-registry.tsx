@@ -20,9 +20,6 @@ import type { AuthSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 import { BasicAuthSection } from './basic-auth-section'
 import { BotProtectionSection } from './bot-protection-section'
-import { CustomOAuthSection } from './custom-oauth/custom-oauth-section'
-import { OAuthSection } from './oauth-section'
-import { PasskeySection } from './passkey-section'
 
 const AUTH_SECTIONS = [
   {
@@ -43,65 +40,6 @@ const AUTH_SECTIONS = [
     ),
   },
   {
-    id: 'oauth',
-    titleKey: 'OAuth Integrations',
-    build: (settings: AuthSettings) => (
-      <OAuthSection
-        serverAddress={settings.ServerAddress}
-        defaultValues={{
-          GitHubOAuthEnabled: settings.GitHubOAuthEnabled,
-          GitHubClientId: settings.GitHubClientId,
-          GitHubClientSecret: settings.GitHubClientSecret,
-          'discord.enabled': settings['discord.enabled'],
-          'discord.client_id': settings['discord.client_id'],
-          'discord.client_secret': settings['discord.client_secret'],
-          'oidc.enabled': settings['oidc.enabled'],
-          'oidc.display_name': settings['oidc.display_name'],
-          'oidc.client_id': settings['oidc.client_id'],
-          'oidc.client_secret': settings['oidc.client_secret'],
-          'oidc.well_known': settings['oidc.well_known'],
-          'oidc.authorization_endpoint':
-            settings['oidc.authorization_endpoint'],
-          'oidc.token_endpoint': settings['oidc.token_endpoint'],
-          'oidc.user_info_endpoint': settings['oidc.user_info_endpoint'],
-          TelegramOAuthEnabled: settings.TelegramOAuthEnabled,
-          TelegramBotToken: settings.TelegramBotToken,
-          TelegramBotName: settings.TelegramBotName,
-          LinuxDOOAuthEnabled: settings.LinuxDOOAuthEnabled,
-          LinuxDOClientId: settings.LinuxDOClientId,
-          LinuxDOClientSecret: settings.LinuxDOClientSecret,
-          LinuxDOMinimumTrustLevel: settings.LinuxDOMinimumTrustLevel,
-          WeChatAuthEnabled: settings.WeChatAuthEnabled,
-          WeChatServerAddress: settings.WeChatServerAddress,
-          WeChatServerToken: settings.WeChatServerToken,
-          WeChatAccountQRCodeImageURL: settings.WeChatAccountQRCodeImageURL,
-        }}
-      />
-    ),
-  },
-  {
-    id: 'passkey',
-    titleKey: 'Passkey Authentication',
-    build: (settings: AuthSettings) => (
-      <PasskeySection
-        defaultValues={{
-          'passkey.enabled': settings['passkey.enabled'],
-          'passkey.rp_display_name': settings['passkey.rp_display_name'],
-          'passkey.rp_id': settings['passkey.rp_id'],
-          'passkey.origins': settings['passkey.origins'],
-          'passkey.allow_insecure_origin':
-            settings['passkey.allow_insecure_origin'],
-          'passkey.user_verification': settings['passkey.user_verification'] as
-            | 'required'
-            | 'preferred'
-            | 'discouraged',
-          'passkey.attachment_preference':
-            settings['passkey.attachment_preference'],
-        }}
-      />
-    ),
-  },
-  {
     id: 'bot-protection',
     titleKey: 'Bot Protection',
     build: (settings: AuthSettings) => (
@@ -112,13 +50,6 @@ const AUTH_SECTIONS = [
           TurnstileSecretKey: settings.TurnstileSecretKey,
         }}
       />
-    ),
-  },
-  {
-    id: 'custom-oauth',
-    titleKey: 'Custom OAuth',
-    build: (settings: AuthSettings) => (
-      <CustomOAuthSection serverAddress={settings.ServerAddress} />
     ),
   },
 ] as const

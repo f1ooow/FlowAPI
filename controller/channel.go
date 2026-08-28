@@ -416,8 +416,7 @@ func GetChannel(c *gin.Context) {
 	return
 }
 
-// GetChannelKey 获取渠道密钥（需要通过安全验证中间件）
-// 此函数依赖 SecureVerificationRequired 中间件，确保用户已通过安全验证
+// GetChannelKey returns a channel key to an authenticated root user.
 func GetChannelKey(c *gin.Context) {
 	channelId, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -451,23 +450,6 @@ func GetChannelKey(c *gin.Context) {
 			"key": channel.Key,
 		},
 	})
-}
-
-// validateTwoFactorAuth 统一的2FA验证函数
-func validateTwoFactorAuth(twoFA *model.TwoFA, code string) bool {
-	// 尝试验证TOTP
-	if cleanCode, err := common.ValidateNumericCode(code); err == nil {
-		if isValid, _ := twoFA.ValidateTOTPAndUpdateUsage(cleanCode); isValid {
-			return true
-		}
-	}
-
-	// 尝试验证备用码
-	if isValid, err := twoFA.ValidateBackupCodeAndUpdateUsage(code); err == nil && isValid {
-		return true
-	}
-
-	return false
 }
 
 // validateChannel 通用的渠道校验函数

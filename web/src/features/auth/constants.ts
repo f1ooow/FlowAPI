@@ -49,20 +49,12 @@ export const forgotPasswordFormSchema = z.object({
   }),
 })
 
-export const otpFormSchema = z.object({
-  otp: z.string().min(1, 'Please enter a code.'),
-})
-
 // ============================================================================
 // Validation Constants
 // ============================================================================
 
 export const PASSWORD_MIN_LENGTH = 8
 export const PASSWORD_MAX_LENGTH = 20
-export const OTP_LENGTH = 6
-export const BACKUP_CODE_LENGTH = 9 // XXXX-XXXX format
-export const BACKUP_CODE_REGEX = /^[A-Z0-9]{4}-[A-Z0-9]{4}$/i
-export const OTP_REGEX = /^\d{6}$/
 
 // ============================================================================
 // Countdown Constants
@@ -70,11 +62,3 @@ export const OTP_REGEX = /^\d{6}$/
 
 export const EMAIL_VERIFICATION_COUNTDOWN = 30 // seconds
 export const PASSWORD_RESET_COUNTDOWN = 30 // seconds
-
-// ============================================================================
-// OAuth Constants
-// ============================================================================
-
-export const OAUTH_BIND_CALLBACK_MESSAGE = 'oauth:binding:callback'
-export const OAUTH_BIND_RESULT_MESSAGE = 'oauth:binding:result'
-export const TELEGRAM_BIND_RESULT_MESSAGE = 'telegram:binding:result'

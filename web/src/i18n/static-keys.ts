@@ -104,6 +104,18 @@ export const STATIC_I18N_KEYS = [
   'Successfully deleted {{count}} API key(s)',
   'Enter API key for this channel',
 
+  // GPT Image Playground
+  'Auto',
+  'Square · 1024 x 1024',
+  'Portrait · 1024 x 1536',
+  'Landscape · 1536 x 1024',
+  'Low',
+  'Medium',
+  'High',
+  'PNG',
+  'JPEG',
+  'WebP',
+
   // Users
   'Root',
   'Deleted',

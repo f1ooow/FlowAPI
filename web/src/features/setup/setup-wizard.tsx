@@ -24,7 +24,6 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { ErrorState } from '@/components/error-state'
-import { LanguageSwitcher } from '@/components/language-switcher'
 import { LoadingState } from '@/components/loading-state'
 import {
   Card,
@@ -280,9 +279,6 @@ export function SetupWizard() {
 
   return (
     <div className='bg-muted/40 relative min-h-svh py-10'>
-      <div className='absolute top-4 right-4 sm:top-6 sm:right-6'>
-        <LanguageSwitcher />
-      </div>
       <div className='container mx-auto flex max-w-5xl flex-col gap-8 px-4 sm:px-6'>
         <div className='flex flex-col items-center gap-3'>
           <div className='relative h-12 w-12'>
@@ -325,27 +321,29 @@ export function SetupWizard() {
               {STEPS.map((step, index) => {
                 const isActive = currentStep === index
                 const isCompleted = currentStep > index
+                let stepClassName = 'border-muted bg-card'
+                let markerClassName =
+                  'border-muted-foreground/40 text-muted-foreground'
+                if (isActive) {
+                  stepClassName = 'border-primary ring-primary/20 ring-2'
+                  markerClassName =
+                    'border-primary bg-primary text-primary-foreground'
+                } else if (isCompleted) {
+                  stepClassName = 'border-primary/40 bg-primary/5'
+                  markerClassName =
+                    'border-primary bg-primary text-primary-foreground'
+                }
+
                 return (
                   <li
                     key={step.titleKey}
-                    className={cn(
-                      'rounded-xl border p-3',
-                      isActive
-                        ? 'border-primary ring-primary/20 ring-2'
-                        : isCompleted
-                          ? 'border-primary/40 bg-primary/5'
-                          : 'border-muted bg-card'
-                    )}
+                    className={cn('rounded-xl border p-3', stepClassName)}
                   >
                     <div className='flex items-start gap-3'>
                       <span
                         className={cn(
                           'flex size-6 items-center justify-center rounded-md border text-xs font-semibold',
-                          isActive
-                            ? 'border-primary bg-primary text-primary-foreground'
-                            : isCompleted
-                              ? 'border-primary bg-primary text-primary-foreground'
-                              : 'border-muted-foreground/40 text-muted-foreground'
+                          markerClassName
                         )}
                       >
                         {index + 1}
@@ -364,14 +362,14 @@ export function SetupWizard() {
               })}
             </ol>
 
-            {isLoading ? (
-              <LoadingState message={t('Loading setup status…')} />
-            ) : isError ? (
+            {isLoading && <LoadingState message={t('Loading setup status…')} />}
+            {!isLoading && isError && (
               <ErrorState
                 title={t('We could not load the setup status.')}
                 onRetry={() => refetch()}
               />
-            ) : (
+            )}
+            {!isLoading && !isError && (
               <Form {...form}>
                 <form
                   className='space-y-6'

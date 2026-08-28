@@ -17,15 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { DirectionProvider as BaseDirectionProvider } from '@base-ui/react/direction-provider'
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect } from 'react'
 
-import { getCookie, setCookie, removeCookie } from '@/lib/cookies'
+import { removeCookie } from '@/lib/cookies'
 
 export type Direction = 'ltr' | 'rtl'
 
 const DEFAULT_DIRECTION = 'ltr'
 const DIRECTION_COOKIE_NAME = 'dir'
-const DIRECTION_COOKIE_MAX_AGE = 60 * 60 * 24 * 365 // 1 year
 
 type DirectionContextType = {
   defaultDir: Direction
@@ -37,35 +36,24 @@ type DirectionContextType = {
 const DirectionContext = createContext<DirectionContextType | null>(null)
 
 export function DirectionProvider({ children }: { children: React.ReactNode }) {
-  const [dir, _setDir] = useState<Direction>(
-    () => (getCookie(DIRECTION_COOKIE_NAME) as Direction) || DEFAULT_DIRECTION
-  )
-
   useEffect(() => {
-    const htmlElement = document.documentElement
-    htmlElement.setAttribute('dir', dir)
-  }, [dir])
-
-  const setDir = (dir: Direction) => {
-    _setDir(dir)
-    setCookie(DIRECTION_COOKIE_NAME, dir, DIRECTION_COOKIE_MAX_AGE)
-  }
-
-  const resetDir = () => {
-    _setDir(DEFAULT_DIRECTION)
     removeCookie(DIRECTION_COOKIE_NAME)
-  }
+    const htmlElement = document.documentElement
+    htmlElement.setAttribute('dir', DEFAULT_DIRECTION)
+  }, [])
 
   return (
     <DirectionContext
       value={{
         defaultDir: DEFAULT_DIRECTION,
-        dir,
-        setDir,
-        resetDir,
+        dir: DEFAULT_DIRECTION,
+        setDir: () => {},
+        resetDir: () => {},
       }}
     >
-      <BaseDirectionProvider direction={dir}>{children}</BaseDirectionProvider>
+      <BaseDirectionProvider direction={DEFAULT_DIRECTION}>
+        {children}
+      </BaseDirectionProvider>
     </DirectionContext>
   )
 }

@@ -86,6 +86,24 @@ func TestPendingUserAuthFenceRejectsStaleCacheWrite(t *testing.T) {
 	assert.False(t, server.Exists(getUserCacheKey(userID)))
 }
 
+func TestUnlimitedQuotaPersistsThroughUserCache(t *testing.T) {
+	truncateTables(t)
+	useUserCacheMiniRedis(t)
+
+	user := User{
+		Username: "unlimited-cache-user", Password: "password", Role: common.RoleCommonUser,
+		Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1,
+	}
+	require.NoError(t, DB.Create(&user).Error)
+	require.NoError(t, populateUserCache(user))
+
+	require.NoError(t, SetUserUnlimitedQuota(user.Id, true))
+	cached, err := cacheGetUserBase(user.Id)
+	require.NoError(t, err)
+	assert.True(t, cached.UnlimitedQuota)
+	assert.Equal(t, userCacheSchemaVersion, cached.CacheSchema)
+}
+
 func TestUserAuthFieldUpdateRejectsVersionMismatch(t *testing.T) {
 	useUserCacheMiniRedis(t)
 	const userID = 4202

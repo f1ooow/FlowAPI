@@ -22,7 +22,6 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/oauth"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay"
 	kitutil "github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
@@ -124,9 +123,6 @@ func main() {
 
 	// Codex credential auto-refresh check every 10 minutes, refresh when expires within 1 day
 	service.StartCodexCredentialAutoRefreshTask()
-
-	// Subscription quota reset task (daily/weekly/monthly/custom)
-	service.StartSubscriptionQuotaResetTask()
 
 	// Report this process as a system instance so the System Info page can show
 	// all currently alive nodes in multi-instance deployments.
@@ -354,13 +350,6 @@ func InitResources() error {
 	}
 	// Register user language loader for lazy loading
 	i18n.SetUserLangLoader(model.GetUserLanguage)
-
-	// Load custom OAuth providers from database
-	err = oauth.LoadCustomProviders()
-	if err != nil {
-		common.SysError("failed to load custom OAuth providers: " + err.Error())
-		// Don't return error, custom OAuth is not critical
-	}
 
 	service.StartAuthArtifactCleanup()
 

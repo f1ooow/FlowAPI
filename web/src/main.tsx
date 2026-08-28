@@ -36,7 +36,6 @@ import { initializeFrontendCache } from '@/lib/frontend-cache'
 import { handleServerError } from '@/lib/handle-server-error'
 
 import { DirectionProvider } from './context/direction-provider'
-import { FontProvider } from './context/font-provider'
 import { ThemeProvider } from './context/theme-provider'
 import './i18n/config'
 // Generated Routes
@@ -45,8 +44,7 @@ import { routeTree } from './routeTree.gen'
 // Styles
 import './styles/index.css'
 
-// Ensure VChart theme is initialized before any chart mounts (prevents white default theme flash)
-// VChart theme is driven by our ThemeProvider (html.light/html.dark) via per-chart `theme` prop.
+// Initialize shared frontend state before any chart or route mounts.
 initializeFrontendCache()
 installBuildMetadata()
 
@@ -161,11 +159,9 @@ if (!rootElement.innerHTML) {
     <StrictMode>
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
-          <FontProvider>
-            <DirectionProvider>
-              <RouterProvider router={router} />
-            </DirectionProvider>
-          </FontProvider>
+          <DirectionProvider>
+            <RouterProvider router={router} />
+          </DirectionProvider>
         </ThemeProvider>
       </QueryClientProvider>
     </StrictMode>

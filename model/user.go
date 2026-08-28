@@ -93,6 +93,7 @@ type User struct {
 	VerificationCode string                     `json:"verification_code" gorm:"-:all"`                         // this field is only for Email verification, don't save it to database!
 	AccessToken      *string                    `json:"-" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
 	Quota            int                        `json:"quota" gorm:"type:int;default:0"`
+	UnlimitedQuota   bool                       `json:"unlimited_quota" gorm:"column:unlimited_quota"`
 	UsedQuota        int                        `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
 	RequestCount     int                        `json:"request_count" gorm:"type:int;default:0;"`               // request number
 	Group            string                     `json:"group" gorm:"type:varchar(64);default:'default'"`
@@ -114,16 +115,17 @@ type User struct {
 
 func (user *User) ToBaseUser() *UserBase {
 	cache := &UserBase{
-		Id:          user.Id,
-		Group:       user.Group,
-		Quota:       user.Quota,
-		Status:      user.Status,
-		Role:        user.Role,
-		Username:    user.Username,
-		Setting:     user.Setting,
-		Email:       user.Email,
-		AuthVersion: user.AuthVersion,
-		CacheSchema: userCacheSchemaVersion,
+		Id:             user.Id,
+		Group:          user.Group,
+		Quota:          user.Quota,
+		UnlimitedQuota: user.UnlimitedQuota,
+		Status:         user.Status,
+		Role:           user.Role,
+		Username:       user.Username,
+		Setting:        user.Setting,
+		Email:          user.Email,
+		AuthVersion:    user.AuthVersion,
+		CacheSchema:    userCacheSchemaVersion,
 	}
 	return cache
 }
@@ -217,13 +219,6 @@ func UpdateUserBindColumn(userId int, column string, value string) error {
 // 根据用户角色生成默认的边栏配置
 func generateDefaultSidebarConfigForRole(userRole int) string {
 	defaultConfig := map[string]interface{}{}
-
-	// 聊天区域 - 所有用户都可以访问
-	defaultConfig["chat"] = map[string]interface{}{
-		"enabled":    true,
-		"playground": true,
-		"chat":       true,
-	}
 
 	// 控制台区域 - 所有用户都可以访问
 	defaultConfig["console"] = map[string]interface{}{
@@ -795,6 +790,7 @@ func (user *User) UpdateWithTx(tx *gorm.DB, updatePassword bool) error {
 	if err = tx.Model(&current).Omit(
 		"access_token",
 		"quota",
+		"unlimited_quota",
 		"used_quota",
 		"request_count",
 		"aff_count",
@@ -805,6 +801,17 @@ func (user *User) UpdateWithTx(tx *gorm.DB, updatePassword bool) error {
 		return err
 	}
 	return tx.First(user, user.Id).Error
+}
+
+func SetUserUnlimitedQuota(userId int, enabled bool) error {
+	if err := DB.Model(&User{}).Where("id = ?", userId).Update("unlimited_quota", enabled).Error; err != nil {
+		return err
+	}
+	user, err := GetUserById(userId, false)
+	if err != nil {
+		return err
+	}
+	return updateUserCache(*user)
 }
 
 func (user *User) Edit(updatePassword bool) error {

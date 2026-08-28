@@ -24,16 +24,10 @@ import {
   PowerOff,
   ArrowUp,
   ArrowDown,
-  KeyRound,
-  ShieldAlert,
-  Link2,
-  CreditCard,
 } from 'lucide-react'
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DataTableRowActionMenu } from '@/components/data-table/core/row-action-menu'
 import { Button } from '@/components/ui/button'
 import {
@@ -46,9 +40,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
 
-import { manageUser, resetUserPasskey, resetUserTwoFA } from '../api'
+import { manageUser } from '../api'
 import {
   USER_STATUS,
   USER_ROLE,
@@ -57,7 +50,6 @@ import {
 } from '../constants'
 import { getUserActionMessage } from '../lib'
 import type { User, ManageUserAction } from '../types'
-import { UserBindingDialog } from './dialogs/user-binding-dialog'
 import { useUsers } from './users-provider'
 
 interface DataTableRowActionsProps {
@@ -68,10 +60,6 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const { t } = useTranslation()
   const user = row.original
   const { setOpen, setCurrentRow, triggerRefresh } = useUsers()
-  const [resetPasskeyOpen, setResetPasskeyOpen] = useState(false)
-  const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
-  const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
-  const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
 
   const handleEdit = () => {
     setCurrentRow(user)
@@ -96,38 +84,6 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       }
     } catch {
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
-    }
-  }
-
-  const handleResetPasskey = async () => {
-    try {
-      const result = await resetUserPasskey(user.id)
-      if (result.success) {
-        toast.success(t('Passkey reset successfully'))
-        triggerRefresh()
-      } else {
-        toast.error(result.message || t('Failed to reset Passkey'))
-      }
-    } catch {
-      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
-    } finally {
-      setResetPasskeyOpen(false)
-    }
-  }
-
-  const handleResetTwoFA = async () => {
-    try {
-      const result = await resetUserTwoFA(user.id)
-      if (result.success) {
-        toast.success(t('Two-factor authentication reset'))
-        triggerRefresh()
-      } else {
-        toast.error(result.message || t('Failed to reset 2FA'))
-      }
-    } catch {
-      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
-    } finally {
-      setResetTwoFAOpen(false)
     }
   }
 
@@ -198,58 +154,6 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuItem>
         )}
 
-        <DropdownMenuItem
-          onSelect={(event) => {
-            event.preventDefault()
-            setBindingDialogOpen(true)
-          }}
-        >
-          {t('Manage Bindings')}
-          <DropdownMenuShortcut>
-            <Link2 size={16} />
-          </DropdownMenuShortcut>
-        </DropdownMenuItem>
-
-        <DropdownMenuItem
-          onSelect={(event) => {
-            event.preventDefault()
-            setSubscriptionsDialogOpen(true)
-          }}
-        >
-          {t('Manage Subscriptions')}
-          <DropdownMenuShortcut>
-            <CreditCard size={16} />
-          </DropdownMenuShortcut>
-        </DropdownMenuItem>
-
-        <DropdownMenuSeparator />
-
-        <DropdownMenuItem
-          onSelect={(event) => {
-            event.preventDefault()
-            setResetPasskeyOpen(true)
-          }}
-          disabled={isRoot}
-        >
-          {t('Reset Passkey')}
-          <DropdownMenuShortcut>
-            <KeyRound size={16} />
-          </DropdownMenuShortcut>
-        </DropdownMenuItem>
-
-        <DropdownMenuItem
-          onSelect={(event) => {
-            event.preventDefault()
-            setResetTwoFAOpen(true)
-          }}
-          disabled={isRoot}
-        >
-          {t('Reset 2FA')}
-          <DropdownMenuShortcut>
-            <ShieldAlert size={16} />
-          </DropdownMenuShortcut>
-        </DropdownMenuItem>
-
         <DropdownMenuSeparator />
 
         <DropdownMenuItem
@@ -264,43 +168,6 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         </DropdownMenuItem>
       </DataTableRowActionMenu>
 
-      <ConfirmDialog
-        open={resetPasskeyOpen}
-        onOpenChange={setResetPasskeyOpen}
-        title={t('Reset Passkey')}
-        desc={t(
-          'Reset Passkey for {{username}}? The user will need to register a new Passkey before using passwordless login.',
-          { username: user.username }
-        )}
-        confirmText={t('Reset Passkey')}
-        handleConfirm={handleResetPasskey}
-      />
-
-      <ConfirmDialog
-        open={resetTwoFAOpen}
-        onOpenChange={setResetTwoFAOpen}
-        title={t('Reset Two-Factor Authentication')}
-        desc={t(
-          'Reset 2FA for {{username}}? The user must set up 2FA again to continue using it.',
-          { username: user.username }
-        )}
-        confirmText={t('Reset 2FA')}
-        handleConfirm={handleResetTwoFA}
-      />
-
-      <UserBindingDialog
-        open={bindingDialogOpen}
-        onOpenChange={setBindingDialogOpen}
-        userId={user.id}
-        onUnbindSuccess={triggerRefresh}
-      />
-
-      <UserSubscriptionsDialog
-        open={subscriptionsDialogOpen}
-        onOpenChange={setSubscriptionsDialogOpen}
-        user={{ id: user.id, username: user.username }}
-        onSuccess={triggerRefresh}
-      />
     </div>
   )
 }
