@@ -41,3 +41,24 @@
 ### Next Steps
 
 - 确认 fallback.robusta.top 的旧 RC 入口下线窗口后再单独停用 RC 实例
+
+
+## Session 2: Integrate and deploy GPT Image Playground
+
+**Date**: 2026-08-28
+**Task**: Integrate and deploy GPT Image Playground
+**Branch**: `main`
+
+### Summary
+
+Implemented the authenticated Flow API GPT Image Playground at /playground with user-token selection, generations/edits Image API calls, IndexedDB history, responsive gallery, detail/re-edit/download/delete flows, tests, and HK deployment as flowapi:hk-gpt-image-playground-941298f6. Archived task 08-28-gpt-image-playground.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9f131ab7` | (see git log) |
+
+### Status
+
+[OK] **Completed**
