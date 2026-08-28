@@ -1,0 +1,7 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend API, persistence, migration, relay, and billing implementation guidance."}
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend component, hook, state, accessibility, and quality guidance for channel/group UI."}
+{"file":".trellis/spec/shared/index.md","reason":"Shared code quality and TypeScript conventions for the cross-layer contract."}
+{"file":".trellis/spec/guides/pre-implementation-checklist.md","reason":"Required pre-development scope and integration checks."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"The feature changes database, API, billing state, caching, and user-facing UI together."}
+{"file":".trellis/tasks/08-28-channel-cost-ratio/research/current-ratio-and-billing-boundaries.md","reason":"Repository-backed current behavior and identified billing/migration boundaries."}
+{"file": ".trellis/spec/backend/billing-ratio-routing.md", "reason": "Executable contract for route-dependent billing, migration, retries, async snapshots, and ranges."}

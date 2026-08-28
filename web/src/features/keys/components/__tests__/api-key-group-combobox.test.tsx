@@ -51,6 +51,7 @@ await i18n.use(initReactI18next).init({
         'Search...': 'Search...',
         'No group found.': 'No group found.',
         'Select a group': 'Select a group',
+        Unavailable: 'Unavailable',
       },
     },
   },
@@ -61,10 +62,27 @@ const options = [
     value: 'auto',
     label: 'auto',
     desc: 'Global automatic routing',
-    ratio: '自动',
+    ratio: { kind: 'auto' as const },
   },
-  { value: 'default', label: 'default', desc: 'User group', ratio: 1 },
-  { value: 'vip', label: 'vip', desc: 'Priority group', ratio: 3 },
+  {
+    value: 'default',
+    label: 'default',
+    desc: 'User group',
+    ratio: { kind: 'single' as const, min: 1, max: 1 },
+  },
+  {
+    value: 'vip',
+    label: 'vip',
+    desc: 'Priority group',
+    ratio: { kind: 'range' as const, min: 2.4, max: 3 },
+  },
+  {
+    value: 'offline',
+    label: 'offline',
+    desc: 'No enabled channels',
+    ratio: { kind: 'unavailable' as const },
+    disabled: true,
+  },
 ]
 
 function Harness(props: { initialValue: string }) {
@@ -119,7 +137,7 @@ describe('API key group combobox Auto effect', () => {
     const triggerRatio = trigger.querySelector<HTMLElement>(
       '[data-auto-group-effect="ratio"]'
     )
-    expect(triggerRatio).toHaveTextContent('Auto Ratio')
+    expect(triggerRatio).toHaveTextContent('Auto')
     expect(triggerRatio).not.toHaveTextContent('x')
     expect(trigger).not.toHaveTextContent('自动')
     expect(triggerRatio).toHaveClass(
@@ -145,7 +163,7 @@ describe('API key group combobox Auto effect', () => {
     const optionRatio = autoOption.querySelector<HTMLElement>(
       '[data-auto-group-effect="ratio"]'
     )
-    expect(optionRatio).toHaveTextContent('Auto Ratio')
+    expect(optionRatio).toHaveTextContent('Auto')
     expect(
       optionRatio?.querySelector('[data-auto-group-flow-border]')
     ).toBeInTheDocument()
@@ -155,7 +173,7 @@ describe('API key group combobox Auto effect', () => {
     expect(defaultOption.querySelector('[data-auto-group-flow-border]')).toBe(
       null
     )
-    expect(defaultOption).toHaveTextContent('1x Ratio')
+    expect(defaultOption).toHaveTextContent('1x')
     expect(
       defaultOption.querySelector('[data-auto-group-effect="ratio"]')
     ).toBe(null)
@@ -189,6 +207,18 @@ describe('API key group combobox Auto effect', () => {
     expect(trigger).toHaveAttribute('aria-expanded', 'false')
     expect(trigger).not.toHaveAttribute('data-auto-group-effect')
     expect(trigger.querySelector('[data-auto-group-flow-border]')).toBe(null)
+  })
+
+  test('shows unavailable groups but prevents selecting them', () => {
+    render(<Harness initialValue='default' />)
+
+    fireEvent.click(getTrigger())
+    const unavailableOption = getCommandItem('No enabled channels')
+    expect(unavailableOption).toHaveAttribute('aria-disabled', 'true')
+    expect(unavailableOption).toHaveTextContent('Unavailable')
+
+    fireEvent.click(unavailableOption)
+    expect(screen.getByTestId('selected-group')).toHaveTextContent('default')
   })
 
   test('preserves the static Auto treatment but omits moving layers for reduced motion', async () => {

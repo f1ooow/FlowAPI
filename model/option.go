@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +20,8 @@ type Option struct {
 	Key   string `json:"key" gorm:"primaryKey"`
 	Value string `json:"value"`
 }
+
+const userGroupRatioMigrationVersion = 1
 
 func AllOption() ([]*Option, error) {
 	var options []*Option
@@ -146,6 +149,10 @@ func InitOptionMap() {
 	common.OptionMap["CreateCacheRatio"] = ratio_setting.CreateCacheRatio2JSONString()
 	common.OptionMap["GroupRatio"] = ratio_setting.GroupRatio2JSONString()
 	common.OptionMap["GroupGroupRatio"] = ratio_setting.GroupGroupRatio2JSONString()
+	common.OptionMap["group_ratio_setting.user_group_ratio"] = ratio_setting.UserGroupRatio2JSONString()
+	common.OptionMap["group_ratio_setting.include_channel_ratio"] = ratio_setting.IncludeChannelRatio2JSONString()
+	common.OptionMap["UserGroupRatioMigrationVersion"] = "0"
+	common.OptionMap["UserGroupRatioMigrationConflicts"] = "[]"
 	common.OptionMap["UserUsableGroups"] = setting.UserUsableGroups2JSONString()
 	common.OptionMap["CompletionRatio"] = ratio_setting.CompletionRatio2JSONString()
 	common.OptionMap["ImageRatio"] = ratio_setting.ImageRatio2JSONString()
@@ -184,7 +191,93 @@ func InitOptionMap() {
 	}
 
 	common.OptionMapRWMutex.Unlock()
+	// Requests must keep legacy override semantics until the persisted migration
+	// marker has been verified or written successfully.
+	ratio_setting.SetUserGroupRatioMigrationState(false, nil)
 	loadOptionsFromDatabase()
+	if err := migrateLegacyUserGroupRatios(common.IsMasterNode); err != nil {
+		common.SysError("failed to migrate legacy user group ratios: " + err.Error())
+	}
+}
+
+func setUserGroupRatioMigrationConflicts(conflicts []ratio_setting.UserGroupRatioMigrationConflict) {
+	if conflicts == nil {
+		conflicts = make([]ratio_setting.UserGroupRatioMigrationConflict, 0)
+	}
+	data, err := common.Marshal(conflicts)
+	if err != nil {
+		common.SysError("failed to marshal user group ratio migration conflicts: " + err.Error())
+		return
+	}
+	common.OptionMapRWMutex.Lock()
+	common.OptionMap["UserGroupRatioMigrationConflicts"] = string(data)
+	common.OptionMapRWMutex.Unlock()
+}
+
+func migrateLegacyUserGroupRatios(allowWrite bool) error {
+	var storedOptions []*Option
+	keys := []string{"UserGroupRatioMigrationVersion", "group_ratio_setting.user_group_ratio", "GroupGroupRatio"}
+	if err := DB.Where("key IN ?", keys).Find(&storedOptions).Error; err != nil {
+		return err
+	}
+	stored := make(map[string]string, len(storedOptions))
+	for _, option := range storedOptions {
+		stored[option.Key] = option.Value
+	}
+	if version, _ := strconv.Atoi(stored["UserGroupRatioMigrationVersion"]); version >= userGroupRatioMigrationVersion {
+		ratio_setting.SetUserGroupRatioMigrationState(true, nil)
+		setUserGroupRatioMigrationConflicts(nil)
+		return nil
+	}
+	if !allowWrite {
+		ratio_setting.SetUserGroupRatioMigrationState(false, nil)
+		return nil
+	}
+
+	if newConfig, ok := stored["group_ratio_setting.user_group_ratio"]; ok && strings.TrimSpace(newConfig) != "" && strings.TrimSpace(newConfig) != "{}" {
+		if err := ratio_setting.CheckUserGroupRatio(newConfig); err != nil {
+			ratio_setting.SetUserGroupRatioMigrationState(false, nil)
+			return fmt.Errorf("existing user group ratio config is invalid: %w", err)
+		}
+		if err := UpdateOptionsBulk(map[string]string{
+			"UserGroupRatioMigrationVersion": strconv.Itoa(userGroupRatioMigrationVersion),
+		}); err != nil {
+			ratio_setting.SetUserGroupRatioMigrationState(false, nil)
+			return err
+		}
+		ratio_setting.SetUserGroupRatioMigrationState(true, nil)
+		setUserGroupRatioMigrationConflicts(nil)
+		return nil
+	}
+
+	legacy := make(map[string]map[string]float64)
+	if legacyJSON, ok := stored["GroupGroupRatio"]; ok && strings.TrimSpace(legacyJSON) != "" {
+		if err := common.Unmarshal([]byte(legacyJSON), &legacy); err != nil {
+			ratio_setting.SetUserGroupRatioMigrationState(false, nil)
+			return fmt.Errorf("invalid legacy GroupGroupRatio: %w", err)
+		}
+	}
+	converted, conflicts := ratio_setting.ConvertLegacyUserGroupRatios(legacy, ratio_setting.GetGroupRatioCopy())
+	if len(conflicts) > 0 {
+		ratio_setting.SetUserGroupRatioMigrationState(false, conflicts)
+		setUserGroupRatioMigrationConflicts(conflicts)
+		return fmt.Errorf("%d zero-base user group ratio conflict(s) require administrator resolution", len(conflicts))
+	}
+	convertedJSON, err := common.Marshal(converted)
+	if err != nil {
+		ratio_setting.SetUserGroupRatioMigrationState(false, nil)
+		return err
+	}
+	if err := UpdateOptionsBulk(map[string]string{
+		"group_ratio_setting.user_group_ratio": string(convertedJSON),
+		"UserGroupRatioMigrationVersion":       strconv.Itoa(userGroupRatioMigrationVersion),
+	}); err != nil {
+		ratio_setting.SetUserGroupRatioMigrationState(false, nil)
+		return err
+	}
+	ratio_setting.SetUserGroupRatioMigrationState(true, nil)
+	setUserGroupRatioMigrationConflicts(nil)
+	return nil
 }
 
 func loadOptionsFromDatabase() {
@@ -202,6 +295,9 @@ func SyncOptions(frequency int) {
 		time.Sleep(time.Duration(frequency) * time.Second)
 		common.SysLog("syncing options from database")
 		loadOptionsFromDatabase()
+		if err := migrateLegacyUserGroupRatios(false); err != nil {
+			common.SysError("failed to refresh user group ratio migration state: " + err.Error())
+		}
 	}
 }
 
@@ -214,6 +310,23 @@ func validateOptionValue(key string, value string) error {
 	}
 	if key == "MaxTokenAutoGroups" {
 		return setting.ValidateMaxTokenAutoGroups(value)
+	}
+	if key == "group_ratio_setting.user_group_ratio" {
+		return ratio_setting.CheckUserGroupRatio(value)
+	}
+	if key == "group_ratio_setting.include_channel_ratio" {
+		var values map[string]bool
+		if err := common.Unmarshal([]byte(value), &values); err != nil {
+			return err
+		}
+		if !ratio_setting.IsUserGroupRatioMigrationComplete() {
+			for group, include := range values {
+				if include {
+					return fmt.Errorf("cannot include channel ratio for group %s until user group ratio migration completes", group)
+				}
+			}
+		}
+		return nil
 	}
 	return nil
 }
@@ -234,7 +347,13 @@ func UpdateOption(key string, value string) error {
 	// otherwise it will execute Update (with all fields).
 	DB.Save(&option)
 	// Update OptionMap
-	return updateOptionMap(key, value)
+	if err := updateOptionMap(key, value); err != nil {
+		return err
+	}
+	if common.IsMasterNode && (key == "GroupRatio" || key == "GroupGroupRatio" || key == "group_ratio_setting.user_group_ratio") && !ratio_setting.IsUserGroupRatioMigrationComplete() {
+		return migrateLegacyUserGroupRatios(true)
+	}
+	return nil
 }
 
 // UpdateOptionsBulk persists multiple key/value pairs in a single database

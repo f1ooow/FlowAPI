@@ -35,7 +35,6 @@ import { positiveIntegerSchema } from '../utils/numeric-field'
 import { GroupRatioForm } from './group-ratio-form'
 import { ModelRatioForm } from './model-ratio-form'
 import { ToolPriceSettings } from './tool-price-settings'
-import { UpstreamRatioSync } from './upstream-ratio-sync'
 import {
   formatJsonForTextarea,
   type JsonValidationError,
@@ -124,7 +123,9 @@ const createGroupSchema = (t: Translate) =>
     GroupRatio: createJsonStringField(t),
     TopupGroupRatio: createJsonStringField(t),
     UserUsableGroups: createJsonStringField(t),
-    GroupGroupRatio: createJsonStringField(t),
+    UserGroupRatio: createJsonStringField(t),
+    IncludeChannelRatio: createJsonStringField(t),
+    MigrationConflicts: z.string(),
     AutoGroups: createJsonStringField(t, {
       predicate: (parsed) =>
         Array.isArray(parsed) &&
@@ -138,12 +139,7 @@ const createGroupSchema = (t: Translate) =>
 
 type ModelFormValues = z.infer<ReturnType<typeof createModelSchema>>
 type GroupFormValues = z.infer<ReturnType<typeof createGroupSchema>>
-type RatioTabId =
-  | 'models'
-  | 'unset-models'
-  | 'groups'
-  | 'tool-prices'
-  | 'upstream-sync'
+type RatioTabId = 'models' | 'unset-models' | 'groups' | 'tool-prices'
 
 type RatioSettingsCardProps = {
   modelDefaults: ModelFormValues
@@ -158,7 +154,7 @@ export function RatioSettingsCard({
   groupDefaults,
   toolPricesDefault,
   titleKey = 'Pricing Ratios',
-  visibleTabs = ['models', 'groups', 'tool-prices', 'upstream-sync'],
+  visibleTabs = ['models', 'groups', 'tool-prices'],
 }: RatioSettingsCardProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
@@ -204,7 +200,8 @@ export function RatioSettingsCard({
     GroupRatio: normalizeJsonString(groupDefaults.GroupRatio),
     TopupGroupRatio: normalizeJsonString(groupDefaults.TopupGroupRatio),
     UserUsableGroups: normalizeJsonString(groupDefaults.UserUsableGroups),
-    GroupGroupRatio: normalizeJsonString(groupDefaults.GroupGroupRatio),
+    UserGroupRatio: normalizeJsonString(groupDefaults.UserGroupRatio),
+    IncludeChannelRatio: normalizeJsonString(groupDefaults.IncludeChannelRatio),
     AutoGroups: normalizeJsonString(groupDefaults.AutoGroups),
     MaxTokenAutoGroups: groupDefaults.MaxTokenAutoGroups,
     DefaultUseAutoGroup: groupDefaults.DefaultUseAutoGroup,
@@ -243,7 +240,10 @@ export function RatioSettingsCard({
       GroupRatio: formatJsonForTextarea(groupDefaults.GroupRatio),
       TopupGroupRatio: formatJsonForTextarea(groupDefaults.TopupGroupRatio),
       UserUsableGroups: formatJsonForTextarea(groupDefaults.UserUsableGroups),
-      GroupGroupRatio: formatJsonForTextarea(groupDefaults.GroupGroupRatio),
+      UserGroupRatio: formatJsonForTextarea(groupDefaults.UserGroupRatio),
+      IncludeChannelRatio: formatJsonForTextarea(
+        groupDefaults.IncludeChannelRatio
+      ),
       AutoGroups: formatJsonForTextarea(groupDefaults.AutoGroups),
       GroupSpecialUsableGroup: formatJsonForTextarea(
         groupDefaults.GroupSpecialUsableGroup
@@ -291,7 +291,10 @@ export function RatioSettingsCard({
       GroupRatio: normalizeJsonString(groupDefaults.GroupRatio),
       TopupGroupRatio: normalizeJsonString(groupDefaults.TopupGroupRatio),
       UserUsableGroups: normalizeJsonString(groupDefaults.UserUsableGroups),
-      GroupGroupRatio: normalizeJsonString(groupDefaults.GroupGroupRatio),
+      UserGroupRatio: normalizeJsonString(groupDefaults.UserGroupRatio),
+      IncludeChannelRatio: normalizeJsonString(
+        groupDefaults.IncludeChannelRatio
+      ),
       AutoGroups: normalizeJsonString(groupDefaults.AutoGroups),
       MaxTokenAutoGroups: groupDefaults.MaxTokenAutoGroups,
       DefaultUseAutoGroup: groupDefaults.DefaultUseAutoGroup,
@@ -305,7 +308,10 @@ export function RatioSettingsCard({
       GroupRatio: formatJsonForTextarea(groupDefaults.GroupRatio),
       TopupGroupRatio: formatJsonForTextarea(groupDefaults.TopupGroupRatio),
       UserUsableGroups: formatJsonForTextarea(groupDefaults.UserUsableGroups),
-      GroupGroupRatio: formatJsonForTextarea(groupDefaults.GroupGroupRatio),
+      UserGroupRatio: formatJsonForTextarea(groupDefaults.UserGroupRatio),
+      IncludeChannelRatio: formatJsonForTextarea(
+        groupDefaults.IncludeChannelRatio
+      ),
       AutoGroups: formatJsonForTextarea(groupDefaults.AutoGroups),
       GroupSpecialUsableGroup: formatJsonForTextarea(
         groupDefaults.GroupSpecialUsableGroup
@@ -362,7 +368,8 @@ export function RatioSettingsCard({
         GroupRatio: normalizeJsonString(values.GroupRatio),
         TopupGroupRatio: normalizeJsonString(values.TopupGroupRatio),
         UserUsableGroups: normalizeJsonString(values.UserUsableGroups),
-        GroupGroupRatio: normalizeJsonString(values.GroupGroupRatio),
+        UserGroupRatio: normalizeJsonString(values.UserGroupRatio),
+        IncludeChannelRatio: normalizeJsonString(values.IncludeChannelRatio),
         AutoGroups: normalizeJsonString(values.AutoGroups),
         MaxTokenAutoGroups: values.MaxTokenAutoGroups,
         DefaultUseAutoGroup: values.DefaultUseAutoGroup,
@@ -375,6 +382,8 @@ export function RatioSettingsCard({
       const apiKeyMap: Record<string, string> = {
         GroupSpecialUsableGroup:
           'group_ratio_setting.group_special_usable_group',
+        UserGroupRatio: 'group_ratio_setting.user_group_ratio',
+        IncludeChannelRatio: 'group_ratio_setting.include_channel_ratio',
       }
 
       const updates = (
@@ -407,7 +416,6 @@ export function RatioSettingsCard({
     'unset-models': 'Unset price models',
     groups: 'Group ratios',
     'tool-prices': 'Tool prices',
-    'upstream-sync': 'Upstream price sync',
   }
   const tabsGridClass =
     {
@@ -415,7 +423,6 @@ export function RatioSettingsCard({
       2: 'grid-cols-2',
       3: 'grid-cols-3',
       4: 'grid-cols-4',
-      5: 'grid-cols-5',
     }[visibleTabs.length] ?? 'grid-cols-4'
   const defaultTab = visibleTabs[0] ?? 'models'
 
@@ -442,25 +449,7 @@ export function RatioSettingsCard({
         />
       )
     }
-    if (tab === 'tool-prices') {
-      return <ToolPriceSettings defaultValue={toolPricesDefault} />
-    }
-    return (
-      <UpstreamRatioSync
-        modelRatios={{
-          ModelPrice: modelDefaults.ModelPrice,
-          ModelRatio: modelDefaults.ModelRatio,
-          CompletionRatio: modelDefaults.CompletionRatio,
-          CacheRatio: modelDefaults.CacheRatio,
-          CreateCacheRatio: modelDefaults.CreateCacheRatio,
-          ImageRatio: modelDefaults.ImageRatio,
-          AudioRatio: modelDefaults.AudioRatio,
-          AudioCompletionRatio: modelDefaults.AudioCompletionRatio,
-          'billing_setting.billing_mode': modelDefaults.BillingMode,
-          'billing_setting.billing_expr': modelDefaults.BillingExpr,
-        }}
-      />
-    )
+    return <ToolPriceSettings defaultValue={toolPricesDefault} />
   }
 
   const renderTabSwitcher = () => (

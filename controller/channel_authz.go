@@ -2,6 +2,15 @@ package controller
 
 import "github.com/QuantumNous/new-api/model"
 
+func equalChannelCostRatio(left, right *float64) bool {
+	return (&model.Channel{CostRatio: left}).GetCostRatio() == (&model.Channel{CostRatio: right}).GetCostRatio()
+}
+
+func channelCostRatioChanged(channel *PatchChannel, origin *model.Channel, requestData map[string]any) bool {
+	_, provided := requestData["cost_ratio"]
+	return provided && !equalChannelCostRatio(channel.CostRatio, origin.CostRatio)
+}
+
 func channelHasSensitiveChanges(channel *PatchChannel, origin *model.Channel, requestData map[string]any) bool {
 	if _, ok := requestData["type"]; ok && channel.Type != origin.Type {
 		return true
@@ -31,6 +40,9 @@ func channelHasSensitiveChanges(channel *PatchChannel, origin *model.Channel, re
 		return true
 	}
 	if _, ok := requestData["key_mode"]; ok && channel.KeyMode != nil {
+		return true
+	}
+	if channelCostRatioChanged(channel, origin, requestData) {
 		return true
 	}
 	// Fail closed: any field present in the request that is neither a known
@@ -71,6 +83,7 @@ var channelSensitiveFields = map[string]struct{}{
 	"other":               {},
 	"settings":            {},
 	"key_mode":            {},
+	"cost_ratio":          {},
 }
 
 // channelOperationalFields lists fields managed by operation endpoints instead

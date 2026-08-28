@@ -200,7 +200,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			break
 		}
 		addUsedChannel(c, channel.Id)
-		if billingErr := service.PrepareTieredBillingForSelectedGroup(c, relayInfo); billingErr != nil {
+		relayInfo.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, relayInfo)
+		if billingErr := service.PrepareBillingForSelectedRoute(c, relayInfo); billingErr != nil {
 			newAPIError = billingErr
 			break
 		}
@@ -318,8 +319,6 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	if channel == nil {
 		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
-
-	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
 
 	newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)
 	if newAPIError != nil {
@@ -590,13 +589,19 @@ func RelayTask(c *gin.Context) {
 		task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
 		task.PrivateData.TokenId = relayInfo.TokenId
 		task.PrivateData.NodeName = common.NodeName
+		effectiveRatio := relayInfo.PriceData.GroupRatioInfo.GroupRatio
 		task.PrivateData.BillingContext = &model.TaskBillingContext{
-			ModelPrice:      relayInfo.PriceData.ModelPrice,
-			GroupRatio:      relayInfo.PriceData.GroupRatioInfo.GroupRatio,
-			ModelRatio:      relayInfo.PriceData.ModelRatio,
-			OtherRatios:     relayInfo.PriceData.OtherRatios(),
-			OriginModelName: relayInfo.OriginModelName,
-			PerCallBilling:  common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
+			ModelPrice:          relayInfo.PriceData.ModelPrice,
+			GroupRatio:          effectiveRatio,
+			BaseGroupRatio:      relayInfo.PriceData.GroupRatioInfo.BaseGroupRatio,
+			UserGroupRatio:      relayInfo.PriceData.GroupRatioInfo.UserGroupRatio,
+			ChannelRatio:        relayInfo.PriceData.GroupRatioInfo.ChannelRatio,
+			IncludeChannelRatio: relayInfo.PriceData.GroupRatioInfo.IncludeChannelRatio,
+			EffectiveRatio:      &effectiveRatio,
+			ModelRatio:          relayInfo.PriceData.ModelRatio,
+			OtherRatios:         relayInfo.PriceData.OtherRatios(),
+			OriginModelName:     relayInfo.OriginModelName,
+			PerCallBilling:      common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
 		}
 		task.Quota = result.Quota
 		task.Data = result.TaskData

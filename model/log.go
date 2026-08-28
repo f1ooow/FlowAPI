@@ -123,6 +123,20 @@ func formatUserLogs(logs []*Log, startIdx int) {
 			delete(otherMap, "admin_info")
 			// Remove operation-audit details (operator/route info), admin-only.
 			delete(otherMap, "audit_info")
+			// Older logs stored the user-group override as a top-level field.
+			// It is an internal billing factor, not a user-visible result. New
+			// logs keep only group_ratio, which is the already-composed final ratio.
+			for _, internalBillingField := range []string{
+				"user_group_ratio",
+				"base_group_ratio",
+				"channel_ratio",
+				"include_channel_ratio",
+				"effective_ratio",
+				"legacy_override",
+				"billing_ratios",
+			} {
+				delete(otherMap, internalBillingField)
+			}
 			// delete(otherMap, "reject_reason")
 			// delete(otherMap, "stream_status")
 		}

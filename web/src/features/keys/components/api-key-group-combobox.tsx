@@ -37,6 +37,7 @@ import {
 import { useMediaQuery } from '@/hooks'
 import { cn } from '@/lib/utils'
 
+import { formatGroupRatio, type GroupRatio } from '../lib/group-ratio-display'
 import {
   AUTO_GROUP_FRAME_CLASS_NAME,
   AutoGroupFlowBorder,
@@ -47,7 +48,8 @@ export type ApiKeyGroupOption = {
   value: string
   label: string
   desc?: string
-  ratio?: number | string
+  ratio?: GroupRatio
+  disabled?: boolean
 }
 
 type ApiKeyGroupComboboxProps = {
@@ -77,7 +79,11 @@ export function ApiKeyGroupCombobox({
     if (!search) return options
 
     return options.filter((option) => {
-      const ratioText = String(option.ratio ?? '').toLowerCase()
+      const ratioText = formatGroupRatio(
+        option.ratio,
+        t('Auto'),
+        t('Unavailable')
+      ).toLowerCase()
       return (
         option.value.toLowerCase().includes(search) ||
         option.label.toLowerCase().includes(search) ||
@@ -85,9 +91,12 @@ export function ApiKeyGroupCombobox({
         ratioText.includes(search)
       )
     })
-  }, [options, searchValue])
+  }, [options, searchValue, t])
 
   const handleSelect = (selectedValue: string) => {
+    if (options.find((option) => option.value === selectedValue)?.disabled) {
+      return
+    }
     onValueChange(selectedValue)
     setOpen(false)
     setSearchValue('')
@@ -102,6 +111,9 @@ export function ApiKeyGroupCombobox({
             variant='outline'
             role='combobox'
             aria-expanded={open}
+            aria-label={
+              selectedOption?.label || placeholder || t('Select a group')
+            }
             data-auto-group-effect={isAutoSelected ? 'trigger' : undefined}
             disabled={disabled}
             className={cn(
@@ -124,12 +136,12 @@ export function ApiKeyGroupCombobox({
               {selectedOption?.label || placeholder || t('Select a group')}
             </span>
             {selectedOption?.desc && (
-              <span className='text-muted-foreground block truncate text-[11px] sm:text-xs'>
+              <span className='text-foreground/70 block truncate text-[11px] sm:text-xs'>
                 {selectedOption.desc}
               </span>
             )}
           </span>
-          <span className='hidden sm:block'>
+          <span className='block shrink-0'>
             <GroupRatioBadge
               ratio={selectedOption?.ratio}
               isAuto={isAutoSelected}
@@ -164,6 +176,7 @@ export function ApiKeyGroupCombobox({
                   <CommandItem
                     key={option.value}
                     value={option.value}
+                    disabled={option.disabled}
                     data-auto-group-effect={isAutoOption ? 'option' : undefined}
                     onSelect={() => handleSelect(option.value)}
                     className={cn(
@@ -192,7 +205,7 @@ export function ApiKeyGroupCombobox({
                         {option.label}
                       </span>
                       {option.desc && (
-                        <span className='text-muted-foreground block truncate text-xs'>
+                        <span className='text-foreground/70 block truncate text-xs'>
                           {option.desc}
                         </span>
                       )}

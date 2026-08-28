@@ -61,6 +61,26 @@ func TestChannelHasSensitiveChanges(t *testing.T) {
 		assert.True(t, channelHasSensitiveChanges(&updated, origin, map[string]any{"header_override": newHeaderOverride}))
 	})
 
+	t.Run("cost ratio change", func(t *testing.T) {
+		originalRatio := 1.0
+		newRatio := 1.5
+		origin.CostRatio = &originalRatio
+		updated := PatchChannel{Channel: *origin}
+		updated.CostRatio = &newRatio
+
+		assert.True(t, channelHasSensitiveChanges(&updated, origin, map[string]any{"cost_ratio": newRatio}))
+	})
+
+	t.Run("explicit default cost ratio matches a legacy nil value", func(t *testing.T) {
+		defaultRatio := 1.0
+		legacy := *origin
+		legacy.CostRatio = nil
+		updated := PatchChannel{Channel: legacy}
+		updated.CostRatio = &defaultRatio
+
+		assert.False(t, channelHasSensitiveChanges(&updated, &legacy, map[string]any{"cost_ratio": defaultRatio}))
+	})
+
 	t.Run("omitted sensitive fields do not use zero values", func(t *testing.T) {
 		updated := PatchChannel{}
 		updated.Id = origin.Id

@@ -33,6 +33,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -68,7 +69,9 @@ type GroupFormValues = {
   GroupRatio: string
   TopupGroupRatio: string
   UserUsableGroups: string
-  GroupGroupRatio: string
+  UserGroupRatio: string
+  IncludeChannelRatio: string
+  MigrationConflicts: string
   AutoGroups: string
   MaxTokenAutoGroups: number
   DefaultUseAutoGroup: boolean
@@ -89,6 +92,18 @@ export const GroupRatioForm = memo(function GroupRatioForm({
   const { t } = useTranslation()
   const [editMode, setEditMode] = useState<'visual' | 'json'>('visual')
   const [guideOpen, setGuideOpen] = useState(false)
+  const watchedMigrationConflicts = form.watch('MigrationConflicts')
+  const migrationConflicts = useMemo(() => {
+    const parsed = safeJsonParse<
+      Array<{
+        user_group: string
+        billing_group: string
+        base_ratio: number
+        legacy_ratio: number
+      }>
+    >(watchedMigrationConflicts, { fallback: [], silent: true })
+    return Array.isArray(parsed) ? parsed : []
+  }, [watchedMigrationConflicts])
 
   const handleFieldChange = useCallback(
     (field: keyof GroupFormValues, value: string) => {
@@ -153,6 +168,26 @@ export const GroupRatioForm = memo(function GroupRatioForm({
 
       <GroupPricingGuide open={guideOpen} onOpenChange={setGuideOpen} />
 
+      {migrationConflicts.length > 0 && (
+        <Alert variant='destructive'>
+          <AlertDescription>
+            <p>
+              {t(
+                'Resolve zero-ratio migration conflicts before user group ratios can use multiplier billing.'
+              )}
+            </p>
+            <ul className='mt-2 list-disc pl-5'>
+              {migrationConflicts.map((conflict) => (
+                <li key={`${conflict.user_group}:${conflict.billing_group}`}>
+                  {conflict.user_group} → {conflict.billing_group}:{' '}
+                  {conflict.legacy_ratio}x
+                </li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
+
       <Form {...form}>
         <SettingsPageActionsPortal>
           <Button
@@ -170,7 +205,8 @@ export const GroupRatioForm = memo(function GroupRatioForm({
               groupRatio={form.watch('GroupRatio')}
               topupGroupRatio={form.watch('TopupGroupRatio')}
               userUsableGroups={form.watch('UserUsableGroups')}
-              groupGroupRatio={form.watch('GroupGroupRatio')}
+              groupGroupRatio={form.watch('UserGroupRatio')}
+              includeChannelRatio={form.watch('IncludeChannelRatio')}
               autoGroups={form.watch('AutoGroups')}
               maxTokenAutoGroupsField={
                 <FormField
@@ -319,10 +355,10 @@ export const GroupRatioForm = memo(function GroupRatioForm({
 
             <FormField
               control={form.control}
-              name='GroupGroupRatio'
+              name='UserGroupRatio'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Inter-group overrides')}</FormLabel>
+                  <FormLabel>{t('User group ratios')}</FormLabel>
                   <FormControl>
                     <JsonCodeEditor
                       value={field.value}
@@ -333,10 +369,35 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                     />
                   </FormControl>
                   <FormDescription>
-                    {t('Nested JSON: source group →')}{' '}
-                    {`{ targetGroup: ratio }`}{' '}
+                    {t('Nested JSON: user group →')} {`{ targetGroup: ratio }`}{' '}
                     {t(
-                      'to override billing when a user in one group uses a token of another group.'
+                      'defines the multiplier used when that user group selects a billing group.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='IncludeChannelRatio'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Groups including channel ratio')}</FormLabel>
+                  <FormControl>
+                    <JsonCodeEditor
+                      value={field.value}
+                      onChange={field.onChange}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      textareaRef={field.ref}
+                      heightClassName='h-40 min-h-40 max-h-40'
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'JSON map of billing group names to whether the selected channel ratio is included.'
                     )}
                   </FormDescription>
                   <FormMessage />
@@ -492,7 +553,7 @@ function GroupPricingGuide({ open, onOpenChange }: GroupPricingGuideProps) {
           <SheetTitle>{t('Group pricing usage guide')}</SheetTitle>
           <SheetDescription>
             {t(
-              'Understand how user groups, token groups, ratios, and special rules work together.'
+              'Understand how user groups, billing groups, and channel ratios combine.'
             )}
           </SheetDescription>
         </SheetHeader>
@@ -523,7 +584,7 @@ function GroupPricingGuide({ open, onOpenChange }: GroupPricingGuideProps) {
                 </span>
                 {': '}
                 {t(
-                  'decides the top-up ratio, which groups the user can pick for tokens, and whether an override ratio applies.'
+                  'decides the top-up ratio, which groups the user can pick for tokens, and the user multiplier for each billing group.'
                 )}
               </p>
             </div>
@@ -547,21 +608,21 @@ function GroupPricingGuide({ open, onOpenChange }: GroupPricingGuideProps) {
                   {t('Find the ratio.')}
                 </span>{' '}
                 {t(
-                  'Look for a special ratio rule matching this user group and this billing group. If one exists, use its ratio. Otherwise use the billing group base ratio from the pricing table.'
+                  'Multiply the billing group base ratio by the matching user group ratio. The user group ratio defaults to 1x.'
                 )}
               </li>
               <li>
                 <span className='text-foreground font-medium'>
-                  {t('Charge.')}
+                  {t('Apply the channel ratio.')}
                 </span>{' '}
                 {t(
-                  'Cost = model price × that one ratio. Nothing else from the group settings enters the formula.'
+                  'If the billing group includes channel ratio, multiply by the selected channel ratio; otherwise multiply by 1.'
                 )}
               </li>
             </ol>
             <p className='text-muted-foreground text-sm leading-6'>
               {t(
-                'Common pitfall: the user group base ratio is NOT a personal discount. It only applies when the user group itself is the billing group.'
+                'Final ratio = billing group ratio × user group ratio × optional channel ratio.'
               )}
             </p>
           </section>
@@ -569,9 +630,7 @@ function GroupPricingGuide({ open, onOpenChange }: GroupPricingGuideProps) {
           <section className='space-y-3'>
             <h3 className='text-sm font-semibold'>{t('Worked example')}</h3>
             <p className='text-muted-foreground text-sm leading-6'>
-              {t(
-                'The admin configured three groups and one special ratio rule:'
-              )}
+              {t('The admin configured three groups and one user group ratio:')}
             </p>
 
             <div className='overflow-hidden rounded-lg border'>
@@ -608,16 +667,13 @@ function GroupPricingGuide({ open, onOpenChange }: GroupPricingGuideProps) {
 
             <div className='overflow-hidden rounded-lg border'>
               <div className='bg-muted/40 border-b px-3 py-1.5 text-xs font-medium'>
-                {t('Special ratio rules')}
+                {t('User group ratios')}
               </div>
               <div className='p-3 text-sm leading-6'>
-                {t('Users of vip, when billed as premium, pay ratio')}{' '}
+                {t('Users of vip, when billed as premium, use multiplier')}{' '}
                 <span className='bg-primary/10 ring-primary/40 rounded px-1.5 py-0.5 font-semibold ring-1'>
-                  0.3
+                  0.6x
                 </span>{' '}
-                <span className='text-muted-foreground text-xs'>
-                  {t('(instead of {{ratio}})', { ratio: 0.5 })}
-                </span>
               </div>
             </div>
 
@@ -640,7 +696,7 @@ function GroupPricingGuide({ open, onOpenChange }: GroupPricingGuideProps) {
                   </GuideStepRow>
                   <GuideStepRow chip='2'>
                     {t(
-                      'There is a rule for vip billed as premium → use its ratio 0.3'
+                      'Group ratio 0.5 × vip user ratio 0.6 = final ratio 0.3'
                     )}
                   </GuideStepRow>
                   <GuideStepRow chip='='>
@@ -663,7 +719,7 @@ function GroupPricingGuide({ open, onOpenChange }: GroupPricingGuideProps) {
                   </GuideStepRow>
                   <GuideStepRow chip='2'>
                     {t(
-                      'No rule for vip billed as default → use the base ratio of default, 1.0 (the 0.8 of vip is not used)'
+                      'Group ratio 1.0 × default user ratio 1.0 = final ratio 1.0'
                     )}
                   </GuideStepRow>
                   <GuideStepRow chip='='>
@@ -686,7 +742,7 @@ function GroupPricingGuide({ open, onOpenChange }: GroupPricingGuideProps) {
                   </GuideStepRow>
                   <GuideStepRow chip='2'>
                     {t(
-                      'No rule for vip billed as vip → use the base ratio of vip, 0.8'
+                      'Group ratio 0.8 × default user ratio 1.0 = final ratio 0.8'
                     )}
                   </GuideStepRow>
                   <GuideStepRow chip='='>

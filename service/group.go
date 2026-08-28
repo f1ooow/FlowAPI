@@ -125,9 +125,12 @@ func GetGroupsEnabledModels(groups []string) []string {
 // userGroup 用户分组
 // group 需要获取倍率的分组
 func GetUserGroupRatio(userGroup, group string) float64 {
-	ratio, ok := ratio_setting.GetGroupGroupRatio(userGroup, group)
-	if ok {
-		return ratio
+	baseRatio := ratio_setting.GetGroupRatio(group)
+	if !ratio_setting.IsUserGroupRatioMigrationComplete() {
+		legacyRatio, ok := ratio_setting.GetGroupGroupRatio(userGroup, group)
+		if ok {
+			return legacyRatio
+		}
 	}
-	return ratio_setting.GetGroupRatio(group)
+	return baseRatio * ratio_setting.GetUserGroupRatio(userGroup, group)
 }

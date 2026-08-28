@@ -59,9 +59,24 @@ await i18n.use(initReactI18next).init({
 })
 
 const globalOptions = [
-  { value: 'vip', label: 'VIP', desc: 'Priority access', ratio: 3 },
-  { value: 'default', label: 'Default', desc: 'Standard access', ratio: 1 },
-  { value: 'team', label: 'Team', desc: 'Shared access', ratio: 2 },
+  {
+    value: 'vip',
+    label: 'VIP',
+    desc: 'Priority access',
+    ratio: { kind: 'single' as const, min: 3, max: 3 },
+  },
+  {
+    value: 'default',
+    label: 'Default',
+    desc: 'Standard access',
+    ratio: { kind: 'single' as const, min: 1, max: 1 },
+  },
+  {
+    value: 'team',
+    label: 'Team',
+    desc: 'Shared access',
+    ratio: { kind: 'single' as const, min: 2, max: 2 },
+  },
 ]
 
 function Harness(props: { initialGroups?: string[] }) {
@@ -76,9 +91,21 @@ function Harness(props: { initialGroups?: string[] }) {
         mode={mode}
         options={[
           { value: 'auto', label: 'auto' },
-          { value: 'default', label: 'default', ratio: 1 },
-          { value: 'vip', label: 'vip', ratio: 2 },
-          { value: 'team', label: 'team', ratio: 3 },
+          {
+            value: 'default',
+            label: 'default',
+            ratio: { kind: 'single', min: 1, max: 1 },
+          },
+          {
+            value: 'vip',
+            label: 'vip',
+            ratio: { kind: 'single', min: 2, max: 2 },
+          },
+          {
+            value: 'team',
+            label: 'team',
+            ratio: { kind: 'single', min: 3, max: 3 },
+          },
         ]}
         globalOptions={globalOptions}
         maxCount={2}
@@ -256,21 +283,21 @@ describe('Auto group order editor', () => {
         name: 'VIP',
         title: 'Priority access',
         description: 'Priority access',
-        ratio: '3x Ratio',
+        ratio: '3x',
       },
       {
         index: '2',
         name: 'Default',
         title: 'Standard access',
         description: 'Standard access',
-        ratio: '1x Ratio',
+        ratio: '1x',
       },
       {
         index: '3',
         name: 'Team',
         title: 'Shared access',
         description: 'Shared access',
-        ratio: '2x Ratio',
+        ratio: '2x',
       },
     ])
 

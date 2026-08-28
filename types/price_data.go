@@ -8,9 +8,16 @@ import (
 )
 
 type GroupRatioInfo struct {
-	GroupRatio        float64
-	GroupSpecialRatio float64
-	HasSpecialRatio   bool
+	// GroupRatio remains the effective route ratio for compatibility with
+	// settlement callers. The named components below are the auditable source.
+	GroupRatio          float64
+	BaseGroupRatio      float64
+	UserGroupRatio      float64
+	ChannelRatio        float64
+	IncludeChannelRatio bool
+	GroupSpecialRatio   float64
+	HasSpecialRatio     bool
+	LegacyOverride      bool
 }
 
 type PriceData struct {
@@ -29,7 +36,10 @@ type PriceData struct {
 	UsePrice             bool
 	Quota                int // 按次计费的最终额度（MJ / Task）
 	QuotaToPreConsume    int // 按量计费的预消耗额度
-	GroupRatioInfo       GroupRatioInfo
+	// PreConsumeQuotaBeforeGroup is the unrounded route-independent estimate.
+	// Retries multiply it by the newly selected route ratio before reserving.
+	PreConsumeQuotaBeforeGroup float64
+	GroupRatioInfo             GroupRatioInfo
 }
 
 func (p *PriceData) AddOtherRatio(key string, ratio float64) {

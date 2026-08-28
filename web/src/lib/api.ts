@@ -54,10 +54,21 @@ export async function getUserModels(): Promise<{
   return res.data
 }
 
+export type UserGroupDisplay =
+  | {
+      desc: string
+      ratio_kind: 'single' | 'range'
+      ratio_min: number
+      ratio_max: number
+      available: true
+    }
+  | { desc: string; ratio_kind: 'auto'; available: true }
+  | { desc: string; ratio_kind: 'unavailable'; available: false }
+
 export async function getUserGroups(): Promise<{
   success: boolean
   message?: string
-  data?: Record<string, { desc: string; ratio: number | string }>
+  data?: Record<string, UserGroupDisplay>
 }> {
   const res = await api.get('/api/user/self/groups')
   return res.data

@@ -23,6 +23,7 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { TooltipProvider } = await import('@/components/ui/tooltip')
 const { ApiKeyGroupCell } = await import('../api-key-group-cell')
+type GroupRatio = import('../../lib/group-ratio-display').GroupRatio
 
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({
@@ -33,6 +34,7 @@ await i18n.use(initReactI18next).init({
         Auto: 'Auto',
         'Cross-group': 'Cross-group',
         Ratio: 'Ratio',
+        Unavailable: 'Unavailable',
         'Automatically selects the best available group with circuit breaker mechanism':
           'Automatically selects the best available group with circuit breaker mechanism',
       },
@@ -42,7 +44,7 @@ await i18n.use(initReactI18next).init({
 
 function CellHarness(props: {
   group: string
-  ratio?: number | string
+  ratio?: GroupRatio
   crossGroupRetry?: boolean
   shouldReduceMotion?: boolean
 }) {
@@ -65,7 +67,7 @@ describe('API key group table cell', () => {
     const { container } = render(
       <CellHarness
         group='auto'
-        ratio='自动'
+        ratio={{ kind: 'auto' }}
         crossGroupRetry
         shouldReduceMotion={false}
       />
@@ -95,7 +97,7 @@ describe('API key group table cell', () => {
     const ratio = container.querySelector<HTMLElement>(
       '[data-auto-group-effect="ratio"]'
     )
-    expect(ratio).toHaveTextContent('Auto Ratio')
+    expect(ratio).toHaveTextContent('Auto')
     expect(ratio).not.toHaveTextContent('x')
     expect(container).not.toHaveTextContent('自动')
     expect(container).toHaveTextContent('Cross-group')
@@ -109,7 +111,7 @@ describe('API key group table cell', () => {
 
   test('keeps the static Auto ratio frame but omits its moving layer for reduced motion', () => {
     const { container } = render(
-      <CellHarness group='auto' ratio='Auto' shouldReduceMotion />
+      <CellHarness group='auto' ratio={{ kind: 'auto' }} shouldReduceMotion />
     )
 
     expect(container.querySelectorAll('[data-auto-group-frame]').length).toBe(1)
@@ -135,19 +137,19 @@ describe('API key group table cell', () => {
     expect(container).not.toHaveTextContent('Ratio')
   })
 
-  test('narrows normal group ratios to numbers and never applies Auto rings', () => {
-    const { container, rerender } = render(
-      <CellHarness group='vip' ratio='自动' shouldReduceMotion={false} />
+  test('shows a final ratio range for a normal group without factor labels or Auto rings', () => {
+    const { container } = render(
+      <CellHarness
+        group='vip'
+        ratio={{ kind: 'range', min: 2.4, max: 3 }}
+        shouldReduceMotion={false}
+      />
     )
 
     expect(container).toHaveTextContent('vip')
-    expect(container).not.toHaveTextContent('自动')
+    expect(container).toHaveTextContent('2.4x-3x')
+    expect(container).not.toHaveTextContent('Ratio')
     expect(container.querySelector('[data-auto-group-frame]')).toBe(null)
     expect(container.querySelector('[data-auto-group-flow-border]')).toBe(null)
-
-    rerender(<CellHarness group='vip' ratio={3} shouldReduceMotion={false} />)
-
-    expect(container).toHaveTextContent('3x')
-    expect(container.querySelector('[data-auto-group-frame]')).toBe(null)
   })
 })

@@ -18,10 +18,68 @@ import (
 
 var group2model2channels map[string]map[string][]int // enabled channel
 var channelsIDM map[int]*Channel                     // all channels include disabled
+var channelCostRatioRanges map[string]ChannelCostRatioRange
+
 // channel2advancedCustomConfig caches parsed Advanced Custom (type 58) configs so
 // path-aware selection avoids re-parsing JSON per request. Refreshed on full sync.
 var channel2advancedCustomConfig map[int]*dto.AdvancedCustomConfig
 var channelSyncLock sync.RWMutex
+
+type ChannelCostRatioRange struct {
+	Min       float64
+	Max       float64
+	Available bool
+}
+
+func buildChannelCostRatioRanges(channels []*Channel) map[string]ChannelCostRatioRange {
+	ranges := make(map[string]ChannelCostRatioRange)
+	for _, channel := range channels {
+		if channel == nil || channel.Status != common.ChannelStatusEnabled {
+			continue
+		}
+		ratio := channel.GetCostRatio()
+		for _, rawGroup := range strings.Split(channel.Group, ",") {
+			group := strings.TrimSpace(rawGroup)
+			if group == "" {
+				continue
+			}
+			current, ok := ranges[group]
+			if !ok {
+				ranges[group] = ChannelCostRatioRange{Min: ratio, Max: ratio, Available: true}
+				continue
+			}
+			if ratio < current.Min {
+				current.Min = ratio
+			}
+			if ratio > current.Max {
+				current.Max = ratio
+			}
+			ranges[group] = current
+		}
+	}
+	return ranges
+}
+
+func GetChannelCostRatioRange(group string) ChannelCostRatioRange {
+	if !common.MemoryCacheEnabled {
+		var channels []*Channel
+		if err := DB.Where("status = ?", common.ChannelStatusEnabled).Find(&channels).Error; err != nil {
+			return ChannelCostRatioRange{}
+		}
+		return buildChannelCostRatioRanges(channels)[group]
+	}
+	channelSyncLock.RLock()
+	defer channelSyncLock.RUnlock()
+	return channelCostRatioRanges[group]
+}
+
+func rebuildChannelCostRatioRangesLocked() {
+	channels := make([]*Channel, 0, len(channelsIDM))
+	for _, channel := range channelsIDM {
+		channels = append(channels, channel)
+	}
+	channelCostRatioRanges = buildChannelCostRatioRanges(channels)
+}
 
 func InitChannelCache() {
 	if !common.MemoryCacheEnabled {
@@ -94,6 +152,7 @@ func InitChannelCache() {
 	}
 	channelsIDM = newChannelId2channel
 	channel2advancedCustomConfig = newChannel2advancedCustomConfig
+	channelCostRatioRanges = buildChannelCostRatioRanges(channels)
 	channelSyncLock.Unlock()
 	// Lock ordering: InvalidatePricingCache acquires updatePricingLock, and
 	// GetPricing (holding updatePricingLock) nests channelSyncLock.RLock via
@@ -291,6 +350,7 @@ func CacheUpdateChannelStatus(id int, status int) {
 			}
 		}
 	}
+	rebuildChannelCostRatioRangesLocked()
 }
 
 func CacheUpdateChannel(channel *Channel) {
@@ -319,6 +379,7 @@ func CacheUpdateChannel(channel *Channel) {
 			channel2advancedCustomConfig[channel.Id] = config
 		}
 	}
+	rebuildChannelCostRatioRangesLocked()
 	logger.LogDebug(nil, "CacheUpdateChannel after: id=%d, name=%s, status=%d, polling_index=%d", channel.Id, channel.Name, channel.Status, channel.ChannelInfo.MultiKeyPollingIndex)
 	// Lock ordering: do NOT hold channelSyncLock while calling
 	// InvalidatePricingCache. GetPricing acquires updatePricingLock first and then

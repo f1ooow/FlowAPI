@@ -38,8 +38,8 @@ func GetPricing(c *gin.Context) {
 	userId, exists := c.Get("id")
 	usableGroup := map[string]string{}
 	groupRatio := map[string]float64{}
-	for s, f := range ratio_setting.GetGroupRatioCopy() {
-		groupRatio[s] = f
+	for groupName := range ratio_setting.GetGroupRatioCopy() {
+		groupRatio[groupName] = getUserVisiblePricingRatio("", groupName)
 	}
 	var group string
 	if exists {
@@ -47,10 +47,7 @@ func GetPricing(c *gin.Context) {
 		if err == nil {
 			group = user.Group
 			for g := range groupRatio {
-				ratio, ok := ratio_setting.GetGroupGroupRatio(group, g)
-				if ok {
-					groupRatio[g] = ratio
-				}
+				groupRatio[g] = getUserVisiblePricingRatio(group, g)
 			}
 		}
 	}
@@ -74,6 +71,23 @@ func GetPricing(c *gin.Context) {
 		"auto_groups":        service.GetUserAutoGroup(group),
 		"pricing_version":    "a42d372ccf0b5dd13ecf71203521f9d2",
 	})
+}
+
+// getUserVisiblePricingRatio returns an already-composed final ratio for the
+// pricing catalog. It intentionally never returns a base group ratio: an
+// authenticated user may also receive a final range from /user/self/groups,
+// so exposing the pre-channel value here would allow the channel cost factor
+// to be derived by division.
+func getUserVisiblePricingRatio(userGroup, billingGroup string) float64 {
+	ratio := service.GetUserGroupRatio(userGroup, billingGroup)
+	if !ratio_setting.IsUserGroupRatioMigrationComplete() || !ratio_setting.GetIncludeChannelRatio(billingGroup) {
+		return ratio
+	}
+	channelRange := model.GetChannelCostRatioRange(billingGroup)
+	if !channelRange.Available {
+		return ratio
+	}
+	return ratio * channelRange.Min
 }
 
 func ResetModelRatio(c *gin.Context) {

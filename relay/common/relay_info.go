@@ -73,6 +73,7 @@ type ChannelMeta struct {
 	UpstreamModelName    string
 	IsModelMapped        bool
 	SupportStreamOptions bool // 是否支持流式选项
+	ChannelCostRatio     float64
 }
 
 type TokenCountMeta struct {
@@ -206,6 +207,10 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 		UpstreamModelName:    common.GetContextKeyString(c, constant.ContextKeyOriginalModel),
 		IsModelMapped:        false,
 		SupportStreamOptions: false,
+		ChannelCostRatio:     1,
+	}
+	if costRatio, ok := common.GetContextKeyType[float64](c, constant.ContextKeyChannelCostRatio); ok {
+		channelMeta.ChannelCostRatio = costRatio
 	}
 
 	if channelType == constant.ChannelTypeAzure {

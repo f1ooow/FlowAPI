@@ -81,6 +81,7 @@ import {
   transformFormDataToPayload,
   transformApiKeyToFormDefaults,
 } from '../lib'
+import { groupRatioFromApi } from '../lib/group-ratio-display'
 import type { ApiKey } from '../types'
 import {
   ApiKeyGroupCombobox,
@@ -161,13 +162,17 @@ export function ApiKeysMutateDrawer({
         value: key,
         label: key,
         desc: info.desc || key,
-        ratio: info.ratio,
+        ratio: groupRatioFromApi(info),
+        disabled: info.available === false,
       })),
     [groupsData]
   )
   const backendHasAuto = groups.some((g) => g.value === 'auto')
   const availableAutoGroupNames = useMemo(
-    () => groups.filter((group) => group.value !== 'auto').map((g) => g.value),
+    () =>
+      groups
+        .filter((group) => group.value !== 'auto' && !group.disabled)
+        .map((group) => group.value),
     [groups]
   )
   const globalAutoGroups = useMemo(() => {

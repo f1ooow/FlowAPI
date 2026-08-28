@@ -1,8 +1,10 @@
 package service
 
 import (
+	"fmt"
 	"net/http"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -150,6 +152,43 @@ func PrepareTieredBillingForSelectedGroup(c *gin.Context, relayInfo *relaycommon
 		return PreConsumeBilling(c, snap.EstimatedQuotaAfterGroup, relayInfo)
 	}
 	if err := relayInfo.Billing.Reserve(snap.EstimatedQuotaAfterGroup); err != nil {
+		return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
+	}
+	relayInfo.FinalPreConsumedQuota = relayInfo.Billing.GetPreConsumedQuota()
+	return nil
+}
+
+// PrepareBillingForSelectedRoute refreshes the reservation after channel/group
+// selection and before an upstream attempt. All synchronous billing modes use
+// the same route ratio and reserve boundary.
+func PrepareBillingForSelectedRoute(c *gin.Context, relayInfo *relaycommon.RelayInfo) *types.NewAPIError {
+	if relayInfo == nil {
+		return types.NewErrorWithStatusCode(
+			fmt.Errorf("relay info is nil"),
+			types.ErrorCodeModelPriceError,
+			http.StatusBadRequest,
+			types.ErrOptionWithSkipRetry(),
+		)
+	}
+	if relayInfo.TieredBillingSnapshot != nil {
+		return PrepareTieredBillingForSelectedGroup(c, relayInfo)
+	}
+
+	targetQuota, err := common.QuotaFromFloatStrict(
+		relayInfo.PriceData.PreConsumeQuotaBeforeGroup * relayInfo.PriceData.GroupRatioInfo.GroupRatio,
+	)
+	if err != nil {
+		return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	relayInfo.PriceData.QuotaToPreConsume = targetQuota
+	if targetQuota == 0 {
+		return nil
+	}
+	relayInfo.PriceData.FreeModel = false
+	if relayInfo.Billing == nil {
+		return PreConsumeBilling(c, targetQuota, relayInfo)
+	}
+	if err := relayInfo.Billing.Reserve(targetQuota); err != nil {
 		return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
 	}
 	relayInfo.FinalPreConsumedQuota = relayInfo.Billing.GetPreConsumedQuota()

@@ -23,7 +23,7 @@ import { GroupBadge } from '@/components/group-badge'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 
-export type GroupRatio = number | string | null | undefined
+import { formatGroupRatio, type GroupRatio } from '../lib/group-ratio-display'
 
 export const AUTO_GROUP_FRAME_CLASS_NAME =
   'border-primary/40 relative overflow-visible border shadow-sm shadow-primary/10'
@@ -69,19 +69,23 @@ export function AutoGroupFrame(props: AutoGroupFrameProps) {
 }
 
 function getRatioBadgeClassName(ratio: GroupRatio, isAuto: boolean): string {
-  if (isAuto || typeof ratio !== 'number') {
+  if (isAuto || !ratio || ratio.kind === 'auto') {
     return 'border-primary/30 bg-primary/10 text-primary'
   }
-  if (ratio > 5) {
-    return 'border-destructive/30 bg-destructive/10 text-destructive'
+  if (ratio.kind === 'unavailable') {
+    return 'border-muted-foreground/30 bg-muted text-foreground'
   }
-  if (ratio > 3) {
-    return 'border-warning/30 bg-warning/10 text-warning'
+  const maxRatio = ratio.max
+  if (maxRatio > 5) {
+    return 'border-destructive/30 bg-destructive/10 text-foreground'
   }
-  if (ratio > 1) {
-    return 'border-info/30 bg-info/10 text-info'
+  if (maxRatio > 3) {
+    return 'border-warning/30 bg-warning/10 text-foreground'
   }
-  return 'border-success/30 bg-success/10 text-success'
+  if (maxRatio > 1) {
+    return 'border-info/30 bg-info/10 text-foreground'
+  }
+  return 'border-success/30 bg-success/10 text-foreground'
 }
 
 type GroupRatioBadgeProps = {
@@ -93,14 +97,11 @@ type GroupRatioBadgeProps = {
 export function GroupRatioBadge(props: GroupRatioBadgeProps) {
   const { t } = useTranslation()
 
-  if (props.ratio === undefined || props.ratio === null || props.ratio === '') {
+  if (!props.ratio) {
     return null
   }
 
-  const label =
-    typeof props.ratio === 'number'
-      ? `${props.ratio}x ${t('Ratio')}`
-      : `${t('Auto')} ${t('Ratio')}`
+  const label = formatGroupRatio(props.ratio, t('Auto'), t('Unavailable'))
   const badge = (
     <Badge
       variant='outline'

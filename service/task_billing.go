@@ -44,9 +44,7 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		other["model_ratio"] = info.PriceData.ModelRatio
 	}
 	other["group_ratio"] = info.PriceData.GroupRatioInfo.GroupRatio
-	if info.PriceData.GroupRatioInfo.HasSpecialRatio {
-		other["user_group_ratio"] = info.PriceData.GroupRatioInfo.GroupSpecialRatio
-	}
+	attachBillingRatioInfo(info, other)
 	if info.IsModelMapped {
 		other["is_model_mapped"] = true
 		other["upstream_model_name"] = info.UpstreamModelName
@@ -127,6 +125,17 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 			other["model_ratio"] = bc.ModelRatio
 		}
 		other["group_ratio"] = bc.GroupRatio
+		billingRatios := map[string]interface{}{
+			"base_group_ratio":      bc.BaseGroupRatio,
+			"user_group_ratio":      bc.UserGroupRatio,
+			"channel_ratio":         bc.ChannelRatio,
+			"include_channel_ratio": bc.IncludeChannelRatio,
+			"effective_ratio":       bc.GroupRatio,
+		}
+		if bc.EffectiveRatio != nil {
+			billingRatios["effective_ratio"] = *bc.EffectiveRatio
+		}
+		other["admin_info"] = map[string]interface{}{"billing_ratios": billingRatios}
 		if priceData := taskBillingContextPriceData(bc); priceData != nil {
 			for k, v := range priceData.OtherRatios() {
 				other[k] = v
@@ -290,33 +299,40 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 
 	modelName := taskModelName(task)
 
-	// 获取模型价格和倍率
-	modelRatio, hasRatioSetting, _ := ratio_setting.GetModelRatio(modelName)
+	// New task snapshots are immutable billing contracts. Historical tasks
+	// without a snapshot retain the old settings fallback.
+	bc := task.PrivateData.BillingContext
+	modelRatio := 0.0
+	hasRatioSetting := false
+	if bc != nil && bc.ModelRatio > 0 {
+		modelRatio = bc.ModelRatio
+		hasRatioSetting = true
+	} else if bc == nil {
+		modelRatio, hasRatioSetting, _ = ratio_setting.GetModelRatio(modelName)
+	}
 	// 只有配置了倍率(非固定价格)时才按 token 重新计费
 	if !hasRatioSetting || modelRatio <= 0 {
 		return
 	}
 
-	// 获取用户和组的倍率信息
-	group := task.Group
-	if group == "" {
-		user, err := model.GetUserById(task.UserId, false)
-		if err == nil {
-			group = user.Group
+	finalGroupRatio := 0.0
+	if bc != nil {
+		finalGroupRatio = bc.GroupRatio
+		if bc.EffectiveRatio != nil {
+			finalGroupRatio = *bc.EffectiveRatio
 		}
-	}
-	if group == "" {
-		return
-	}
-
-	groupRatio := ratio_setting.GetGroupRatio(group)
-	userGroupRatio, hasUserGroupRatio := ratio_setting.GetGroupGroupRatio(group, group)
-
-	var finalGroupRatio float64
-	if hasUserGroupRatio {
-		finalGroupRatio = userGroupRatio
 	} else {
-		finalGroupRatio = groupRatio
+		group := task.Group
+		if group == "" {
+			user, err := model.GetUserById(task.UserId, false)
+			if err == nil {
+				group = user.Group
+			}
+		}
+		if group == "" {
+			return
+		}
+		finalGroupRatio = GetUserGroupRatio(group, group)
 	}
 
 	// 计算 OtherRatios 乘积（视频折扣、时长等）

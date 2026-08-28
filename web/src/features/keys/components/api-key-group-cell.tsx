@@ -27,10 +27,10 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 
+import type { GroupRatio } from '../lib/group-ratio-display'
 import {
   // AutoGroupBadge,
   GroupRatioBadge,
-  type GroupRatio,
 } from './auto-group-visuals'
 
 type ApiKeyGroupCellProps = {
@@ -44,14 +44,16 @@ export function ApiKeyGroupCell(props: ApiKeyGroupCellProps) {
   const { t } = useTranslation()
 
   if (props.group !== 'auto') {
-    const ratio = typeof props.ratio === 'number' ? props.ratio : undefined
     return (
       <TruncatedCell
         className='-ml-1.5'
         tooltipContent={props.group || '-'}
         tooltipClassName='break-all'
       >
-        <GroupBadge group={props.group} ratio={ratio} />
+        <span className='flex min-w-0 items-center gap-1.5'>
+          <GroupBadge group={props.group} />
+          <GroupRatioBadge ratio={props.ratio} />
+        </span>
       </TruncatedCell>
     )
   }
@@ -66,11 +68,7 @@ export function ApiKeyGroupCell(props: ApiKeyGroupCellProps) {
           />
         }
       >
-        <StatusBadge
-          label={t('Cross-group')}
-          variant='info'
-          copyable={false}
-        />
+        <StatusBadge label={t('Cross-group')} variant='info' copyable={false} />
         {/*<AutoGroupBadge shouldReduceMotion={props.shouldReduceMotion} />*/}
         <GroupRatioBadge
           ratio={props.ratio}

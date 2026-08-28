@@ -1,0 +1,6 @@
+{"file":".trellis/spec/backend/index.md","reason":"Verify backend API, persistence, migration, relay, and billing consistency."}
+{"file":".trellis/spec/frontend/index.md","reason":"Verify frontend behavior, accessibility, responsiveness, and test coverage."}
+{"file":".trellis/spec/shared/index.md","reason":"Verify shared code quality and TypeScript contracts."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Trace the complete channel selection to billing to display data flow."}
+{"file":".trellis/tasks/08-28-channel-cost-ratio/research/current-ratio-and-billing-boundaries.md","reason":"Compare the implementation against the confirmed pre-change boundaries and compatibility risks."}
+{"file": ".trellis/spec/backend/billing-ratio-routing.md", "reason": "Verify the implemented multiplier and migration behavior against the persisted billing contract."}

@@ -771,6 +771,31 @@ func TestRefundTaskQuota_FundingFailureKeepsAccountingAndPendingMarker(t *testin
 // RecalculateTaskQuota tests
 // ===========================================================================
 
+func TestRecalculateTaskQuotaByTokensUsesSnapshotEffectiveRatio(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 9, 9, 9
+	const initialQuota, preConsumed, tokenRemain = 10000, 200, 5000
+	seedUser(t, userID, initialQuota)
+	seedToken(t, tokenID, userID, "sk-snapshot-ratio", tokenRemain)
+	seedChannel(t, channelID)
+	seedChargedAccounting(t, userID, channelID, tokenID, preConsumed, 1)
+
+	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	effectiveRatio := 0.5
+	task.PrivateData.BillingContext.ModelRatio = 2
+	task.PrivateData.BillingContext.GroupRatio = effectiveRatio
+	task.PrivateData.BillingContext.EffectiveRatio = &effectiveRatio
+
+	RecalculateTaskQuotaByTokens(ctx, task, 100)
+
+	assert.Equal(t, 100, task.Quota)
+	assert.Equal(t, initialQuota+100, getUserQuota(t, userID))
+	assert.Equal(t, tokenRemain+100, getTokenRemainQuota(t, tokenID))
+	assert.Equal(t, int64(100), getChannelUsedQuota(t, channelID))
+}
+
 func TestRecalculate_PositiveDelta(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()

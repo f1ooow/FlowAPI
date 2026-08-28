@@ -475,6 +475,9 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 	if channel == nil {
 		return fmt.Errorf("channel cannot be empty")
 	}
+	if err := model.ValidateChannelCostRatio(channel.CostRatio); err != nil {
+		return err
+	}
 
 	// 校验 channel settings
 	if err := channel.ValidateSettings(); err != nil {
@@ -616,6 +619,10 @@ func AddChannel(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if addChannelRequest.Channel != nil && addChannelRequest.Channel.GetCostRatio() != 1 && c.GetInt("role") != common.RoleRootUser {
+		common.ApiErrorI18n(c, i18n.MsgAuthInsufficientPrivilege)
+		return
+	}
 
 	// 使用统一的校验函数
 	if err := validateChannel(addChannelRequest.Channel, true); err != nil {
@@ -702,9 +709,10 @@ func AddChannel(c *gin.Context) {
 		return
 	}
 	recordManageAudit(c, "channel.create", map[string]interface{}{
-		"name":  addChannelRequest.Channel.Name,
-		"type":  addChannelRequest.Channel.Type,
-		"count": len(channels),
+		"name":       addChannelRequest.Channel.Name,
+		"type":       addChannelRequest.Channel.Type,
+		"count":      len(channels),
+		"cost_ratio": addChannelRequest.Channel.GetCostRatio(),
 	})
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -991,6 +999,10 @@ func UpdateChannel(c *gin.Context) {
 
 	// Always copy the original ChannelInfo so that fields like IsMultiKey and MultiKeySize are retained.
 	channel.ChannelInfo = originChannel.ChannelInfo
+	if channelCostRatioChanged(&channel, originChannel, requestData) && c.GetInt("role") != common.RoleRootUser {
+		common.ApiErrorI18n(c, i18n.MsgAuthInsufficientPrivilege)
+		return
+	}
 
 	if channelHasSensitiveChanges(&channel, originChannel, requestData) &&
 		!authz.Can(c.GetInt("id"), c.GetInt("role"), authz.ChannelSensitiveWrite) {
@@ -1109,11 +1121,19 @@ func UpdateChannel(c *gin.Context) {
 	if channel.Key != "" && channel.Key != originChannel.Key {
 		changedFields = append(changedFields, "key")
 	}
-	recordManageAudit(c, "channel.update", map[string]interface{}{
+	if !equalChannelCostRatio(channel.CostRatio, originChannel.CostRatio) {
+		changedFields = append(changedFields, "cost_ratio")
+	}
+	auditParams := map[string]interface{}{
 		"id":             channel.Id,
 		"name":           channel.Name,
 		"changed_fields": changedFields,
-	})
+	}
+	if !equalChannelCostRatio(channel.CostRatio, originChannel.CostRatio) {
+		auditParams["old_cost_ratio"] = originChannel.GetCostRatio()
+		auditParams["new_cost_ratio"] = channel.GetCostRatio()
+	}
+	recordManageAudit(c, "channel.update", auditParams)
 	channel.Key = ""
 	clearChannelInfo(&channel.Channel)
 	c.JSON(http.StatusOK, gin.H{
