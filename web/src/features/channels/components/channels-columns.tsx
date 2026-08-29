@@ -64,6 +64,7 @@ import {
   getChannelTypeIcon,
   getChannelTypeLabel,
   getResponseTimeConfig,
+  formatChannelCostRatio,
   isMultiKeyChannel,
   parseModelsList,
   parseGroupsList,
@@ -273,6 +274,40 @@ function WeightCell({ channel }: { channel: Channel }) {
       value={channel.weight}
       field='weight'
       min={0}
+    />
+  )
+}
+
+function ChannelCostRatioCell({ channel }: { channel: Channel }) {
+  if (isTagAggregateRow(channel)) {
+    const ratios = channel.children
+      .map((child) => child.cost_ratio ?? 1)
+      .filter((ratio) => Number.isFinite(ratio))
+    if (ratios.length === 0) {
+      return <span className='text-muted-foreground'>-</span>
+    }
+    const min = Math.min(...ratios)
+    const max = Math.max(...ratios)
+    return (
+      <StatusBadge
+        label={
+          min === max
+            ? formatChannelCostRatio(min)
+            : `${formatChannelCostRatio(min)}-${formatChannelCostRatio(max)}`
+        }
+        variant='neutral'
+        size='sm'
+        copyable={false}
+      />
+    )
+  }
+
+  return (
+    <StatusBadge
+      label={formatChannelCostRatio(channel.cost_ratio)}
+      variant='info'
+      size='sm'
+      copyable={false}
     />
   )
 }
@@ -1126,6 +1161,16 @@ export function useChannelsColumns(
         meta: { mobileHidden: true },
         cell: ({ row }) => <WeightCell channel={row.original} />,
         size: 90,
+        enableSorting: false,
+      },
+
+      // Channel cost ratio column
+      {
+        accessorKey: 'cost_ratio',
+        header: t('Channel cost ratio'),
+        meta: { mobileHidden: true },
+        cell: ({ row }) => <ChannelCostRatioCell channel={row.original} />,
+        size: 130,
         enableSorting: false,
       },
 

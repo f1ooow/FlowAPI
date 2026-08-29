@@ -241,6 +241,8 @@ export const ERROR_MESSAGES = {
   REQUIRED_KEY: 'API key is required',
   REQUIRED_MODELS: 'Models are required',
   REQUIRED_GROUP: 'Group is required',
+  INVALID_COST_RATIO_DECIMALS:
+    'Channel cost ratio must have no more than 2 decimal places',
   INVALID_JSON: 'Invalid JSON format',
   INVALID_MODEL_MAPPING: 'Invalid model mapping format',
   INVALID_PROXY:

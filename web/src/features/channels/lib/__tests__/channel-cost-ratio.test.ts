@@ -20,12 +20,38 @@ import { describe, expect, test } from 'vitest'
 
 import {
   CHANNEL_FORM_DEFAULT_VALUES,
+  CHANNEL_COST_RATIO_MAX,
+  CHANNEL_COST_RATIO_MIN,
+  CHANNEL_COST_RATIO_STEP,
   channelFormSchema,
   transformFormDataToCreatePayload,
   transformFormDataToUpdatePayload,
 } from '../channel-form'
+import { formatChannelCostRatio } from '../channel-utils'
 
 describe('channel cost ratio form contract', () => {
+  test('formats channel cost ratios with at most two decimal places', () => {
+    expect(formatChannelCostRatio(undefined)).toBe('1x')
+    expect(formatChannelCostRatio(1)).toBe('1x')
+    expect(formatChannelCostRatio(0.55)).toBe('0.55x')
+    expect(formatChannelCostRatio(1.5)).toBe('1.5x')
+  })
+
+  test('uses hundredth increments from a hundredth minimum', () => {
+    expect(CHANNEL_COST_RATIO_MIN).toBe(0.01)
+    expect(CHANNEL_COST_RATIO_STEP).toBe(0.01)
+    expect(CHANNEL_COST_RATIO_MAX).toBe(1000)
+    expect(
+      channelFormSchema.safeParse({
+        ...CHANNEL_FORM_DEFAULT_VALUES,
+        name: 'channel',
+        key: 'secret',
+        models: 'gpt-test',
+        cost_ratio: 0.01,
+      }).success
+    ).toBe(true)
+  })
+
   test('defaults new channels to a 1x cost ratio and serializes it', () => {
     expect(CHANNEL_FORM_DEFAULT_VALUES.cost_ratio).toBe(1)
 
@@ -56,5 +82,11 @@ describe('channel cost ratio form contract', () => {
     expect(
       channelFormSchema.safeParse({ ...values, cost_ratio: 1001 }).success
     ).toBe(false)
+    expect(
+      channelFormSchema.safeParse({ ...values, cost_ratio: 0.555 }).success
+    ).toBe(false)
+    expect(
+      channelFormSchema.safeParse({ ...values, cost_ratio: 0.55 }).success
+    ).toBe(true)
   })
 })

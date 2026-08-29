@@ -42,6 +42,10 @@ export const STATIC_I18N_KEYS = [
   'Content',
   'Integrations',
   'Models',
+  'Pricing',
+  'Model Pricing',
+  'Group Pricing',
+  'Channel cost ratio must have no more than 2 decimal places',
   'Routing Reliability',
   'Maintenance',
 

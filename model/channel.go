@@ -76,8 +76,11 @@ func ValidateChannelCostRatio(ratio *float64) error {
 	if ratio == nil {
 		return nil
 	}
-	if math.IsNaN(*ratio) || math.IsInf(*ratio, 0) || *ratio <= 0 || *ratio > constant.MaxChannelCostRatio {
-		return fmt.Errorf("channel cost ratio must be greater than 0 and no more than %g", constant.MaxChannelCostRatio)
+	if math.IsNaN(*ratio) || math.IsInf(*ratio, 0) || *ratio < constant.MinChannelCostRatio || *ratio > constant.MaxChannelCostRatio {
+		return fmt.Errorf("channel cost ratio must be at least %g and no more than %g", constant.MinChannelCostRatio, constant.MaxChannelCostRatio)
+	}
+	if math.Abs(*ratio*100-math.Round(*ratio*100)) > 1e-9 {
+		return fmt.Errorf("channel cost ratio must have no more than 2 decimal places")
 	}
 	return nil
 }

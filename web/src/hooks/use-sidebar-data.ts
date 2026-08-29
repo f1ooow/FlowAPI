@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import {
   Activity,
+  CircleDollarSign,
   Box,
   FileText,
   Image,
@@ -115,6 +116,21 @@ export function useSidebarData(): SidebarData {
             title: t('Models'),
             url: '/models/metadata',
             icon: Box,
+          },
+          {
+            title: t('Pricing'),
+            icon: CircleDollarSign,
+            requiredRole: ROLE.SUPER_ADMIN,
+            items: [
+              {
+                title: t('Model Pricing'),
+                url: '/system-settings/billing/model-pricing',
+              },
+              {
+                title: t('Group Pricing'),
+                url: '/system-settings/billing/group-pricing',
+              },
+            ],
           },
           {
             title: t('Users'),

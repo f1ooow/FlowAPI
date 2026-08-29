@@ -76,6 +76,9 @@ function isOptionalProxyURL(value: string | undefined): boolean {
 export const HTTP_PROTOCOL_AUTO = 'auto'
 export const HTTP_PROTOCOL_HTTP1 = 'http1'
 export const MAX_HTTP2_CONNECTION_SHARDS = 8
+export const CHANNEL_COST_RATIO_MIN = 0.01
+export const CHANNEL_COST_RATIO_MAX = 1000
+export const CHANNEL_COST_RATIO_STEP = 0.01
 
 export function normalizeHttpProtocol(
   value: string | undefined | null
@@ -214,7 +217,14 @@ export const channelFormSchema = z
       ),
     priority: z.number().optional(),
     weight: z.number().optional(),
-    cost_ratio: z.number().positive().max(1000),
+    cost_ratio: z
+      .number()
+      .min(CHANNEL_COST_RATIO_MIN)
+      .max(CHANNEL_COST_RATIO_MAX)
+      .refine(
+        (value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-9,
+        ERROR_MESSAGES.INVALID_COST_RATIO_DECIMALS
+      ),
     test_model: z.string().optional(),
     auto_ban: z.number().optional(),
     status: z.number(),

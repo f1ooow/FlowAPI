@@ -47,7 +47,7 @@ The only effective-ratio formula is:
 effective = base group ratio * user-group ratio * (include channel ratio ? selected channel ratio : 1)
 ```
 
-- Missing channel cost ratio is `1`; channel cost ratio must satisfy `0 < ratio <= 1000`.
+- Missing channel cost ratio is `1`; a configured channel cost ratio must satisfy `0.01 <= ratio <= 1000` and use no more than two decimal places.
 - Missing user-group ratio is `1`; a configured zero is preserved.
 - Resolve the ratio after every channel/group selection, including retries.
 - Before sending the upstream attempt, reserve the recomputed target if it exceeds the existing reservation.

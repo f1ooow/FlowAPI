@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type TFunction } from 'i18next'
+import type { TFunction } from 'i18next'
 import {
   Box,
   CreditCard,
@@ -63,7 +63,11 @@ function getSystemSettingsNavGroups(t: TFunction): NavGroup[] {
         {
           title: t('Billing & Payment'),
           icon: CreditCard,
-          items: getBillingSectionNavItems(t),
+          items: getBillingSectionNavItems(t).filter(
+            (item) =>
+              !item.url.endsWith('/model-pricing') &&
+              !item.url.endsWith('/group-pricing')
+          ),
         },
         {
           title: t('Models & Routing'),
@@ -99,7 +103,10 @@ function getSystemSettingsNavGroups(t: TFunction): NavGroup[] {
  */
 export const SYSTEM_SETTINGS_VIEW: SidebarView = {
   id: 'system-settings',
-  pathPattern: /^\/system-settings(\/|$)/,
+  // Pricing is a first-class Admin navigation entry. Keep its existing
+  // routes for compatibility, but leave the root Admin sidebar visible there.
+  pathPattern:
+    /^\/system-settings(?!\/billing\/(?:model-pricing|group-pricing)(?:\/|$))(\/|$)/,
   parent: {
     to: '/dashboard/overview',
     label: 'Back to Dashboard',

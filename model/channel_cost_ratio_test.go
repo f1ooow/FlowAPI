@@ -11,18 +11,25 @@ import (
 
 func TestChannelCostRatioValidationAndNormalization(t *testing.T) {
 	valid := 1.5
+	minimum := constant.MinChannelCostRatio
 	tooHigh := constant.MaxChannelCostRatio + 1
 	zero := 0.0
+	tooLow := 0.001
+	tooPrecise := 0.555
 	nan := math.NaN()
 
 	assert.NoError(t, ValidateChannelCostRatio(nil))
 	assert.NoError(t, ValidateChannelCostRatio(&valid))
+	assert.NoError(t, ValidateChannelCostRatio(&minimum))
 	assert.Error(t, ValidateChannelCostRatio(&tooHigh))
 	assert.Error(t, ValidateChannelCostRatio(&zero))
+	assert.Error(t, ValidateChannelCostRatio(&tooLow))
+	assert.Error(t, ValidateChannelCostRatio(&tooPrecise))
 	assert.Error(t, ValidateChannelCostRatio(&nan))
 	assert.Equal(t, 1.0, (&Channel{}).GetCostRatio())
 	assert.Equal(t, 1.5, (&Channel{CostRatio: &valid}).GetCostRatio())
 	assert.Equal(t, 1.0, (&Channel{CostRatio: &tooHigh}).GetCostRatio())
+	assert.Equal(t, tooPrecise, (&Channel{CostRatio: &tooPrecise}).GetCostRatio())
 }
 
 func TestBuildChannelCostRatioRangesUsesEnabledCommaSeparatedGroups(t *testing.T) {

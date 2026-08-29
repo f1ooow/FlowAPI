@@ -147,6 +147,16 @@ export function getMultiKeyStatusBadge(status: number) {
   )
 }
 
+export function formatChannelCostRatio(
+  value: number | null | undefined
+): string {
+  const ratio = value ?? 1
+  return `${ratio
+    .toFixed(2)
+    .replace(/\.0+$/, '')
+    .replace(/(\.\d*[1-9])0+$/, '$1')}x`
+}
+
 /**
  * Check if channel is enabled
  */

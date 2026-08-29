@@ -775,6 +775,7 @@
     "Channel consistency repaired: {{success}} succeeded, {{fails}} failed": "渠道一致性修复完成：{{success}} 个成功，{{fails}} 个失败",
     "Channel copied successfully": "渠道复制成功",
     "Channel cost ratio": "渠道成本倍率",
+    "Channel cost ratio must have no more than 2 decimal places": "渠道成本倍率最多支持两位小数",
     "Channel created successfully": "渠道创建成功",
     "Channel deleted successfully": "渠道删除成功",
     "Channel disabled successfully": "渠道禁用成功",

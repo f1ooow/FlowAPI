@@ -63,6 +63,7 @@ function ChannelCardComponent({
     balance: t('Used / Remaining'),
     response_time: t('Response'),
     test_time: t('Last Tested'),
+    cost_ratio: t('Channel cost ratio'),
   }
 
   const groups = parseGroupsList(row.original.group ?? '')
@@ -74,6 +75,7 @@ function ChannelCardComponent({
   const actionsCell = renderCell('actions')
   const priorityCell = renderCell('priority')
   const weightCell = renderCell('weight')
+  const costRatioCell = renderCell('cost_ratio')
   const balanceCell = renderCell('balance')
   const responseCell = renderCell('response_time')
   const testCell = renderCell('test_time')
@@ -152,6 +154,14 @@ function ChannelCardComponent({
             </div>
             <div className='overflow-hidden text-sm'>
               {testCell ?? <span className='text-muted-foreground'>-</span>}
+            </div>
+            <span className={cn('mt-2', labelClass)}>
+              {fieldLabels.cost_ratio}
+            </span>
+            <div className='overflow-hidden text-sm'>
+              {costRatioCell ?? (
+                <span className='text-muted-foreground'>-</span>
+              )}
             </div>
           </div>
         </div>

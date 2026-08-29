@@ -148,6 +148,9 @@ import {
 import { useChannelMutateForm } from '../../hooks/use-channel-mutate-form'
 import {
   CHANNEL_FORM_DEFAULT_VALUES,
+  CHANNEL_COST_RATIO_MAX,
+  CHANNEL_COST_RATIO_MIN,
+  CHANNEL_COST_RATIO_STEP,
   CHANNEL_TYPE_ADVANCED_CUSTOM,
   channelFormSchema,
   channelsQueryKeys,
@@ -3670,9 +3673,9 @@ export function ChannelMutateDrawer({
                                     <FormControl>
                                       <Input
                                         type='number'
-                                        min={0.000001}
-                                        max={1000}
-                                        step={0.01}
+                                        min={CHANNEL_COST_RATIO_MIN}
+                                        max={CHANNEL_COST_RATIO_MAX}
+                                        step={CHANNEL_COST_RATIO_STEP}
                                         disabled={
                                           isSubmitting ||
                                           currentUser?.role !== ROLE.SUPER_ADMIN
