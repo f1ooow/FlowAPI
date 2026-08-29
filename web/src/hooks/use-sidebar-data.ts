@@ -69,7 +69,7 @@ export function useSidebarData(): SidebarData {
             icon: Key,
           },
           {
-            title: t('GPT Image Playground'),
+            title: t('生图工作台'),
             url: '/playground',
             icon: Image,
           },

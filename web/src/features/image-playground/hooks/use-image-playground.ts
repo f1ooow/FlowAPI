@@ -1,3 +1,21 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -20,7 +38,8 @@ import type {
   ImageRequestParams,
   NormalizedImage,
   PlaygroundImage,
-  PlaygroundMode,
+  PlaygroundMask,
+  PlaygroundOperation,
   PlaygroundTask,
   StoredImage,
   StoredTask,
@@ -37,85 +56,181 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
 }
 
-function getPlaygroundErrorMessage(
+function localizedError(
   error: unknown,
   t: ReturnType<typeof useTranslation>['t']
 ): string {
   const message = error instanceof Error ? error.message : ''
-  if (message === 'Enter a prompt before generating') {
-    return t('Enter a prompt before generating')
+  const known: Record<string, string> = {
+    'Enter a prompt before generating': 'Enter a prompt before generating',
+    'Select an API key before generating':
+      'Select an API key before generating',
+    'Add an image before editing': 'Add an image before editing',
+    'Unable to load the selected API key':
+      'Unable to load the selected API key',
+    'The image service returned no images':
+      'The image service returned no images',
+    'This image is no longer available for editing':
+      'This image is no longer available for editing',
+    'Could not save this result to browser history':
+      'Could not save this result to browser history',
+    'Could not delete the selected history item':
+      'Could not delete the selected history item',
+    'Generation stopped': 'Generation stopped',
   }
-  if (message === 'Select an API key before generating') {
-    return t('Select an API key before generating')
-  }
-  if (message === 'Add an image before editing') {
-    return t('Add an image before editing')
-  }
-  if (message === 'This image is no longer available for editing') {
-    return t('This image is no longer available for editing')
-  }
-  if (message === 'Unable to load the selected API key') {
-    return t('Unable to load the selected API key')
-  }
-  if (message === 'The image service returned no images') {
-    return t('The image service returned no images')
-  }
+  if (known[message]) return t(known[message])
   if (message.startsWith('Image request failed (')) {
     return t('Image request failed')
   }
   return message || t('Image request failed')
 }
 
-function toDisplayImage(
-  stored: StoredImage,
-  objectUrls: Set<string>
+function releaseImage(image: PlaygroundImage, urls: Set<string>): void {
+  if (!image.src.startsWith('blob:')) return
+  URL.revokeObjectURL(image.src)
+  urls.delete(image.src)
+}
+
+function cloneImage(
+  image: PlaygroundImage,
+  urls: Set<string>
 ): PlaygroundImage {
-  if (stored.blob) {
-    const src = URL.createObjectURL(stored.blob)
-    objectUrls.add(src)
-    return { ...stored, src }
+  if (!image.blob) return { ...image }
+  const src = URL.createObjectURL(image.blob)
+  urls.add(src)
+  return { ...image, id: createId(), src }
+}
+
+function cloneMask(mask: PlaygroundMask, urls: Set<string>): PlaygroundMask {
+  const src = URL.createObjectURL(mask.blob)
+  urls.add(src)
+  return { ...mask, src }
+}
+
+function storedImageToDisplay(
+  image: StoredImage,
+  urls: Set<string>
+): PlaygroundImage {
+  if (image.blob) {
+    const src = URL.createObjectURL(image.blob)
+    urls.add(src)
+    return { ...image, src, role: image.role === 'mask' ? 'input' : image.role }
   }
   return {
-    id: stored.id,
-    src: stored.sourceUrl || '',
-    sourceUrl: stored.sourceUrl,
-    mimeType: stored.mimeType,
-    role: stored.role,
+    id: image.id,
+    src: image.sourceUrl || '',
+    sourceUrl: image.sourceUrl,
+    mimeType: image.mimeType,
+    width: image.width,
+    height: image.height,
+    role: image.role === 'mask' ? 'input' : image.role,
   }
 }
 
 async function hydrateTask(
-  storedTask: StoredTask,
-  objectUrls: Set<string>
+  stored: StoredTask,
+  urls: Set<string>
 ): Promise<PlaygroundTask> {
-  const [inputImages, outputImages] = await Promise.all([
-    Promise.all(storedTask.inputImageIds.map(getStoredImage)),
-    Promise.all(storedTask.outputImageIds.map(getStoredImage)),
+  const [inputs, outputs, storedMask] = await Promise.all([
+    Promise.all(stored.inputImageIds.map(getStoredImage)),
+    Promise.all(stored.outputImageIds.map(getStoredImage)),
+    stored.maskImageId
+      ? getStoredImage(stored.maskImageId)
+      : Promise.resolve(undefined),
   ])
-
+  let mask: PlaygroundMask | undefined
+  if (
+    storedMask?.blob &&
+    stored.maskTargetImageId &&
+    stored.maskWidth &&
+    stored.maskHeight
+  ) {
+    const src = URL.createObjectURL(storedMask.blob)
+    urls.add(src)
+    mask = {
+      targetImageId: stored.maskTargetImageId,
+      blob: storedMask.blob,
+      src,
+      width: stored.maskWidth,
+      height: stored.maskHeight,
+      originalWidth: stored.maskOriginalWidth,
+      originalHeight: stored.maskOriginalHeight,
+      wasResized: stored.maskWasResized,
+    }
+  }
   return {
-    ...storedTask,
-    inputImages: inputImages
+    id: stored.id,
+    operation: stored.operation,
+    status: stored.status,
+    prompt: stored.prompt,
+    model: stored.model,
+    params: stored.params,
+    tokenId: stored.tokenId,
+    tokenName: stored.tokenName,
+    createdAt: stored.createdAt,
+    startedAt: stored.startedAt,
+    completedAt: stored.completedAt,
+    elapsed: stored.elapsed,
+    error: stored.error,
+    actualParams: stored.actualParams,
+    revisedPrompts: stored.revisedPrompts,
+    mask,
+    inputImages: inputs
       .filter((image): image is StoredImage => Boolean(image))
-      .map((image) => toDisplayImage(image, objectUrls)),
-    outputImages: outputImages
+      .map((image) => storedImageToDisplay(image, urls)),
+    outputImages: outputs
       .filter((image): image is StoredImage => Boolean(image))
-      .map((image) => toDisplayImage(image, objectUrls)),
+      .map((image) => storedImageToDisplay(image, urls)),
   }
 }
 
-function toStoredImage(image: PlaygroundImage, createdAt: number): StoredImage {
+function taskToStored(task: PlaygroundTask): StoredTask {
+  return {
+    id: task.id,
+    operation: task.operation,
+    status: task.status,
+    prompt: task.prompt,
+    model: task.model,
+    params: task.params,
+    tokenId: task.tokenId,
+    tokenName: task.tokenName,
+    createdAt: task.createdAt,
+    startedAt: task.startedAt,
+    completedAt: task.completedAt,
+    elapsed: task.elapsed,
+    error: task.error,
+    actualParams: task.actualParams,
+    revisedPrompts: task.revisedPrompts,
+    inputImageIds: task.inputImages.map((image) => image.id),
+    outputImageIds: task.outputImages.map((image) => image.id),
+    maskImageId: task.mask ? `${task.id}:mask` : undefined,
+    maskTargetImageId: task.mask?.targetImageId,
+    maskWidth: task.mask?.width,
+    maskHeight: task.mask?.height,
+    maskOriginalWidth: task.mask?.originalWidth,
+    maskOriginalHeight: task.mask?.originalHeight,
+    maskWasResized: task.mask?.wasResized,
+  }
+}
+
+function imageToStored(
+  image: PlaygroundImage,
+  createdAt: number,
+  role: StoredImage['role'] = image.role
+): StoredImage {
   return {
     id: image.id,
     blob: image.blob,
     sourceUrl: image.sourceUrl,
     mimeType: image.mimeType,
-    role: image.role,
+    role,
     createdAt,
+    width: image.width,
+    height: image.height,
   }
 }
 
-function toDisplayOutput(image: NormalizedImage): PlaygroundImage {
+function outputToDisplay(image: NormalizedImage): PlaygroundImage {
   return {
     id: image.id,
     src: image.src,
@@ -128,25 +243,25 @@ function toDisplayOutput(image: NormalizedImage): PlaygroundImage {
 
 export function useImagePlayground() {
   const { t } = useTranslation()
-  const [mode, setMode] = useState<PlaygroundMode>('generate')
   const [prompt, setPrompt] = useState('')
   const [params, setParams] = useState<ImageRequestParams>(DEFAULT_IMAGE_PARAMS)
   const [inputImages, setInputImages] = useState<PlaygroundImage[]>([])
+  const [mask, setMask] = useState<PlaygroundMask | undefined>()
   const [tasks, setTasks] = useState<PlaygroundTask[]>([])
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const [runningTaskIds, setRunningTaskIds] = useState<Set<string>>(new Set())
   const [isLoadingHistory, setIsLoadingHistory] = useState(true)
-  const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [storageWarning, setStorageWarning] = useState<string | null>(null)
-  const controllerRef = useRef<AbortController | null>(null)
-  const objectUrlsRef = useRef<Set<string>>(new Set())
+  const controllersRef = useRef(new Map<string, AbortController>())
+  const objectUrlsRef = useRef(new Set<string>())
 
   useEffect(() => {
     let cancelled = false
     void listStoredTasks()
-      .then(async (storedTasks) => {
+      .then(async (stored) => {
         const hydrated = await Promise.all(
-          storedTasks.map((task) => hydrateTask(task, objectUrlsRef.current))
+          stored.map((task) => hydrateTask(task, objectUrlsRef.current))
         )
         if (!cancelled) setTasks(hydrated)
       })
@@ -162,38 +277,38 @@ export function useImagePlayground() {
       .finally(() => {
         if (!cancelled) setIsLoadingHistory(false)
       })
-
     return () => {
       cancelled = true
     }
   }, [t])
 
-  useEffect(() => {
-    const objectUrls = objectUrlsRef.current
-    return () => {
-      controllerRef.current?.abort()
-      objectUrls.forEach((url) => URL.revokeObjectURL(url))
-      objectUrls.clear()
-    }
-  }, [])
+  useEffect(
+    () => () => {
+      controllersRef.current.forEach((controller) => controller.abort())
+      objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
+      objectUrlsRef.current.clear()
+    },
+    []
+  )
 
-  const revokeImageUrl = useCallback((image: PlaygroundImage) => {
-    if (!image.src.startsWith('blob:')) return
-    URL.revokeObjectURL(image.src)
-    objectUrlsRef.current.delete(image.src)
-  }, [])
+  const updateTask = useCallback(
+    (id: string, updater: (task: PlaygroundTask) => PlaygroundTask) => {
+      setTasks((current) =>
+        current.map((task) => (task.id === id ? updater(task) : task))
+      )
+    },
+    []
+  )
 
-  const addInputFiles = useCallback(
-    (files: File[]) => {
-      const nextFiles = files
+  const addInputFiles = useCallback((files: File[]) => {
+    setInputImages((current) => {
+      const accepted = files
         .filter((file) => file.type.startsWith('image/'))
         .slice(
           0,
-          Math.max(0, IMAGE_PLAYGROUND_MAX_INPUT_IMAGES - inputImages.length)
+          Math.max(0, IMAGE_PLAYGROUND_MAX_INPUT_IMAGES - current.length)
         )
-      if (!nextFiles.length) return
-
-      const nextImages = nextFiles.map<PlaygroundImage>((file) => {
+      const next = accepted.map<PlaygroundImage>((file) => {
         const src = URL.createObjectURL(file)
         objectUrlsRef.current.add(src)
         return {
@@ -204,27 +319,41 @@ export function useImagePlayground() {
           role: 'input',
         }
       })
-      setInputImages((current) => [...current, ...nextImages])
-      setError(null)
-    },
-    [inputImages.length]
-  )
+      if (next.length) setError(null)
+      return [...current, ...next]
+    })
+  }, [])
 
-  const removeInputImage = useCallback(
-    (imageId: string) => {
-      setInputImages((current) => {
-        const removed = current.find((image) => image.id === imageId)
-        if (removed) revokeImageUrl(removed)
-        return current.filter((image) => image.id !== imageId)
-      })
-    },
-    [revokeImageUrl]
-  )
+  const removeInputImage = useCallback((id: string) => {
+    setInputImages((current) => {
+      const image = current.find((item) => item.id === id)
+      if (image) releaseImage(image, objectUrlsRef.current)
+      return current.filter((item) => item.id !== id)
+    })
+    setMask((current) => (current?.targetImageId === id ? undefined : current))
+  }, [])
 
   const clearInputImages = useCallback(() => {
-    inputImages.forEach(revokeImageUrl)
-    setInputImages([])
-  }, [inputImages, revokeImageUrl])
+    setInputImages((current) => {
+      current.forEach((image) => releaseImage(image, objectUrlsRef.current))
+      return []
+    })
+    setMask((current) => {
+      if (current) {
+        releaseImage(
+          {
+            id: `${current.targetImageId}:mask`,
+            src: current.src,
+            blob: current.blob,
+            mimeType: 'image/png',
+            role: 'input',
+          },
+          objectUrlsRef.current
+        )
+      }
+      return undefined
+    })
+  }, [])
 
   const updateParam = useCallback(
     <K extends keyof ImageRequestParams>(
@@ -236,10 +365,38 @@ export function useImagePlayground() {
     []
   )
 
+  const persistTask = useCallback(
+    async (task: PlaygroundTask, createdAt: number) => {
+      const images: StoredImage[] = [
+        ...task.inputImages.map((image) => imageToStored(image, createdAt)),
+        ...task.outputImages.map((image) => imageToStored(image, createdAt)),
+      ]
+      if (task.mask) {
+        images.push(
+          imageToStored(
+            {
+              id: `${task.id}:mask`,
+              src: task.mask.src,
+              blob: task.mask.blob,
+              mimeType: 'image/png',
+              role: 'input',
+              width: task.mask.width,
+              height: task.mask.height,
+            },
+            createdAt,
+            'mask'
+          )
+        )
+      }
+      await saveTaskBundle(taskToStored(task), images)
+    },
+    []
+  )
+
   const submit = useCallback(
     async (tokenId: number | null, tokenName: string) => {
-      const trimmedPrompt = prompt.trim()
-      if (!trimmedPrompt) {
+      const text = prompt.trim()
+      if (!text) {
         setError(t('Enter a prompt before generating'))
         return null
       }
@@ -247,167 +404,211 @@ export function useImagePlayground() {
         setError(t('Select an API key before generating'))
         return null
       }
-      if (mode === 'edit' && !inputImages.length) {
-        setError(t('Add an image before editing'))
-        return null
-      }
 
-      const controller = new AbortController()
-      controllerRef.current = controller
-      setIsSubmitting(true)
+      const startedAt = Date.now()
+      const operation: PlaygroundOperation = inputImages.length
+        ? 'edit'
+        : 'generation'
+      const task: PlaygroundTask = {
+        id: createId(),
+        operation,
+        status: 'running',
+        prompt: text,
+        model: 'gpt-image-2',
+        params: { ...params },
+        tokenId,
+        tokenName,
+        createdAt: startedAt,
+        startedAt,
+        completedAt: null,
+        elapsed: null,
+        error: null,
+        inputImages: inputImages.map((image) =>
+          cloneImage(image, objectUrlsRef.current)
+        ),
+        mask: mask ? cloneMask(mask, objectUrlsRef.current) : undefined,
+        outputImages: [],
+      }
+      setTasks((current) => [task, ...current])
+      setRunningTaskIds((current) => new Set(current).add(task.id))
+      setPrompt('')
+      setInputImages((current) => {
+        current.forEach((image) => releaseImage(image, objectUrlsRef.current))
+        return []
+      })
+      setMask((current) => {
+        if (current) {
+          releaseImage(
+            {
+              id: `${current.targetImageId}:mask`,
+              src: current.src,
+              blob: current.blob,
+              mimeType: 'image/png',
+              role: 'input',
+            },
+            objectUrlsRef.current
+          )
+        }
+        return undefined
+      })
       setError(null)
 
+      const controller = new AbortController()
+      controllersRef.current.set(task.id, controller)
       try {
         const apiKey = await resolvePlaygroundToken(tokenId)
         const result =
-          mode === 'edit'
+          operation === 'edit'
             ? await callImageEdit({
                 apiKey,
-                prompt: trimmedPrompt,
-                params,
-                images: inputImages.flatMap((image) =>
+                prompt: text,
+                params: task.params,
+                images: task.inputImages.flatMap((image) =>
                   image.blob ? [image.blob] : []
                 ),
+                mask: task.mask?.blob,
                 signal: controller.signal,
               })
             : await callImageGeneration({
                 apiKey,
-                prompt: trimmedPrompt,
-                params,
+                prompt: text,
+                params: task.params,
                 signal: controller.signal,
               })
-
-        const createdAt = Date.now()
-        const outputImages = result.images.map(toDisplayOutput)
-        const task: PlaygroundTask = {
-          id: createId(),
-          mode,
-          prompt: trimmedPrompt,
-          model: 'gpt-image-2',
-          params: { ...params },
-          tokenId,
-          tokenName,
-          createdAt,
-          completedAt: Date.now(),
-          inputImages: inputImages.map((image) => ({ ...image })),
-          outputImages,
+        const completedAt = Date.now()
+        const done: PlaygroundTask = {
+          ...task,
+          status: 'done',
+          completedAt,
+          elapsed: completedAt - startedAt,
+          outputImages: result.images.map(outputToDisplay),
         }
-        const storedTask: StoredTask = {
-          id: task.id,
-          mode: task.mode,
-          prompt: task.prompt,
-          model: task.model,
-          params: task.params,
-          tokenId: task.tokenId,
-          tokenName: task.tokenName,
-          createdAt: task.createdAt,
-          completedAt: task.completedAt,
-          inputImageIds: task.inputImages.map((image) => image.id),
-          outputImageIds: task.outputImages.map((image) => image.id),
-        }
-        const storedImages = [
-          ...task.inputImages.map((image) => toStoredImage(image, createdAt)),
-          ...task.outputImages.map((image) => toStoredImage(image, createdAt)),
-        ]
-
         try {
-          await saveTaskBundle(storedTask, storedImages)
-          setStorageWarning(null)
+          await persistTask(done, startedAt)
         } catch {
           setStorageWarning(t('Could not save this result to browser history'))
         }
-        setTasks((current) => [task, ...current])
-        setSelectedTaskId(task.id)
-        return task
+        updateTask(task.id, () => done)
+        return done
       } catch (requestError) {
-        if (!isAbortError(requestError)) {
-          setError(getPlaygroundErrorMessage(requestError, t))
+        const completedAt = Date.now()
+        const message = isAbortError(requestError)
+          ? t('Generation stopped')
+          : localizedError(requestError, t)
+        const failed: PlaygroundTask = {
+          ...task,
+          status: 'error',
+          completedAt,
+          elapsed: completedAt - startedAt,
+          error: message,
         }
+        try {
+          await persistTask(failed, startedAt)
+        } catch {
+          setStorageWarning(t('Could not save this result to browser history'))
+        }
+        updateTask(task.id, () => failed)
+        if (!isAbortError(requestError)) setError(message)
         return null
       } finally {
-        if (controllerRef.current === controller) controllerRef.current = null
-        setIsSubmitting(false)
+        controllersRef.current.delete(task.id)
+        setRunningTaskIds((current) => {
+          const next = new Set(current)
+          next.delete(task.id)
+          return next
+        })
       }
     },
-    [inputImages, mode, params, prompt, t]
+    [inputImages, mask, params, persistTask, prompt, t, updateTask]
   )
 
-  const cancel = useCallback(() => controllerRef.current?.abort(), [])
-
-  const deleteTask = useCallback(
-    async (taskId: string) => {
-      const task = tasks.find((item) => item.id === taskId)
-      if (!task) return
-      const storedTask: StoredTask = {
-        id: task.id,
-        mode: task.mode,
-        prompt: task.prompt,
-        model: task.model,
-        params: task.params,
-        tokenId: task.tokenId,
-        tokenName: task.tokenName,
-        createdAt: task.createdAt,
-        completedAt: task.completedAt,
-        inputImageIds: task.inputImages.map((image) => image.id),
-        outputImageIds: task.outputImages.map((image) => image.id),
-      }
-      try {
-        await deleteTaskBundle(storedTask)
-      } catch {
-        setStorageWarning(t('Could not delete the selected history item'))
-      }
-      ;[...task.inputImages, ...task.outputImages].forEach(revokeImageUrl)
-      setTasks((current) => current.filter((item) => item.id !== taskId))
-      setSelectedTaskId((current) => (current === taskId ? null : current))
-    },
-    [revokeImageUrl, t, tasks]
+  const cancelTask = useCallback(
+    (id: string) => controllersRef.current.get(id)?.abort(),
+    []
   )
+
+  const reuseTask = useCallback((task: PlaygroundTask) => {
+    setPrompt(task.prompt)
+    setParams({ ...task.params })
+    setInputImages(
+      task.inputImages.map((image) => cloneImage(image, objectUrlsRef.current))
+    )
+    setMask(task.mask ? cloneMask(task.mask, objectUrlsRef.current) : undefined)
+    setError(null)
+  }, [])
 
   const editTask = useCallback(
-    async (task: PlaygroundTask) => {
-      const source = task.outputImages[0]
-      if (!source) return
-      let blob = source.blob
-      if (!blob && source.sourceUrl) {
-        try {
-          const response = await fetch(source.sourceUrl)
-          if (response.ok) blob = await response.blob()
-        } catch {
-          // Keep the original task intact when an expired URL cannot be reused.
-        }
-      }
-      if (!blob) {
+    (task: PlaygroundTask) => {
+      const image = task.outputImages[0]
+      if (!image?.blob) {
         setError(t('This image is no longer available for editing'))
         return
       }
-      const src = URL.createObjectURL(blob)
+      const src = URL.createObjectURL(image.blob)
       objectUrlsRef.current.add(src)
-      setMode('edit')
       setPrompt(task.prompt)
       setParams({ ...task.params })
-      inputImages.forEach(revokeImageUrl)
       setInputImages([
         {
           id: createId(),
           src,
-          blob,
-          mimeType: blob.type || 'image/png',
+          blob: image.blob,
+          mimeType: image.mimeType,
           role: 'input',
         },
       ])
+      setMask(undefined)
       setError(null)
     },
-    [inputImages, revokeImageUrl, t]
+    [t]
+  )
+
+  const retryTask = useCallback(
+    (task: PlaygroundTask) => reuseTask(task),
+    [reuseTask]
+  )
+
+  const deleteTask = useCallback(
+    async (id: string) => {
+      const task = tasks.find((item) => item.id === id)
+      if (!task) return
+      try {
+        await deleteTaskBundle(taskToStored(task))
+      } catch {
+        setStorageWarning(t('Could not delete the selected history item'))
+      }
+      task.inputImages.forEach((image) =>
+        releaseImage(image, objectUrlsRef.current)
+      )
+      task.outputImages.forEach((image) =>
+        releaseImage(image, objectUrlsRef.current)
+      )
+      if (task.mask) {
+        releaseImage(
+          {
+            id: `${task.id}:mask`,
+            src: task.mask.src,
+            blob: task.mask.blob,
+            mimeType: 'image/png',
+            role: 'input',
+          },
+          objectUrlsRef.current
+        )
+      }
+      setTasks((current) => current.filter((item) => item.id !== id))
+      setSelectedTaskId((current) => (current === id ? null : current))
+    },
+    [t, tasks]
   )
 
   return {
-    mode,
-    setMode,
     prompt,
     setPrompt,
     params,
     updateParam,
     inputImages,
+    mask,
+    setMask,
     addInputFiles,
     removeInputImage,
     clearInputImages,
@@ -415,13 +616,15 @@ export function useImagePlayground() {
     selectedTaskId,
     setSelectedTaskId,
     isLoadingHistory,
-    isSubmitting,
+    isSubmitting: runningTaskIds.size > 0,
     error,
     storageWarning,
     submit,
-    cancel,
-    deleteTask,
+    cancelTask,
+    reuseTask,
     editTask,
+    retryTask,
+    deleteTask,
   }
 }
 

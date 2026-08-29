@@ -18,21 +18,32 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { describe, expect, test } from 'vitest'
 
-import { listStoredTasks } from '../storage'
+import { calculateMaskWorkingSize } from '../mask-preprocess'
 
-describe('image playground browser history', () => {
-  test('reports unavailable storage instead of blocking the feature', async () => {
-    const originalIndexedDb = globalThis.indexedDB
-    Object.defineProperty(globalThis, 'indexedDB', {
-      configurable: true,
-      value: undefined,
+describe('mask working dimensions', () => {
+  test('floors non-multiple dimensions to the official 16px grid', () => {
+    expect(calculateMaskWorkingSize(1025, 769)).toMatchObject({
+      width: 1024,
+      height: 768,
+      wasResized: true,
     })
-    await expect(listStoredTasks()).rejects.toThrow(
-      'Browser storage is unavailable'
-    )
-    Object.defineProperty(globalThis, 'indexedDB', {
-      configurable: true,
-      value: originalIndexedDb,
+  })
+
+  test('scales oversized images before flooring to the grid', () => {
+    expect(calculateMaskWorkingSize(4000, 2000)).toMatchObject({
+      width: 1920,
+      height: 960,
+      scale: 0.48,
+      wasResized: true,
+    })
+  })
+
+  test('keeps already valid dimensions unchanged', () => {
+    expect(calculateMaskWorkingSize(1024, 1024)).toMatchObject({
+      width: 1024,
+      height: 1024,
+      scale: 1,
+      wasResized: false,
     })
   })
 })

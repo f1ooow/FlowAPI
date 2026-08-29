@@ -1,3 +1,21 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { describe, expect, test, vi } from 'vitest'
 
 import { DEFAULT_IMAGE_PARAMS } from '../../constants'
@@ -72,6 +90,25 @@ describe('image playground API', () => {
     expect(formData.get('model')).toBe('gpt-image-2')
     expect(formData.get('prompt')).toBe('make it blue')
     expect(formData.get('image')).toBeInstanceOf(Blob)
+  })
+
+  test('includes a mask in the edit multipart request', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ data: [{ b64_json: 'aGVsbG8=' }] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await callImageEdit({
+      apiKey: 'sk-key',
+      prompt: 'replace the background',
+      params: DEFAULT_IMAGE_PARAMS,
+      images: [new Blob(['source'], { type: 'image/png' })],
+      mask: new Blob(['mask'], { type: 'image/png' }),
+    })
+
+    const formData = fetchMock.mock.calls[0]?.[1]?.body as FormData
+    expect(formData.get('image')).toBeInstanceOf(Blob)
+    expect(formData.get('mask')).toBeInstanceOf(Blob)
   })
 
   test('keeps URL results usable when URL materialization is blocked', async () => {
