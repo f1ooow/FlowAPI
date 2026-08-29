@@ -63,10 +63,15 @@ export function NumericSpinnerInput({
     return result
   }
 
+  const normalizeStepPrecision = (nextValue: number) => {
+    const decimalPlaces = step.toString().split('.')[1]?.length ?? 0
+    return Number(nextValue.toFixed(Math.min(decimalPlaces, 10)))
+  }
+
   const handleIncrement = (e: React.MouseEvent) => {
     e.stopPropagation()
     if (disabled) return
-    const next = clamp((Number(localValue) || 0) + step)
+    const next = clamp(normalizeStepPrecision((Number(localValue) || 0) + step))
     setLocalValue(String(next))
     onChange(next)
   }
@@ -74,7 +79,7 @@ export function NumericSpinnerInput({
   const handleDecrement = (e: React.MouseEvent) => {
     e.stopPropagation()
     if (disabled) return
-    const next = clamp((Number(localValue) || 0) - step)
+    const next = clamp(normalizeStepPrecision((Number(localValue) || 0) - step))
     setLocalValue(String(next))
     onChange(next)
   }
@@ -91,14 +96,21 @@ export function NumericSpinnerInput({
       setLocalValue(raw)
       return
     }
-    if (!/^-?\d+$/.test(raw)) return
+    const pattern = Number.isInteger(step) ? /^-?\d+$/ : /^-?\d*(?:\.\d*)?$/
+    if (!pattern.test(raw)) return
     setLocalValue(raw)
   }
 
   const commitValue = () => {
     setEditing(false)
     const num = Number(localValue)
-    if (Number.isNaN(num) || localValue === '' || localValue === '-') {
+    if (
+      !Number.isFinite(num) ||
+      localValue === '' ||
+      localValue === '-' ||
+      localValue === '.' ||
+      localValue === '-.'
+    ) {
       setLocalValue(String(value ?? 0))
       return
     }

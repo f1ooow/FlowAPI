@@ -64,7 +64,6 @@ import {
   getChannelTypeIcon,
   getChannelTypeLabel,
   getResponseTimeConfig,
-  formatChannelCostRatio,
   isMultiKeyChannel,
   parseModelsList,
   parseGroupsList,
@@ -78,6 +77,7 @@ import {
 } from '../lib'
 import { parseUpstreamUpdateMeta } from '../lib/upstream-update-utils'
 import type { Channel } from '../types'
+import { ChannelCostRatioCell } from './channel-cost-ratio-cell'
 import { ChannelRowActionsLayoutContext } from './channel-row-actions-context'
 import { useChannels } from './channels-provider'
 import { DataTableRowActions } from './data-table-row-actions'
@@ -274,40 +274,6 @@ function WeightCell({ channel }: { channel: Channel }) {
       value={channel.weight}
       field='weight'
       min={0}
-    />
-  )
-}
-
-function ChannelCostRatioCell({ channel }: { channel: Channel }) {
-  if (isTagAggregateRow(channel)) {
-    const ratios = channel.children
-      .map((child) => child.cost_ratio ?? 1)
-      .filter((ratio) => Number.isFinite(ratio))
-    if (ratios.length === 0) {
-      return <span className='text-muted-foreground'>-</span>
-    }
-    const min = Math.min(...ratios)
-    const max = Math.max(...ratios)
-    return (
-      <StatusBadge
-        label={
-          min === max
-            ? formatChannelCostRatio(min)
-            : `${formatChannelCostRatio(min)}-${formatChannelCostRatio(max)}`
-        }
-        variant='neutral'
-        size='sm'
-        copyable={false}
-      />
-    )
-  }
-
-  return (
-    <StatusBadge
-      label={formatChannelCostRatio(channel.cost_ratio)}
-      variant='info'
-      size='sm'
-      copyable={false}
     />
   )
 }

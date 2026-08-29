@@ -28,7 +28,11 @@ import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 
 import {
-  createBlankMask,
+  getMaskCompositeOperation,
+  renderMaskPreview,
+  type MaskBrushMode,
+} from '../lib/mask-canvas'
+import {
   prepareMaskTargetDataUrl,
   type MaskSaveResult,
   type PreparedMaskTarget,
@@ -41,20 +45,19 @@ interface MaskEditorProps {
   onSave: (target: PreparedMaskTarget, mask: MaskSaveResult) => void
 }
 
-type BrushMode = 'erase' | 'restore'
-
 interface MaskSnapshot {
   data: ImageData
 }
 
 export function MaskEditor(props: MaskEditorProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const sourceRef = useRef<HTMLImageElement>(null)
+  const maskCanvasRef = useRef<HTMLCanvasElement>(null)
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null)
   const historyRef = useRef<MaskSnapshot[]>([])
   const redoRef = useRef<MaskSnapshot[]>([])
   const drawingRef = useRef(false)
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null)
   const [target, setTarget] = useState<PreparedMaskTarget | null>(null)
-  const [mode, setMode] = useState<BrushMode>('erase')
+  const [mode, setMode] = useState<MaskBrushMode>('brush')
   const [brushSize, setBrushSize] = useState(64)
   const [isSaving, setIsSaving] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -62,27 +65,9 @@ export function MaskEditor(props: MaskEditorProps) {
   useEffect(() => {
     let cancelled = false
     void prepareMaskTargetDataUrl(props.image.src)
-      .then(async (prepared) => {
+      .then((prepared) => {
         if (cancelled) return
         setTarget(prepared)
-        const canvas = canvasRef.current
-        if (!canvas) return
-        canvas.width = prepared.width
-        canvas.height = prepared.height
-        const context = canvas.getContext('2d')
-        if (!context) return
-        const blank = await createBlankMask(prepared.width, prepared.height)
-        const maskImage = new Image()
-        maskImage.onload = () => {
-          context.clearRect(0, 0, prepared.width, prepared.height)
-          context.drawImage(maskImage, 0, 0)
-          historyRef.current = [
-            {
-              data: context.getImageData(0, 0, prepared.width, prepared.height),
-            },
-          ]
-        }
-        maskImage.src = blank.maskDataUrl
       })
       .catch(() => {
         if (!cancelled) {
@@ -93,6 +78,28 @@ export function MaskEditor(props: MaskEditorProps) {
       cancelled = true
     }
   }, [props.image.src])
+
+  useEffect(() => {
+    const maskCanvas = maskCanvasRef.current
+    const previewCanvas = previewCanvasRef.current
+    if (!target || !maskCanvas || !previewCanvas) return
+
+    maskCanvas.width = target.width
+    maskCanvas.height = target.height
+    previewCanvas.width = target.width
+    previewCanvas.height = target.height
+    const context = maskCanvas.getContext('2d')
+    if (!context) return
+
+    context.globalCompositeOperation = 'source-over'
+    context.fillStyle = '#fff'
+    context.fillRect(0, 0, target.width, target.height)
+    historyRef.current = [
+      { data: context.getImageData(0, 0, target.width, target.height) },
+    ]
+    redoRef.current = []
+    renderMaskPreview(maskCanvas, previewCanvas)
+  }, [target])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -108,24 +115,37 @@ export function MaskEditor(props: MaskEditorProps) {
   })
 
   const drawAt = (event: PointerEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current
-    const context = canvas?.getContext('2d')
-    if (!canvas || !context) return
-    const rect = canvas.getBoundingClientRect()
-    const x = ((event.clientX - rect.left) / rect.width) * canvas.width
-    const y = ((event.clientY - rect.top) / rect.height) * canvas.height
+    const maskCanvas = maskCanvasRef.current
+    const previewCanvas = previewCanvasRef.current
+    const context = maskCanvas?.getContext('2d')
+    if (!maskCanvas || !previewCanvas || !context) return
+    const rect = maskCanvas.getBoundingClientRect()
+    const point = {
+      x: ((event.clientX - rect.left) / rect.width) * maskCanvas.width,
+      y: ((event.clientY - rect.top) / rect.height) * maskCanvas.height,
+    }
+    const previousPoint = lastPointRef.current ?? point
     context.save()
-    context.globalCompositeOperation =
-      mode === 'erase' ? 'destination-out' : 'source-over'
-    context.fillStyle = mode === 'erase' ? 'rgba(0,0,0,1)' : '#fff'
+    context.globalCompositeOperation = getMaskCompositeOperation(mode)
+    context.strokeStyle = mode === 'brush' ? '#000' : '#fff'
+    context.fillStyle = mode === 'brush' ? '#000' : '#fff'
+    context.lineCap = 'round'
+    context.lineJoin = 'round'
+    context.lineWidth = brushSize
     context.beginPath()
-    context.arc(x, y, brushSize / 2, 0, Math.PI * 2)
+    context.moveTo(previousPoint.x, previousPoint.y)
+    context.lineTo(point.x, point.y)
+    context.stroke()
+    context.beginPath()
+    context.arc(point.x, point.y, brushSize / 2, 0, Math.PI * 2)
     context.fill()
     context.restore()
+    lastPointRef.current = point
+    renderMaskPreview(maskCanvas, previewCanvas)
   }
 
   const pushHistory = () => {
-    const canvas = canvasRef.current
+    const canvas = maskCanvasRef.current
     const context = canvas?.getContext('2d')
     if (!canvas || !context) return
     historyRef.current.push({
@@ -136,34 +156,51 @@ export function MaskEditor(props: MaskEditorProps) {
   }
 
   const undo = () => {
-    const canvas = canvasRef.current
+    const canvas = maskCanvasRef.current
+    const previewCanvas = previewCanvasRef.current
     const context = canvas?.getContext('2d')
-    if (!canvas || !context || historyRef.current.length < 2) return
+    if (
+      !canvas ||
+      !previewCanvas ||
+      !context ||
+      historyRef.current.length < 2
+    ) {
+      return
+    }
     const current = historyRef.current.pop()
     if (current) redoRef.current.push(current)
     const previous = historyRef.current.at(-1)
-    if (previous) context.putImageData(previous.data, 0, 0)
+    if (previous) {
+      context.putImageData(previous.data, 0, 0)
+      renderMaskPreview(canvas, previewCanvas)
+    }
   }
 
   const redo = () => {
-    const canvas = canvasRef.current
+    const canvas = maskCanvasRef.current
+    const previewCanvas = previewCanvasRef.current
     const context = canvas?.getContext('2d')
     const next = redoRef.current.pop()
-    if (!canvas || !context || !next) return
+    if (!canvas || !previewCanvas || !context || !next) return
     context.putImageData(next.data, 0, 0)
     historyRef.current.push(next)
+    renderMaskPreview(canvas, previewCanvas)
   }
 
   const clearMask = () => {
-    const canvas = canvasRef.current
+    const canvas = maskCanvasRef.current
+    const previewCanvas = previewCanvasRef.current
     const context = canvas?.getContext('2d')
-    if (!canvas || !context) return
-    context.clearRect(0, 0, canvas.width, canvas.height)
+    if (!canvas || !previewCanvas || !context) return
+    context.globalCompositeOperation = 'source-over'
+    context.fillStyle = '#fff'
+    context.fillRect(0, 0, canvas.width, canvas.height)
+    renderMaskPreview(canvas, previewCanvas)
     pushHistory()
   }
 
   const save = async () => {
-    const canvas = canvasRef.current
+    const canvas = maskCanvasRef.current
     if (!target || !canvas) return
     setIsSaving(true)
     try {
@@ -205,7 +242,7 @@ export function MaskEditor(props: MaskEditorProps) {
           <div>
             <h2 className='text-base font-semibold'>编辑遮罩</h2>
             <p className='text-xs text-slate-500'>
-              涂抹需要修改的区域，透明区域会提交给 GPT Image
+              画笔选择需要修改的区域，蓝色区域会提交给 GPT Image
             </p>
           </div>
         </div>
@@ -223,16 +260,22 @@ export function MaskEditor(props: MaskEditorProps) {
         {target ? (
           <div className='relative max-h-full max-w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm'>
             <img
-              ref={sourceRef}
               src={target.dataUrl}
               alt='Mask source'
               className='block max-h-[calc(100vh-190px)] max-w-[calc(100vw-48px)] object-contain'
             />
             <canvas
-              ref={canvasRef}
-              className='absolute inset-0 h-full w-full cursor-crosshair opacity-60'
+              ref={previewCanvasRef}
+              className='pointer-events-none absolute inset-0 h-full w-full'
+              aria-hidden='true'
+            />
+            <canvas
+              ref={maskCanvasRef}
+              className='absolute inset-0 h-full w-full cursor-crosshair touch-none opacity-0'
+              aria-label='Mask drawing area'
               onPointerDown={(event) => {
                 drawingRef.current = true
+                lastPointRef.current = null
                 event.currentTarget.setPointerCapture(event.pointerId)
                 drawAt(event)
               }}
@@ -241,10 +284,12 @@ export function MaskEditor(props: MaskEditorProps) {
               }}
               onPointerUp={() => {
                 drawingRef.current = false
+                lastPointRef.current = null
                 pushHistory()
               }}
               onPointerCancel={() => {
                 drawingRef.current = false
+                lastPointRef.current = null
               }}
             />
           </div>
@@ -255,17 +300,17 @@ export function MaskEditor(props: MaskEditorProps) {
       <footer className='flex shrink-0 items-center justify-center gap-2 border-t border-slate-200 bg-white p-3'>
         <button
           type='button'
-          onClick={() => setMode('erase')}
-          aria-pressed={mode === 'erase'}
-          className={`inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm ${mode === 'erase' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100'}`}
+          onClick={() => setMode('brush')}
+          aria-pressed={mode === 'brush'}
+          className={`inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm ${mode === 'brush' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100'}`}
         >
           <HugeiconsIcon icon={PaintBrush01Icon} size={17} /> 画笔
         </button>
         <button
           type='button'
-          onClick={() => setMode('restore')}
-          aria-pressed={mode === 'restore'}
-          className={`inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm ${mode === 'restore' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100'}`}
+          onClick={() => setMode('eraser')}
+          aria-pressed={mode === 'eraser'}
+          className={`inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm ${mode === 'eraser' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100'}`}
         >
           <HugeiconsIcon icon={EraserIcon} size={17} /> 橡皮擦
         </button>
