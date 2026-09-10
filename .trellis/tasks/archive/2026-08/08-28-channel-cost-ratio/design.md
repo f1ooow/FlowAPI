@@ -207,22 +207,23 @@ Extend each existing group row with a checkbox/switch â€œInclude channel ratioâ€
 
 Update group option types and the shared ratio badge to support structured `single`, `range`, `auto`, and unavailable states. The trigger, dropdown options, API Key table cells, search text, and tests must remain consistent.
 
-## 8. Removing Upstream Ratio Sync
+## 8. Pricing Sync Boundary
 
 Remove:
 
-- root `/api/ratio_sync/*` routes
-- `controller/ratio_sync.go` and dedicated tests
-- sync-only relay DTOs and helpers after reference checks
-- frontend upstream-sync tab, selector, table, helpers, types, constants, and API calls
-- OpenAPI entries and stale translation keys where tooling safely removes them
+- channel-list or channel-editor row actions that fetch an upstream ratio for one channel
 
 Keep:
 
+- root-only `/api/ratio_sync/*` routes and `controller/ratio_sync.go`
+- sync DTOs, tests, OpenAPI entries, and the new-frontend upstream price-sync tab
+- official/public pricing presets and selected-upstream `/api/pricing` ingestion
 - `/api/ratio_config`
 - `ExposeRatioEnabled`
 - channel `/upstream_updates/*` model-list detection
 - local model ratio and model price configuration
+
+The global model-price synchronization workflow may read pricing from selected channels, but it does not read or write the channel `cost_ratio` used by route billing.
 
 ## 9. Security And Auditing
 
@@ -239,7 +240,7 @@ Keep:
 - Old async task snapshots retain legacy effective-ratio interpretation.
 - Rollback before enabling any include flags is behavior-neutral.
 - After include flags are enabled, rollback requires restoring the previous binary and retaining the added nullable column/options; do not destructively drop data.
-- Removal of `/api/ratio_sync/*` is an intentional admin API break documented in release notes.
+- `/api/ratio_sync/*` remains a root-only administrator contract; channel cost-ratio rollout must not remove it.
 
 ## 11. User-Side Privacy Boundary
 

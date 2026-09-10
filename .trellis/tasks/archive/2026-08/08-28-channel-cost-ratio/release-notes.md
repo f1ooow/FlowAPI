@@ -18,7 +18,8 @@
 - Authenticated API Key group selection now shows only the final multiplier: a single value, a current enabled-channel range, Auto, or unavailable.
 - Anonymous group responses retain the legacy single `ratio` contract and do not expose cost-derived ranges.
 
-## Breaking administrator API change
+## Administrator pricing tools
 
-- Removed `GET /api/ratio_sync/channels` and `POST /api/ratio_sync/fetch` together with the upstream ratio-sync UI.
+- Channel row-level upstream-ratio fetching is replaced by explicit channel cost-ratio configuration.
+- Global model-price synchronization remains available through `GET /api/ratio_sync/channels`, `POST /api/ratio_sync/fetch`, and the model-pricing sync UI.
 - `GET /api/ratio_config` and channel upstream model-update endpoints remain available with their existing authorization behavior.

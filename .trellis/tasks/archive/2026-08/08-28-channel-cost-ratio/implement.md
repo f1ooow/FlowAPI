@@ -2,7 +2,7 @@
 
 ## Implementation Status (2026-08-28)
 
-Implementation is complete across persistence, migration, runtime billing, retry reservation, asynchronous snapshots, authenticated ratio ranges, administrator UI, API Key group display, i18n, and upstream ratio-sync removal.
+Implementation is complete across persistence, migration, runtime billing, retry reservation, asynchronous snapshots, authenticated ratio ranges, administrator UI, API Key group display, and i18n. The global model-price sync removal recorded by the original draft was later identified as requirement drift and must be reverted.
 
 Verified in this checkout:
 
@@ -71,13 +71,12 @@ Independent `trellis-check` is complete; evidence is in `check-report.md`. Pendi
 - [ ] Add tests for single value, range, equal bounds, unavailable, auto, user-specific value, and absence of component labels.
 - [ ] Complete all supported locale translations and run `bun run i18n:sync` according to the project skill.
 
-## Phase 7 - Remove Upstream Ratio Sync
+## Phase 7 - Preserve Model Price Sync Boundary
 
-- [ ] Remove `/api/ratio_sync/*` registration, controller implementation, dedicated tests, sync-only DTOs, and unused helpers after reference checks.
-- [ ] Remove the frontend upstream-sync tab and all sync-only components, APIs, helpers, constants, and types.
-- [ ] Remove matching OpenAPI paths and stale documentation while preserving `/api/ratio_config`.
-- [ ] Verify channel upstream model update endpoints and UI remain available.
-- [ ] Run reference searches proving no stale `ratio_sync`, `FetchUpstreamRatios`, or `UpstreamRatioSync` symbols remain outside intentional release notes/history.
+- [ ] Remove only the channel-list/channel-editor row action that fetches a ratio for one channel.
+- [ ] Preserve `/api/ratio_sync/*`, its controller, DTOs, tests, OpenAPI paths, and the new-frontend model-price sync tab.
+- [ ] Verify global model-price sync, `/api/ratio_config`, and channel upstream model-update endpoints remain available.
+- [ ] Verify the model-price sync path does not read or write channel `cost_ratio`.
 
 ## Phase 8 - Verification
 
