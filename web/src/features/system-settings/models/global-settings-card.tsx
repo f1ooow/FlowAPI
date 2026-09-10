@@ -90,6 +90,7 @@ const jsonString = z.string().refine((value) => {
 const schema = z.object({
   global: z.object({
     pass_through_request_enabled: z.boolean(),
+    pass_through_headers_enabled: z.boolean(),
     thinking_model_blacklist: jsonString,
     chat_completions_to_responses_policy: jsonString,
   }),
@@ -104,6 +105,7 @@ type GlobalModelSettingsFormInput = z.input<typeof schema>
 
 type FlatGlobalModelSettings = {
   'global.pass_through_request_enabled': boolean
+  'global.pass_through_headers_enabled': boolean
   'global.thinking_model_blacklist': string
   'global.chat_completions_to_responses_policy': string
   'general_setting.ping_interval_enabled': boolean
@@ -115,6 +117,8 @@ const flattenGlobalValues = (
 ): FlatGlobalModelSettings => ({
   'global.pass_through_request_enabled':
     values.global.pass_through_request_enabled,
+  'global.pass_through_headers_enabled':
+    values.global.pass_through_headers_enabled,
   'global.thinking_model_blacklist': normalizeJsonText(
     values.global.thinking_model_blacklist,
     '[]'
@@ -192,10 +196,35 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
             render={({ field }) => (
               <SettingsSwitchItem>
                 <SettingsSwitchContent>
-                  <FormLabel>{t('Enable Request Passthrough')}</FormLabel>
+                  <FormLabel>{t('Enable Request Body Passthrough')}</FormLabel>
                   <FormDescription>
                     {t(
-                      'Forward requests directly to upstream providers without any post-processing.'
+                      'Forward original request bodies on supported interfaces for existing and new channels. Requires a compatible upstream format; model mapping and parameter overrides may be bypassed.'
+                    )}
+                  </FormDescription>
+                </SettingsSwitchContent>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                </FormControl>
+              </SettingsSwitchItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='global.pass_through_headers_enabled'
+            render={({ field }) => (
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <FormLabel>
+                    {t('Enable Request Header Passthrough')}
+                  </FormLabel>
+                  <FormDescription>
+                    {t(
+                      'Forward client request headers on supported relay paths for existing and new channels, excluding protected headers. Channel header overrides take priority.'
                     )}
                   </FormDescription>
                 </SettingsSwitchContent>

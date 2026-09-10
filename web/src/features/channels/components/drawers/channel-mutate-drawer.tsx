@@ -146,6 +146,7 @@ import {
   OPENAI_FIELD_PASSTHROUGH_TYPES,
 } from '../../constants'
 import { useChannelMutateForm } from '../../hooks/use-channel-mutate-form'
+import { useChannelPassthrough } from '../../hooks/use-channel-passthrough'
 import {
   CHANNEL_FORM_DEFAULT_VALUES,
   CHANNEL_COST_RATIO_MAX,
@@ -612,6 +613,11 @@ export function ChannelMutateDrawer({
 }: ChannelMutateDrawerProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const { data: passthrough } = useChannelPassthrough()
+  const globalBodyPassthrough =
+    passthrough?.data?.pass_through_request_enabled === true
+  const globalHeaderPassthrough =
+    passthrough?.data?.pass_through_headers_enabled === true
   const { setOpen } = useChannels()
   const currentUser = useAuthStore((s) => s.auth.user)
   const canEditSensitive = hasPermission(
@@ -3965,6 +3971,13 @@ export function ChannelMutateDrawer({
                                         <FormDescription>
                                           {t('Override request headers')}
                                         </FormDescription>
+                                        {globalHeaderPassthrough && (
+                                          <FormDescription>
+                                            {t(
+                                              'Request header passthrough is enabled globally'
+                                            )}
+                                          </FormDescription>
+                                        )}
                                       </div>
                                       <div className='flex flex-wrap gap-2'>
                                         <Button
@@ -4140,14 +4153,22 @@ export function ChannelMutateDrawer({
                                         {t('Pass Through Body')}
                                       </FormLabel>
                                       <FormDescription>
-                                        {t(
-                                          'Pass request body directly to upstream'
-                                        )}
+                                        {globalBodyPassthrough
+                                          ? t(
+                                              'Request body passthrough is enabled globally'
+                                            )
+                                          : t(
+                                              'Forward the original body on supported interfaces. Requires a compatible upstream format.'
+                                            )}
                                       </FormDescription>
                                     </div>
                                     <FormControl>
                                       <Switch
-                                        checked={field.value}
+                                        checked={
+                                          globalBodyPassthrough || field.value
+                                        }
+                                        aria-label={t('Pass Through Body')}
+                                        disabled={globalBodyPassthrough}
                                         onCheckedChange={field.onChange}
                                       />
                                     </FormControl>

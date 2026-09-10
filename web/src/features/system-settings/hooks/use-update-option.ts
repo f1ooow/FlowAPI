@@ -48,6 +48,12 @@ export function useUpdateOption() {
       if (data.success) {
         // Always refresh system-options
         queryClient.invalidateQueries({ queryKey: ['system-options'] })
+        if (
+          variables.key === 'global.pass_through_request_enabled' ||
+          variables.key === 'global.pass_through_headers_enabled'
+        ) {
+          queryClient.invalidateQueries({ queryKey: ['channel-passthrough'] })
+        }
 
         // If updating frontend-display-related config, also refresh status
         if (STATUS_RELATED_KEYS.has(variables.key)) {

@@ -88,8 +88,13 @@ var passthroughSkipHeaderNamesLower = map[string]struct{}{
 	"content-length":  {},
 	"accept-encoding": {},
 
+	// Preserve adapter-selected body encoding and channel account identity.
+	"content-type":       {},
+	"chatgpt-account-id": {},
+
 	// Do not passthrough credentials by wildcard/regex.
 	"authorization":  {},
+	"api-key":        {},
 	"x-api-key":      {},
 	"x-goog-api-key": {},
 
@@ -97,6 +102,8 @@ var passthroughSkipHeaderNamesLower = map[string]struct{}{
 	"sec-websocket-key":        {},
 	"sec-websocket-version":    {},
 	"sec-websocket-extensions": {},
+	// Realtime clients may carry their API key in a subprotocol value.
+	"sec-websocket-protocol": {},
 }
 
 var headerPassthroughRegexCache sync.Map // map[string]*regexp.Regexp

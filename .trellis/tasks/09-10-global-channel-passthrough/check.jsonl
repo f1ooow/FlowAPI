@@ -1,0 +1,2 @@
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Verify persistence, permissions, header precedence and UI invalidation."}
+{"file":".trellis/spec/frontend/quality.md","reason":"Quality checklist; use project Bun commands over template pnpm examples."}

@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -392,6 +393,14 @@ func SearchChannels(c *gin.Context) {
 		},
 	})
 	return
+}
+
+func GetChannelPassthroughSettings(c *gin.Context) {
+	settings := model_setting.GetGlobalSettings()
+	common.ApiSuccess(c, gin.H{
+		"pass_through_request_enabled": settings.PassThroughRequestEnabled,
+		"pass_through_headers_enabled": settings.PassThroughHeadersEnabled,
+	})
 }
 
 func GetChannel(c *gin.Context) {

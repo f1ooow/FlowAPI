@@ -57,6 +57,7 @@ import { truncateText } from '@/lib/utils'
 
 import { getCodexUsage, updateChannelBalance } from '../api'
 import { CHANNEL_STATUS_CONFIG, MODEL_FETCHABLE_TYPES } from '../constants'
+import { useChannelPassthrough } from '../hooks/use-channel-passthrough'
 import {
   formatRelativeTime,
   formatResponseTime,
@@ -593,11 +594,14 @@ export function useChannelsColumns(
   const { t, i18n } = useTranslation()
   const { sensitiveVisible } = useChannels()
   const enableSelection = options.enableSelection ?? true
+  const { data: passthrough } = useChannelPassthrough()
+  const globalBodyPassthrough =
+    passthrough?.data?.pass_through_request_enabled === true
+  const globalHeaderPassthrough =
+    passthrough?.data?.pass_through_headers_enabled === true
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
-  // The column definitions only depend on the translation function, the active
-  // locale, and sensitive-data visibility. Memoizing keeps the array (and every
-  // cell renderer reference) stable across unrelated re-renders, so react-table
-  // does not invalidate the whole row model on each parent render.
+  // Stable columns and cell renderers prevent react-table from invalidating
+  // the whole row model on unrelated parent renders.
   return useMemo<ColumnDef<Channel>[]>(
     () => [
       // Checkbox column
@@ -694,7 +698,8 @@ export function useChannelsColumns(
 
           // Regular channel row
           const settings = parseChannelSettings(channel.setting)
-          const isPassThrough = settings.pass_through_body_enabled === true
+          const isPassThrough =
+            globalBodyPassthrough || settings.pass_through_body_enabled === true
           const hasParamOverride = Boolean(channel.param_override?.trim())
 
           return (
@@ -715,9 +720,25 @@ export function useChannelsColumns(
                           }
                         />
                         <TooltipContent side='top'>
-                          {t(
-                            'Request body pass-through is enabled. The request body will be sent directly to the upstream without any conversion.'
-                          )}
+                          {globalBodyPassthrough
+                            ? t('Request body passthrough is enabled globally')
+                            : t(
+                                'Request body pass-through is enabled. The request body will be sent directly to the upstream without any conversion.'
+                              )}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
+                  {globalHeaderPassthrough && (
+                    <TooltipProvider delay={100}>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <SlidersHorizontal className='text-info h-3.5 w-3.5 flex-shrink-0' />
+                          }
+                        />
+                        <TooltipContent side='top'>
+                          {t('Request header passthrough is enabled globally')}
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -1236,6 +1257,13 @@ export function useChannelsColumns(
         meta: { pinned: 'right' as const },
       },
     ],
-    [enableSelection, t, locale, sensitiveVisible]
+    [
+      enableSelection,
+      t,
+      locale,
+      sensitiveVisible,
+      globalBodyPassthrough,
+      globalHeaderPassthrough,
+    ]
   )
 }

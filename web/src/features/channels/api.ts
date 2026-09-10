@@ -113,6 +113,17 @@ export async function getChannelOps(): Promise<ChannelOpsResponse> {
   return res.data
 }
 
+export async function getChannelPassthrough() {
+  const res = await api.get<{
+    success: boolean
+    data?: {
+      pass_through_request_enabled: boolean
+      pass_through_headers_enabled: boolean
+    }
+  }>('/api/channel/passthrough', channelActionConfig())
+  return res.data
+}
+
 /**
  * Create new channel(s)
  * Supports single, batch, and multi-key modes

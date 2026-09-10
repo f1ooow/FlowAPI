@@ -11,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/samber/lo"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -483,10 +484,15 @@ func GetEffectiveHeaderOverride(info *RelayInfo) map[string]interface{} {
 	if info == nil {
 		return map[string]interface{}{}
 	}
+	// Runtime overrides already include global defaults and any rule changes.
 	if info.UseRuntimeHeadersOverride {
 		return sanitizeHeaderOverrideMap(info.RuntimeHeadersOverride)
 	}
-	return sanitizeHeaderOverrideMap(getHeaderOverrideMap(info))
+	headers := sanitizeHeaderOverrideMap(getHeaderOverrideMap(info))
+	if model_setting.GetGlobalSettings().PassThroughHeadersEnabled && !info.IsChannelTest {
+		headers["*"] = "true"
+	}
+	return headers
 }
 
 func tryParseOperations(paramOverride map[string]interface{}) ([]ParamOperation, bool) {
