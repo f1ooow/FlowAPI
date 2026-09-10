@@ -62,3 +62,24 @@ Implemented the authenticated Flow API GPT Image Playground at /playground with 
 ### Status
 
 [OK] **Completed**
+
+
+## Session 3: Global channel passthrough completed
+
+**Date**: 2026-09-11
+**Task**: Global channel passthrough completed
+**Branch**: `main`
+
+### Summary
+
+Implemented independent global body/header passthrough settings and inherited channel UI. Backend tests, six frontend tests, typecheck, scoped lint, build and desktop/mobile browser checks passed. Committed only this feature; unrelated work preserved. No deployment.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0e391d3e0` | (see git log) |
+
+### Status
+
+[OK] **Completed**
