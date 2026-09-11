@@ -1,0 +1,29 @@
+{
+  "id": "group-monitor-log-aggregation",
+  "name": "group-monitor-log-aggregation",
+  "title": "分组监控改为日志聚合模式",
+  "description": "",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "zhuyu",
+  "assignee": "zhuyu",
+  "createdAt": "2026-09-10",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": "845a85998",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "09-10-group-monitor-real-traffic",
+    "09-10-admin-channel-availability"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "session flowapi-68 | commit 845a85998 | 两个子任务均已实现\n父任务额外承担了工作区全量 review(用户授权一并提交): 弹性路由/stream gate/透传/ratio_sync\n修复的 Blocker: 非 gated 流式通道响应重放(双份 SSE)、合法空补全被判 502 跨渠道重放、doRequest 提前设 SSE 头导致 502 错误体被吞与 Content-Type 错乱、route_history 泄露给普通用户、skip_retry_on_failure 被绕过、透传黑名单缺 15 项(含可写入控制面 openai-organization/x-goog-user-project)\nratio_sync 定性: 属 08-26 任务的有意恢复(70bb36145 误删), 保留提交\n遗留见 handoff.md",
+  "meta": {}
+}

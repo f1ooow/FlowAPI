@@ -15,11 +15,18 @@ Read when modifying global passthrough settings, channel header overrides, relay
 
 - Unset global header option is false. Global true injects `*` into a sanitized copy, never mutating stored channel maps. No channel backfill or database migration.
 - Runtime overrides are final: do not reintroduce wildcard defaults after runtime operations. Channel tests must not automatically forward headers from administrator HTTP requests.
-- Automatic wildcard/regex headers precede explicit administrator overrides; explicit values win. Automatic forwarding excludes credentials, cookies, transport metadata, `Content-Type`, and `chatgpt-account-id`. The last two preserve adapter body encoding and account selection. Explicit administrator entries are still permitted.
+- Automatic wildcard/regex headers precede explicit administrator overrides; explicit values win. Automatic forwarding excludes credentials, cookies, transport metadata, `Content-Type`, `chatgpt-account-id`, and everything listed under Limits. `Content-Type` and `chatgpt-account-id` preserve adapter body encoding and account selection. Explicit administrator entries are still permitted.
 - Common HTTP/form/WebSocket paths use this machinery. `DoTaskApiRequest` and bespoke transports are not implicitly covered. Audit the actual dispatch path before claiming support.
 - Body passthrough in supported handlers is global OR local. Original body bytes may bypass adapter conversion, model remapping in serialized JSON, parameter overrides and system prompt injection. Do not describe it as compatible with arbitrary upstream protocols.
 - Channel display reads only the two flags, not privileged system options. A globally enabled body switch appears on and disabled without changing the saved local preference; successful option mutation invalidates `['channel-passthrough']`.
 - Existing `delete_header` operations remove map entries, not individual headers later expanded from `*`. Do not claim they are wildcard exclusion filters.
+
+## Limits
+
+- Automatic forwarding never includes client IP and proxy-chain headers (`X-Forwarded-For`, `X-Real-IP`, `X-Forwarded-Host/Proto/Port`, `CF-Connecting-IP`, `True-Client-IP`, `Forwarded`, `Via`), caller-site disclosure (`Referer`, `Origin`), or upstream account scope (`OpenAI-Organization`, `OpenAI-Project`, `x-goog-user-project`, `mj-api-secret`). Account scope is not merely a leak: `processHeaderOverride` runs after `SetupRequestHeader`, so a forwarded client value would replace the adapter-selected organization or project and can redirect a request to another account, producing 403s that trip channel auto-disable or misbilled usage.
+- The switch is global, all-or-nothing. There is no per-channel opt-out; a channel cannot exclude itself from forwarding once the option is on, and `delete_header` operations remove map entries rather than filtering names expanded from `*`.
+- The skip list only covers well-known headers. Custom or vendor-specific secrets carried in arbitrary header names cannot be recognized and will be forwarded. Do not enable global forwarding for a fleet whose clients carry bespoke credentials in headers.
+- Explicit administrator overrides bypass the skip list by design; blocking a header there would remove the only supported way to configure these values per channel.
 
 ## Validation & Error Matrix
 

@@ -93,6 +93,15 @@ TanStack Router 的生成路由树由现有构建流程重新生成，不手工�
 - 认证系统设置只保留基础认证与机器人防护；删除 OAuth、Custom OAuth 和 Passkey section。
 - 相关 controller/model/service 可以因历史数据兼容继续存在为未注册代码，但不得有运行时路由、后台任务或用户可见配置入口；不在本任务内执行表删除。
 
+### 2.6 Pricing feature boundary
+
+渠道成本倍率与全局模型价格同步必须保持独立：
+
+- 渠道列表/编辑器不恢复行内“获取上游倍率”动作；渠道 `cost_ratio` 继续由管理员显式维护。
+- 模型定价页保留独立的“上游价格同步”页签，通过 root-only `/api/ratio_sync/channels` 和 `/api/ratio_sync/fetch` 从官方预设、公开价格库或所选上游读取候选模型定价。
+- 同步结果只在管理员确认后写入 `ModelPrice`、`ModelRatio`、各类输入输出倍率、`billing_setting.billing_mode` 和 `billing_setting.billing_expr`；它不读取或修改渠道 `cost_ratio`。
+- UI 恢复使用现有新版组件体系，不恢复旧版 `web/src/pages/Setting/Ratio/UpstreamRatioSync.jsx`。
+
 ## 3. Default homepage and Flow API identity
 
 ### 3.1 Rendering contract
@@ -205,6 +214,7 @@ users.unlimited_quota
 ### Preserved contracts
 
 - `/v1/chat/completions`、其他标准 Relay 端点和 provider adaptor。
+- 全局模型价格同步页及 root-only `/api/ratio_sync/channels`、`/api/ratio_sync/fetch`。
 - 管理员自定义 `HomePageContent` 的 URL/HTML/Markdown覆盖。
 - `theme.frontend` 非 `default` 值归一化到 `default` 的后端兼容逻辑。
 - 历史 `checkins` 表、现有用户 quota 数值、旧任务 wallet fallback。
@@ -246,6 +256,7 @@ users.unlimited_quota
 | Redis 旧缓存导致开关延迟生效 | cache schema 升级、Lua hash 写字段、管理动作同步 publish，并测试 stale cache 回源 |
 | 关闭无限后余额被清空或污染 | 开关不修改 `quota`；测试 true -> false 后恢复原余额校验 |
 | 删除 Chat 误删标准 Chat Completions | `/pg` 缺失与 `/v1/chat/completions` 路由存在成对验证 |
+| 把渠道成本倍率与模型价格同步混为一谈 | 分别验证渠道行内动作不存在、模型定价同步页和两个 root-only API 存在 |
 | 删除签到破坏升级数据库 | 不执行 DROP；只移除运行时模型迁移与访问 |
 | 主题按钮消失但旧 Cookie 仍改变 UI | 初始化清理全部已知 Cookie/data attributes，使用带旧 Cookie 的浏览器回归 |
 | Rebrand 误改协议/上游类型/许可证 | 仅按用户可见位置逐项替换；禁止全仓机械替换 new-api/QuantumNous |

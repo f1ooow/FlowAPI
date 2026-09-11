@@ -10,6 +10,13 @@
 
 本任务采用当前会话的 inline 单代理工作流；`implement.jsonl` / `check.jsonl` 的 seed 行不作为施工上下文。若后续切换为 sub-agent dispatch，必须先替换 seed 并为两个 manifest 写入真实 spec/research 条目。
 
+## User feedback correction - restore global model price sync
+
+- [x] 恢复 root-only `/api/ratio_sync/channels` 与 `/api/ratio_sync/fetch`、控制器和独立 `relaykit` DTO；不接入渠道 `cost_ratio`。
+- [x] 恢复新版模型定价“上游价格同步”页签、选择器、差异表、前端 API 与类型；不恢复旧版页面或渠道行内按钮。
+- [x] 增加路由/组件边界回归测试：全局模型价格同步存在，渠道行内获取倍率操作不存在。
+- [x] 验证 `go test`、`relaykit` 独立构建、前端测试、typecheck、lint、build，并在新版模型定价路由做真实浏览器检查。
+
 ## Phase 1 - Unlimited quota foundation
 
 ### 1.1 Database model and cache propagation
@@ -254,3 +261,11 @@ rg -n "New API|new-api|QuantumNous" web/src web/public web/index.html
 - Passed `go test ./...`, `go vet ./...`, `go build ./...`, frontend type-check, 148 frontend tests, production frontend build, targeted changed-file lint and `git diff --check`.
 - Full-repository lint, copyright and knip retain pre-existing baseline findings outside this task. No paid upstream model request was made, and no live MySQL migration was performed; SQLite tests and the RC PostgreSQL migration path passed.
 - The task remains active for the user's RC visual review; do not archive it before that feedback is incorporated.
+
+## HK model price sync restoration - 2026-08-31
+
+- Restored the global model-price synchronization controller, relaykit DTO, root-only routes, OpenAPI entries, new-frontend tab, pricing-source selector, difference table, API types and integration. Channel `cost_ratio` remains separate, and the removed channel-row fetch-ratio action was not restored.
+- Added route-registration and visible-tab regression tests. Passed `go test ./controller ./router`, root `go build ./...`, `relaykit` with `GOWORK=off go build ./...`, focused frontend tests, typecheck, targeted lint/format, production frontend build, OpenAPI JSON parsing and `git diff --check`.
+- Local browser verification loaded the official pricing sources and fetched 579 candidate differences. Production browser verification at `https://flowapi.robusta.top/system-settings/billing/model-pricing` loaded 20 selectable sources and fetched 301 differences from the official preset; no differences were selected or applied, so production pricing was not changed.
+- Deployed `flowapi:hk-model-price-sync-20260831-2315` (`sha256:383faa2da52a991ae809a43bbbef367632db44be6aa8233301355fbecacaac85`) to HK by recreating only `app`. PostgreSQL 15 and Redis 7 remained running. Backup `/opt/flowapi/backups/pre-model-price-sync-20260831-2315/` contains a validated PostgreSQL dump, Compose file, previous-image record, old image package and SHA-256 manifest.
+- Post-deployment checks: app healthy with zero restarts; public `/api/status`, model-pricing route and `/playground` returned 200; unauthenticated `/api/ratio_sync/channels` returned 401 rather than the removed-route 404; authenticated channels/fetch requests returned 200; browser console and page errors were empty.

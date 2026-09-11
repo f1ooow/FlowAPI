@@ -83,3 +83,68 @@ Implemented independent global body/header passthrough settings and inherited ch
 ### Status
 
 [OK] **Completed**
+
+
+## Session 4: Real-traffic availability monitoring + pending-work review
+
+**Date**: 2026-09-11
+**Task**: 09-10-group-monitor-log-aggregation (parent) + two children
+**Branch**: `main`
+
+### Summary
+
+Replaced the synthetic-probe group monitor with real-traffic aggregation over
+`perf_metrics`, added an admin-only channel availability view backed by a new
+attempt-level `channel_metrics` table, and — at the user's request — reviewed and
+fixed the entire uncommitted working tree (four other sessions' worth) before
+committing everything as one buildable change.
+
+Probe removal restored `controller/channel-test.go` byte-identical to HEAD: the
+probe had grown `groupOverride`/`recordLog` parameters that no longer had any
+non-default caller. Cleaning 17 unreachable `IsChannelTest` guards also reduced
+`service/billing.go`, `tiered_settle.go`, `violation_fee.go` and `text_quota.go`
+to a zero diff against HEAD.
+
+### Blockers found in the pending work and fixed
+
+- Non-gated streaming channels (aws/baidu/xai/dify/openai-audio/cohere/zhipu/
+  ollama/...) had already written bytes but were treated as uncommitted, so a
+  retry appended a second complete SSE stream to the same response body.
+- Legitimate empty completions (`finish_reason` with no content, usage-only tail
+  frames, proxy heartbeats) were classified `empty_stream` and replayed across
+  every channel before failing.
+- `doRequest` set SSE headers unconditionally, so a pre-commit 502 came back as
+  `text/event-stream` and the ping keepalive flushed a 200 that swallowed the
+  error body entirely.
+- `route_history` sat at `other` top level, outside `formatUserLogs` redaction —
+  any user could read channel ids/names/priorities/weights off their own logs.
+- Global header passthrough shipped without 15 blacklist entries. The upstream
+  account group is a writable control plane, not merely a leak: override runs
+  after adapter setup, so a client could overwrite `OpenAI-Organization`.
+
+### Corrections to my own planning
+
+- design.md put the integer-division `FLOOR` branch on PostgreSQL. It belongs on
+  MySQL, whose `/` yields DECIMAL and would produce no rollup at all. Caught by
+  the implementing agent against the repo's own `usedata_rankings.go` precedent.
+- I specified `processChannelError` as the attempt sampling point; it is also
+  called from `channel-test.go:945`, which would have recorded synthetic channel
+  tests against real availability.
+- `ratio_sync` initially looked like abandoned residue. It is the deliberate
+  restoration required by task 08-26 after `70bb36145` removed it by mistake.
+
+### Tests
+
+Backend: 33 packages, 0 failures. Frontend: 55 files / 218 passed; the 8 failures
+are the pre-existing `storage.setItem` cases in keys/redemption-codes. copyright
+and format checks clean; lint holds at the pre-existing 268 baseline.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `845a85998` | feat: real-traffic availability monitoring and relay hardening |
+
+### Status
+
+[OK] **Code committed** — deployment to HK pending in this session.
