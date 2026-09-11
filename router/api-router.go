@@ -103,6 +103,10 @@ func SetApiRouter(router *gin.Engine) {
 
 			}
 
+			// Registered on userRoute (not adminRoute) so the path stays /api/user
+			// without a trailing slash; see the comment on groupRoute below.
+			userRoute.GET("", middleware.AdminAuth(), controller.GetAllUsers)
+
 			adminRoute := userRoute.Group("/")
 			adminRoute.Use(middleware.AdminAuth())
 			{
@@ -225,6 +229,14 @@ func SetApiRouter(router *gin.Engine) {
 		groupRoute := apiRouter.Group("/group")
 		groupRoute.Use(middleware.AdminAuth())
 		{
+			// Both "" and "/" are registered on purpose. A sibling route that shares
+			// the group prefix (/api/group-monitoring here, /api/user-agreement for
+			// /api/user) splits the radix node at "group" into a handler-less node,
+			// and the root-level /:mode/mj wildcard in relay-router.go makes gin
+			// backtrack into that wildcard instead of issuing its trailing-slash
+			// redirect, so the bare path would 404.
+			// See TestApiRouteGroupRootsResolveWithoutTrailingSlash.
+			groupRoute.GET("", controller.GetGroups)
 			groupRoute.GET("/", controller.GetGroups)
 		}
 

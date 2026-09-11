@@ -47,6 +47,7 @@ export function ModelStatusCard(props: {
   const { t } = useTranslation()
   const hasData = props.model.has_data
   const avgTtftMs = props.model.avg_ttft_ms
+  const avgTtft24hMs = props.model.avg_ttft_ms_24h
   const avgLatencyMs = props.model.avg_latency_ms
 
   const availability = hasData
@@ -57,10 +58,17 @@ export function ModelStatusCard(props: {
   // says nothing about how the model feels right now. The two are deliberately
   // on different windows, so the labels must say which one they are on.
   //
-  // A model that never streams (image generation, embeddings, rerank) has no
-  // time-to-first-token samples at all, which the API reports as a null average
-  // rather than 0 ms. Falling back to the average total latency is fine, but it
-  // must never be labelled as first-token latency.
+  // First-token latency has three tiers, and the label always names the window
+  // the number came from. Do not collapse these back into "fall back to total
+  // latency as soon as the last hour has no streamed sample": a streaming model
+  // that served a single non-streamed request in a quiet hour would then look
+  // like an image model, which is exactly the confusion this tiers apart.
+  //
+  //   1. streamed sample in the last hour      -> TTFT (1H)
+  //   2. none in the last hour, some in 24h    -> TTFT (24H)
+  //   3. no streamed sample in 24h at all      -> total latency (1H)
+  //
+  // Tier 3 is decided by the 24h sample count, never by the last hour alone.
   let latencyLabel = t('Latency (1H)')
   let latencyValue = NO_VALUE
   let latencyHint = hasData
@@ -73,10 +81,17 @@ export function ModelStatusCard(props: {
       'Average time to first token over {{count}} streamed requests in the last hour',
       { count: props.model.ttft_sample_count }
     )
+  } else if (avgTtft24hMs !== null) {
+    latencyLabel = t('TTFT (24H)')
+    latencyValue = formatMilliseconds(avgTtft24hMs, t)
+    latencyHint = t(
+      'No streamed requests in the last hour. Showing the 24 hour average over {{count}} streamed requests instead.',
+      { count: props.model.ttft_sample_count_24h }
+    )
   } else if (avgLatencyMs !== null) {
     latencyValue = formatMilliseconds(avgLatencyMs, t)
     latencyHint = t(
-      'Average total request latency over the last hour. No streamed samples in that window.'
+      'Average total request latency over the last hour. This model produced no streamed sample in the last 24 hours.'
     )
   }
 

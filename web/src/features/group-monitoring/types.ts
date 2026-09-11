@@ -62,11 +62,25 @@ export type GroupMonitoringModelSummary = {
   avg_latency_ms: number | null
   /**
    * Average time to first token over the last hour. `null` when that hour holds
-   * no streamed sample, which is permanent for image/embedding/rerank models.
+   * no streamed sample, which happens for any streaming model during a quiet
+   * period as well as permanently for image/embedding/rerank models.
    */
   avg_ttft_ms: number | null
   /** Streamed samples inside the latency window, not the 24 hour window. */
   ttft_sample_count: number
+  /**
+   * Average time to first token over the whole 24 hour window. `null` only when
+   * the model produced no streamed sample all day, i.e. it never streams. The
+   * card prefers {@link avg_ttft_ms} and falls back to this one so a quiet hour
+   * does not turn a streaming model's headline figure into total latency.
+   */
+  avg_ttft_ms_24h: number | null
+  /**
+   * Streamed samples over the whole 24 hour window. Distinguishes "no streamed
+   * sample this hour" (a streaming model between requests) from "no streamed
+   * sample all day" (a model that does not stream at all).
+   */
+  ttft_sample_count_24h: number
   /** Requests over the 24 hour window. */
   request_count: number
   buckets: GroupMonitoringBucket[]

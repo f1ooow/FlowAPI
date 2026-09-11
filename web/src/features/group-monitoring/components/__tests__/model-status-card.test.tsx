@@ -46,6 +46,8 @@ const streamingModel: GroupMonitoringModelSummary = {
   avg_latency_ms: 8400,
   avg_ttft_ms: 820,
   ttft_sample_count: 1180,
+  avg_ttft_ms_24h: 910,
+  ttft_sample_count_24h: 12040,
   request_count: 1204,
   buckets: [
     bucket(0, 0, 0, 'no-data'),
@@ -94,19 +96,43 @@ describe('ModelStatusCard', () => {
     expect(screen.getByText('Unknown provider')).toBeInTheDocument()
   })
 
-  test('falls back to total latency under a distinct label when TTFT is null', () => {
+  test('widen the TTFT window to 24h when the last hour has no streamed sample', () => {
+    renderCard({
+      ...streamingModel,
+      avg_latency_ms: 45_000,
+      avg_ttft_ms: null,
+      ttft_sample_count: 0,
+      avg_ttft_ms_24h: 1_240,
+      ttft_sample_count_24h: 640,
+    })
+
+    // The label follows the window the number came from, so the user can tell
+    // they are reading a day mean rather than an hour one.
+    expect(screen.getByText('TTFT (24H)')).toBeInTheDocument()
+    expect(screen.getByText('1240 ms')).toBeInTheDocument()
+    expect(screen.queryByText('TTFT (1H)')).toBeNull()
+    expect(screen.queryByText('Latency (1H)')).toBeNull()
+    expect(screen.getByTitle(/Showing the 24 hour average/)).toBeInTheDocument()
+  })
+
+  test('falls back to total latency only when the whole day has no streamed sample', () => {
     renderCard({
       ...streamingModel,
       model_name: 'gpt-image-2',
       avg_ttft_ms: null,
       ttft_sample_count: 0,
+      avg_ttft_ms_24h: null,
+      ttft_sample_count_24h: 0,
       avg_latency_ms: 117260,
     })
 
     expect(screen.getByText('Latency (1H)')).toBeInTheDocument()
     expect(screen.getByText('117.3 s')).toBeInTheDocument()
     expect(screen.queryByText('TTFT (1H)')).toBeNull()
-    expect(screen.getByTitle(/No streamed samples/)).toBeInTheDocument()
+    expect(screen.queryByText('TTFT (24H)')).toBeNull()
+    expect(
+      screen.getByTitle(/no streamed sample in the last 24 hours/)
+    ).toBeInTheDocument()
   })
 
   test('shows no latency for a model that served nothing in the last hour', () => {
@@ -116,6 +142,8 @@ describe('ModelStatusCard', () => {
       avg_latency_ms: null,
       avg_ttft_ms: null,
       ttft_sample_count: 0,
+      avg_ttft_ms_24h: null,
+      ttft_sample_count_24h: 0,
     })
 
     expect(screen.getByText('Latency (1H)')).toBeInTheDocument()
@@ -168,6 +196,8 @@ describe('ModelStatusCard', () => {
         avg_latency_ms: null,
         avg_ttft_ms: null,
         ttft_sample_count: 0,
+        avg_ttft_ms_24h: null,
+        ttft_sample_count_24h: 0,
         request_count: 0,
         buckets: [bucket(0, 0, 0, 'no-data')],
       },

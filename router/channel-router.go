@@ -36,6 +36,13 @@ func registerChannelRoutes(apiRouter *gin.RouterGroup) {
 }
 
 var channelPermissionRoutes = []permissionRoute{
+	// Both "" (/api/channel) and "/" (/api/channel/) are registered on purpose.
+	// gin cannot fall back to its trailing-slash redirect here: /api/channel-monitoring
+	// splits the radix node at "channel" into a handler-less node, and the root-level
+	// /:mode/mj wildcard in relay-router.go makes the lookup backtrack into that
+	// wildcard instead of recommending the redirect, which yields a bare 404.
+	// See TestApiRouteGroupRootsResolveWithoutTrailingSlash.
+	{method: http.MethodGet, path: "", permission: authz.ChannelRead, handler: controller.GetAllChannels},
 	{method: http.MethodGet, path: "/", permission: authz.ChannelRead, handler: controller.GetAllChannels},
 	{method: http.MethodGet, path: "/search", permission: authz.ChannelRead, handler: controller.SearchChannels},
 	{method: http.MethodGet, path: "/passthrough", permission: authz.ChannelRead, handler: controller.GetChannelPassthroughSettings},

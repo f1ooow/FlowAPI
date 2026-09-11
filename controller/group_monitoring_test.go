@@ -310,7 +310,7 @@ func TestGroupMonitoringLatencyStart(t *testing.T) {
 func TestBuildGroupMonitoringGroupsLatencyUsesRecentWindowOnly(t *testing.T) {
 	groups := []operation_setting.GroupMonitoringGroup{{
 		Group:  "default",
-		Models: []string{"streaming-model", "image-model", "idle-model"},
+		Models: []string{"streaming-model", "image-model", "quiet-model", "idle-model"},
 	}}
 	// Two hours of 5 minute storage buckets rendered as 30 minute display
 	// buckets; the latency window is the last hour, so it starts at 3600.
@@ -323,13 +323,17 @@ func TestBuildGroupMonitoringGroupsLatencyUsesRecentWindowOnly(t *testing.T) {
 		{Group: "default", ModelName: "streaming-model", BucketTs: 6900, RequestCount: 4, SuccessCount: 4, TotalLatencyMs: 1_000, TtftSumMs: 600, TtftCount: 2},
 		// Non-streaming: recent requests but no TTFT sample at all.
 		{Group: "default", ModelName: "image-model", BucketTs: 3600, RequestCount: 4, SuccessCount: 4, TotalLatencyMs: 480_000},
+		// Streamed earlier in the day, then a quiet hour that only served a
+		// non-streamed request: the 24h TTFT must survive as the fallback.
+		{Group: "default", ModelName: "quiet-model", BucketTs: 0, RequestCount: 10, SuccessCount: 10, TotalLatencyMs: 100_000, TtftSumMs: 20_000, TtftCount: 10},
+		{Group: "default", ModelName: "quiet-model", BucketTs: 3600, RequestCount: 1, SuccessCount: 1, TotalLatencyMs: 30_000},
 		// Served traffic today but nothing in the latency window.
 		{Group: "default", ModelName: "idle-model", BucketTs: 0, RequestCount: 20, SuccessCount: 20, TotalLatencyMs: 40_000, TtftSumMs: 20_000, TtftCount: 20},
 	}
 
 	summaries := buildGroupMonitoringGroups(rows, groups, nil, 0, 4, 1800, 3600)
 	require.Len(t, summaries, 1)
-	require.Len(t, summaries[0].Models, 3)
+	require.Len(t, summaries[0].Models, 4)
 
 	streaming := summaries[0].Models[0]
 	assert.EqualValues(t, 20, streaming.RequestCount, "the request count stays on the full window")
@@ -341,14 +345,32 @@ func TestBuildGroupMonitoringGroupsLatencyUsesRecentWindowOnly(t *testing.T) {
 	assert.EqualValues(t, 8, streaming.TtftSampleCount, "only the samples inside the latency window count")
 	require.NotNil(t, streaming.AvgLatencyMs)
 	assert.EqualValues(t, 400, *streaming.AvgLatencyMs)
+	// Tier 1: the last hour holds streamed samples, so the card reads the 1h
+	// mean. The day mean is carried alongside and is much slower (5655 vs 225
+	// ms), which is exactly why the card must not pick it on its own.
+	require.NotNil(t, streaming.AvgTtftMs24h)
+	assert.EqualValues(t, 5655, *streaming.AvgTtftMs24h)
+	assert.EqualValues(t, 18, streaming.TtftSampleCount24h)
 
 	image := summaries[0].Models[1]
 	assert.Nil(t, image.AvgTtftMs)
+	assert.Nil(t, image.AvgTtftMs24h, "a model that never streams has no 24h TTFT either")
+	assert.EqualValues(t, 0, image.TtftSampleCount24h)
 	require.NotNil(t, image.AvgLatencyMs)
 	// Same window as the streaming card, so the two latency figures compare.
 	assert.EqualValues(t, 120_000, *image.AvgLatencyMs)
 
-	idle := summaries[0].Models[2]
+	// Tier 2: the last hour produced only a non-streamed request, so the card
+	// falls back to the 24h first-token mean rather than to total latency.
+	quiet := summaries[0].Models[2]
+	assert.Nil(t, quiet.AvgTtftMs)
+	require.NotNil(t, quiet.AvgTtftMs24h)
+	assert.EqualValues(t, 2000, *quiet.AvgTtftMs24h)
+	assert.EqualValues(t, 10, quiet.TtftSampleCount24h)
+	require.NotNil(t, quiet.AvgLatencyMs)
+	assert.EqualValues(t, 30_000, *quiet.AvgLatencyMs)
+
+	idle := summaries[0].Models[3]
 	assert.True(t, idle.HasData, "the model did serve traffic inside the availability window")
 	assert.Equal(t, groupMonitoringStateHealthy, idle.State, "the badge must not follow the latency window")
 	assert.EqualValues(t, 20, idle.RequestCount)

@@ -66,12 +66,20 @@ type groupMonitoringModelSummary struct {
 	// window, even if it served plenty earlier in the day. Falling back to the
 	// 24h mean would leave the user unable to tell which window they read.
 	AvgLatencyMs *int64 `json:"avg_latency_ms"`
-	// AvgTtftMs is null when the latency window holds no streamed sample, which
-	// is the normal case for image generation, embeddings and rerank.
-	AvgTtftMs       *int64                  `json:"avg_ttft_ms"`
-	TtftSampleCount int64                   `json:"ttft_sample_count"`
-	RequestCount    int64                   `json:"request_count"`
-	Buckets         []groupMonitoringBucket `json:"buckets"`
+	// AvgTtftMs is null when the latency window holds no streamed sample.
+	AvgTtftMs       *int64 `json:"avg_ttft_ms"`
+	TtftSampleCount int64  `json:"ttft_sample_count"`
+	// AvgTtftMs24h and TtftSampleCount24h cover the full 24h availability
+	// window. The card falls back to the 24h mean when the last hour happens to
+	// hold no streamed sample, so that a low-traffic streaming model keeps
+	// showing a first-token figure instead of switching to total latency. Only
+	// a model with no streamed sample in the whole day (image generation,
+	// embeddings, rerank) reaches the total-latency fallback, and the sample
+	// count is what lets the client tell that case apart from "quiet hour".
+	AvgTtftMs24h       *int64                  `json:"avg_ttft_ms_24h"`
+	TtftSampleCount24h int64                   `json:"ttft_sample_count_24h"`
+	RequestCount       int64                   `json:"request_count"`
+	Buckets            []groupMonitoringBucket `json:"buckets"`
 }
 
 type groupMonitoringGroupSummary struct {
@@ -310,15 +318,16 @@ func buildGroupMonitoringGroups(rows []model.PerfMetricGroupBucket, groups []ope
 			meta := metas[modelName]
 			recentCounters := recent[key]
 			modelSummary := groupMonitoringModelSummary{
-				ModelName:       modelName,
-				Icon:            meta.Icon,
-				VendorName:      meta.VendorName,
-				VendorIcon:      meta.VendorIcon,
-				HasData:         total.requestCount > 0,
-				State:           groupMonitoringStateNoData,
-				TtftSampleCount: recentCounters.ttftCount,
-				RequestCount:    total.requestCount,
-				Buckets:         series,
+				ModelName:          modelName,
+				Icon:               meta.Icon,
+				VendorName:         meta.VendorName,
+				VendorIcon:         meta.VendorIcon,
+				HasData:            total.requestCount > 0,
+				State:              groupMonitoringStateNoData,
+				TtftSampleCount:    recentCounters.ttftCount,
+				TtftSampleCount24h: total.ttftCount,
+				RequestCount:       total.requestCount,
+				Buckets:            series,
 			}
 			// The badge state follows the 24h availability and must stay
 			// independent of the shorter latency window.
@@ -336,6 +345,13 @@ func buildGroupMonitoringGroups(rows []model.PerfMetricGroupBucket, groups []ope
 			if recentCounters.ttftCount > 0 {
 				avgTtft := recentCounters.ttftSumMs / recentCounters.ttftCount
 				modelSummary.AvgTtftMs = &avgTtft
+			}
+			// Same rule for the 24h fallback: a streaming model that happened to
+			// be idle for an hour still gets a first-token figure, and a model
+			// with no streamed sample all day gets none.
+			if total.ttftCount > 0 {
+				avgTtft24h := total.ttftSumMs / total.ttftCount
+				modelSummary.AvgTtftMs24h = &avgTtft24h
 			}
 			summary.Models = append(summary.Models, modelSummary)
 		}

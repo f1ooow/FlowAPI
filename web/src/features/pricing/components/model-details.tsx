@@ -66,7 +66,6 @@ import {
   getDynamicPricingTiers,
   isDynamicPricingModel,
 } from '../lib/dynamic-price'
-import { parseTags } from '../lib/filters'
 import { getAvailableGroups, isTokenBasedModel } from '../lib/model-helpers'
 import { formatFixedPrice, formatGroupPrice } from '../lib/price'
 import type {
@@ -253,17 +252,6 @@ function CatalogTextValue(props: { children: React.ReactNode }) {
   )
 }
 
-function CatalogInfoCell(props: { label: string; children: React.ReactNode }) {
-  return (
-    <div className='bg-card flex min-w-0 flex-col gap-1 px-3 py-2.5'>
-      <span className='text-muted-foreground text-[10px] font-medium tracking-wider uppercase'>
-        {props.label}
-      </span>
-      {props.children}
-    </div>
-  )
-}
-
 function ModalityLabels(props: { items: string[] }) {
   const { t } = useTranslation()
   if (props.items.length === 0) return null
@@ -443,78 +431,11 @@ function ModelBackendSignalsSection(props: { model: PricingModel }) {
   )
 }
 
-function ModelBackendProviderSection(props: { model: PricingModel }) {
-  const { t } = useTranslation()
-  const model = props.model
-  const groups = normalizeCatalogItems(model.enable_groups)
-  const endpoints = normalizeCatalogItems(model.supported_endpoint_types)
-  const tags = parseTags(model.tags)
-  const cells: React.ReactNode[] = []
-
-  if (model.vendor_name) {
-    cells.push(
-      <CatalogInfoCell key='provider' label={t('Provider')}>
-        <CatalogTextValue>{model.vendor_name}</CatalogTextValue>
-      </CatalogInfoCell>
-    )
-  }
-
-  cells.push(
-    <CatalogInfoCell key='type' label={t('Type')}>
-      <ModelBillingModeBadge model={model} />
-    </CatalogInfoCell>
-  )
-
-  if (groups.length > 0) {
-    cells.push(
-      <CatalogInfoCell key='groups' label={t('Groups')}>
-        <CatalogPillList items={groups} />
-      </CatalogInfoCell>
-    )
-  }
-
-  if (endpoints.length > 0) {
-    cells.push(
-      <CatalogInfoCell key='endpoints' label={t('Endpoints')}>
-        <CatalogPillList items={endpoints} />
-      </CatalogInfoCell>
-    )
-  }
-
-  if (tags.length > 0) {
-    cells.push(
-      <CatalogInfoCell key='tags' label={t('Tags')}>
-        <CatalogPillList items={tags} />
-      </CatalogInfoCell>
-    )
-  }
-
-  if (model.parameter_count) {
-    cells.push(
-      <CatalogInfoCell key='parameters' label={t('Parameters')}>
-        <CatalogTextValue>{model.parameter_count}</CatalogTextValue>
-      </CatalogInfoCell>
-    )
-  }
-
-  if (cells.length === 0) return null
-
-  return (
-    <section>
-      <SectionTitle>{t('Model')}</SectionTitle>
-      <div className='border-border/60 bg-border/60 grid grid-cols-1 gap-px overflow-hidden rounded-lg border sm:grid-cols-2'>
-        {cells}
-      </div>
-    </section>
-  )
-}
-
 function ModelBackendDetailsSection(props: { model: PricingModel }) {
   return (
     <>
       <ModelBackendQuickStats model={props.model} />
       <ModelBackendSignalsSection model={props.model} />
-      <ModelBackendProviderSection model={props.model} />
     </>
   )
 }

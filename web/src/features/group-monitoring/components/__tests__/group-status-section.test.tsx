@@ -40,6 +40,8 @@ function model(
     avg_latency_ms: 1200,
     avg_ttft_ms: 400,
     ttft_sample_count: 10,
+    avg_ttft_ms_24h: 450,
+    ttft_sample_count_24h: 240,
     request_count: 100,
     buckets: [
       { ts: 0, request_count: 10, success_count: 10, state: 'healthy' },
