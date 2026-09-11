@@ -81,7 +81,7 @@ export function GroupMonitoringSettingsSection() {
       <div className='space-y-4'>
         <p className='text-muted-foreground text-sm'>
           {t(
-            'Availability is aggregated from real user traffic over the last 24 hours. No probe requests are sent, so a model without calls in the window shows as no data.'
+            'Availability is aggregated from real user traffic over the last 24 hours, latency over the last hour. No probe requests are sent, so a model without calls in the window shows as no data.'
           )}
         </p>
         {settingsContent}

@@ -28,7 +28,12 @@ export const groupMonitoringFormSchema = z.object({
       z.object({
         group: z.string().trim().min(1).max(64),
         description: z.string().trim().max(MAX_GROUP_DESCRIPTION_LENGTH),
-        visible_to_users: z.boolean(),
+        // null means "no restriction"; an empty array means "administrators
+        // only". Keep both reachable, they are different settings.
+        visible_to_groups: z
+          .array(z.string().trim().min(1).max(64))
+          .max(MAX_MONITORED_GROUPS)
+          .nullable(),
         models: z
           .array(z.string().trim().min(1).max(255))
           .min(1)

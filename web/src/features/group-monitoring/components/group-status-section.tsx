@@ -43,6 +43,17 @@ export function GroupStatusSection(props: {
     (model) => model.state === 'down' || model.state === 'degraded'
   ).length
 
+  // null means the group has no visibility restriction, so nothing to flag.
+  const allowList = props.group.visible_to_groups
+  let visibilityBadge = ''
+  if (allowList?.length) {
+    visibilityBadge = t('Visible to {{groups}}', {
+      groups: allowList.join(', '),
+    })
+  } else if (allowList) {
+    visibilityBadge = t('Administrators only')
+  }
+
   return (
     <Card className='rounded-xl'>
       <Collapsible open={open} onOpenChange={setOpen}>
@@ -70,11 +81,16 @@ export function GroupStatusSection(props: {
             )}
           </div>
           <div className='flex shrink-0 flex-wrap items-center justify-end gap-1.5'>
-            {/* Only an administrator ever receives a hidden group. */}
-            {!props.group.visible_to_users && (
-              <Badge variant='outline' className='text-muted-foreground'>
+            {/* Only an administrator ever receives the allow list, and only for
+                a group that restricts visibility. */}
+            {visibilityBadge && (
+              <Badge
+                variant='outline'
+                className='text-muted-foreground max-w-56'
+                title={visibilityBadge}
+              >
                 <EyeOff aria-hidden='true' />
-                {t('Hidden from users')}
+                <span className='truncate'>{visibilityBadge}</span>
               </Badge>
             )}
             <Badge variant='outline' className='text-muted-foreground'>

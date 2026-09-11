@@ -47,29 +47,36 @@ export function ModelStatusCard(props: {
   const { t } = useTranslation()
   const hasData = props.model.has_data
   const avgTtftMs = props.model.avg_ttft_ms
+  const avgLatencyMs = props.model.avg_latency_ms
 
   const availability = hasData
     ? `${props.model.availability_rate.toFixed(2)}%`
     : NO_VALUE
 
+  // Availability covers 24 hours, latency only the last one: a day-long mean
+  // says nothing about how the model feels right now. The two are deliberately
+  // on different windows, so the labels must say which one they are on.
+  //
   // A model that never streams (image generation, embeddings, rerank) has no
   // time-to-first-token samples at all, which the API reports as a null average
   // rather than 0 ms. Falling back to the average total latency is fine, but it
   // must never be labelled as first-token latency.
-  let latencyLabel = t('Latency (24H)')
+  let latencyLabel = t('Latency (1H)')
   let latencyValue = NO_VALUE
-  let latencyHint = t('No requests in the last 24 hours')
+  let latencyHint = hasData
+    ? t('No requests in the last hour')
+    : t('No requests in the last 24 hours')
   if (avgTtftMs !== null) {
-    latencyLabel = t('TTFT (24H)')
+    latencyLabel = t('TTFT (1H)')
     latencyValue = formatMilliseconds(avgTtftMs, t)
     latencyHint = t(
-      'Average time to first token over {{count}} streamed requests',
+      'Average time to first token over {{count}} streamed requests in the last hour',
       { count: props.model.ttft_sample_count }
     )
-  } else if (hasData) {
-    latencyValue = formatMilliseconds(props.model.avg_latency_ms, t)
+  } else if (avgLatencyMs !== null) {
+    latencyValue = formatMilliseconds(avgLatencyMs, t)
     latencyHint = t(
-      'Average total request latency. No time to first token samples.'
+      'Average total request latency over the last hour. No streamed samples in that window.'
     )
   }
 

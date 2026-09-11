@@ -26,7 +26,7 @@ const SETTING: GroupMonitoringSetting = {
     {
       group: 'default',
       description: 'core traffic',
-      visible_to_users: true,
+      visible_to_groups: null,
       models: ['gpt-4o-mini'],
     },
   ],
@@ -88,36 +88,147 @@ describe('MonitoringSettingsPanel', () => {
     )
   })
 
-  test('shows a newly checked group as visible to regular users', async () => {
+  test('leaves a newly checked group visible to every logged-in user', async () => {
     const user = userEvent.setup()
     const onSave = renderPanel()
 
     await user.click(screen.getByRole('checkbox', { name: 'vip' }))
     const switches = screen.getAllByRole('switch', {
-      name: 'Visible to regular users',
+      name: 'Restrict visibility',
     })
     expect(switches).toHaveLength(2)
-    expect(switches[1]).toBeChecked()
+    expect(switches[1]).not.toBeChecked()
+    expect(screen.getAllByText('Visible to all logged-in users')).toHaveLength(
+      2
+    )
 
     await user.click(screen.getByRole('button', { name: 'Save settings' }))
 
     await waitFor(() => expect(onSave).toHaveBeenCalled())
     const saved = onSave.mock.calls[0][0] as GroupMonitoringSetting
-    expect(saved.groups[1].visible_to_users).toBe(true)
+    // null, not [], which would mean "administrators only".
+    expect(saved.groups[1].visible_to_groups).toBeNull()
   })
 
-  test('saves a group as hidden once its visibility switch is turned off', async () => {
+  test('turning on the restriction saves an empty allow list', async () => {
     const user = userEvent.setup()
     const onSave = renderPanel()
 
     await user.click(
-      screen.getByRole('switch', { name: 'Visible to regular users' })
+      screen.getByRole('switch', { name: 'Restrict visibility' })
     )
+    expect(
+      screen.getByText('Visible to administrators only')
+    ).toBeInTheDocument()
+
     await user.click(screen.getByRole('button', { name: 'Save settings' }))
 
     await waitFor(() => expect(onSave).toHaveBeenCalled())
     const saved = onSave.mock.calls[0][0] as GroupMonitoringSetting
-    expect(saved.groups[0].visible_to_users).toBe(false)
+    expect(saved.groups[0].visible_to_groups).toEqual([])
+  })
+
+  test('saves the picked user groups as the allow list', async () => {
+    const user = userEvent.setup()
+    const onSave = renderPanel()
+
+    await user.click(
+      screen.getByRole('switch', { name: 'Restrict visibility' })
+    )
+    await user.click(screen.getByLabelText('Visible to user groups'))
+    await user.click(screen.getByRole('option', { name: 'vip' }))
+    // The dropdown traps the accessibility tree while open.
+    await user.keyboard('{Escape}')
+
+    expect(
+      screen.getByText('Visible to administrators and the selected user groups')
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Save settings' }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    const saved = onSave.mock.calls[0][0] as GroupMonitoringSetting
+    expect(saved.groups[0].visible_to_groups).toEqual(['vip'])
+  })
+
+  test('turning the restriction back off drops the allow list entirely', async () => {
+    const user = userEvent.setup()
+    const onSave = vi.fn()
+    render(
+      <MonitoringSettingsPanel
+        availableGroups={['default', 'vip']}
+        availableModelsByGroup={AVAILABLE_MODELS}
+        storageBucketMinutes={5}
+        setting={{
+          enabled: true,
+          bucket_minutes: 5,
+          groups: [
+            {
+              group: 'default',
+              description: '',
+              visible_to_groups: ['vip'],
+              models: ['gpt-4o-mini'],
+            },
+          ],
+        }}
+        saving={false}
+        onSave={onSave}
+      />
+    )
+
+    expect(
+      screen.getByRole('switch', { name: 'Restrict visibility' })
+    ).toBeChecked()
+
+    await user.click(
+      screen.getByRole('switch', { name: 'Restrict visibility' })
+    )
+    expect(screen.queryByLabelText('Visible to user groups')).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Save settings' }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    const saved = onSave.mock.calls[0][0] as GroupMonitoringSetting
+    expect(saved.groups[0].visible_to_groups).toBeNull()
+  })
+
+  test('keeps a retired user group in the allow list so it can be removed', async () => {
+    const user = userEvent.setup()
+    const onSave = vi.fn()
+    render(
+      <MonitoringSettingsPanel
+        availableGroups={['default', 'vip']}
+        availableModelsByGroup={AVAILABLE_MODELS}
+        storageBucketMinutes={5}
+        setting={{
+          enabled: true,
+          bucket_minutes: 5,
+          groups: [
+            {
+              group: 'default',
+              description: '',
+              // No longer in the group ratio settings: the API rejects it, so
+              // it has to stay visible here to be removable.
+              visible_to_groups: ['retired'],
+              models: ['gpt-4o-mini'],
+            },
+          ],
+        }}
+        saving={false}
+        onSave={onSave}
+      />
+    )
+
+    const allowList = screen.getByLabelText('Visible to user groups')
+    expect(screen.getByText('retired')).toBeInTheDocument()
+
+    await user.click(allowList)
+    await user.keyboard('{Backspace}')
+    await user.keyboard('{Escape}')
+    await user.click(screen.getByRole('button', { name: 'Save settings' }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    const saved = onSave.mock.calls[0][0] as GroupMonitoringSetting
+    expect(saved.groups[0].visible_to_groups).toEqual([])
   })
 
   test('rejects saving a monitored group with no models selected', async () => {
@@ -155,7 +266,7 @@ describe('MonitoringSettingsPanel', () => {
             {
               group: 'vip',
               description: '',
-              visible_to_users: true,
+              visible_to_groups: null,
               models: ['gpt-image-2'],
             },
           ],
@@ -173,7 +284,7 @@ describe('MonitoringSettingsPanel', () => {
     expect(saved.groups.map((group) => group.group)).toEqual(['default', 'vip'])
   })
 
-  test('keeps a group that no longer exists visible so it can be unchecked', async () => {
+  test('keeps a monitored group that no longer exists visible so it can be unchecked', async () => {
     const user = userEvent.setup()
     const onSave = vi.fn()
     render(
@@ -188,7 +299,7 @@ describe('MonitoringSettingsPanel', () => {
             {
               group: 'retired',
               description: '',
-              visible_to_users: false,
+              visible_to_groups: [],
               models: ['old'],
             },
           ],
@@ -201,8 +312,8 @@ describe('MonitoringSettingsPanel', () => {
     const retired = screen.getByRole('checkbox', { name: 'retired' })
     expect(retired).toBeChecked()
     expect(
-      screen.getByRole('switch', { name: 'Visible to regular users' })
-    ).not.toBeChecked()
+      screen.getByRole('switch', { name: 'Restrict visibility' })
+    ).toBeChecked()
 
     await user.click(retired)
     await user.click(screen.getByRole('button', { name: 'Save settings' }))

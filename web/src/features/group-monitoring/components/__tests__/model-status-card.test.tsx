@@ -70,9 +70,9 @@ describe('ModelStatusCard', () => {
   test('labels the metric as TTFT when time-to-first-token samples exist', () => {
     renderCard(streamingModel)
 
-    expect(screen.getByText('TTFT (24H)')).toBeInTheDocument()
+    expect(screen.getByText('TTFT (1H)')).toBeInTheDocument()
     expect(screen.getByText('820 ms')).toBeInTheDocument()
-    expect(screen.queryByText('Latency (24H)')).toBeNull()
+    expect(screen.queryByText('Latency (1H)')).toBeNull()
     expect(screen.getByText('99.53%')).toBeInTheDocument()
   })
 
@@ -103,18 +103,34 @@ describe('ModelStatusCard', () => {
       avg_latency_ms: 117260,
     })
 
-    expect(screen.getByText('Latency (24H)')).toBeInTheDocument()
+    expect(screen.getByText('Latency (1H)')).toBeInTheDocument()
     expect(screen.getByText('117.3 s')).toBeInTheDocument()
-    expect(screen.queryByText('TTFT (24H)')).toBeNull()
+    expect(screen.queryByText('TTFT (1H)')).toBeNull()
+    expect(screen.getByTitle(/No streamed samples/)).toBeInTheDocument()
+  })
+
+  test('shows no latency for a model that served nothing in the last hour', () => {
+    renderCard({
+      ...streamingModel,
+      // Plenty of traffic today, none of it inside the latency window.
+      avg_latency_ms: null,
+      avg_ttft_ms: null,
+      ttft_sample_count: 0,
+    })
+
+    expect(screen.getByText('Latency (1H)')).toBeInTheDocument()
+    // The 24h availability keeps its value, only the latency is unknown.
+    expect(screen.getByText('99.53%')).toBeInTheDocument()
+    expect(screen.getAllByText('—')).toHaveLength(1)
     expect(
-      screen.getByTitle(/No time to first token samples/)
+      screen.getByTitle('No requests in the last hour')
     ).toBeInTheDocument()
   })
 
   test('shows a real zero TTFT instead of the no-sample fallback', () => {
     renderCard({ ...streamingModel, avg_ttft_ms: 0, ttft_sample_count: 42 })
 
-    expect(screen.getByText('TTFT (24H)')).toBeInTheDocument()
+    expect(screen.getByText('TTFT (1H)')).toBeInTheDocument()
     expect(screen.getByText('0 ms')).toBeInTheDocument()
   })
 
@@ -149,7 +165,7 @@ describe('ModelStatusCard', () => {
         has_data: false,
         state: 'no-data',
         availability_rate: 0,
-        avg_latency_ms: 0,
+        avg_latency_ms: null,
         avg_ttft_ms: null,
         ttft_sample_count: 0,
         request_count: 0,
@@ -161,5 +177,9 @@ describe('ModelStatusCard', () => {
     expect(screen.getAllByText('—')).toHaveLength(2)
     expect(screen.queryByText('0.00%')).toBeNull()
     expect(screen.getByText('No data')).toBeInTheDocument()
+    // A model with no traffic at all must not claim the hour is the problem.
+    expect(
+      screen.getByTitle('No requests in the last 24 hours')
+    ).toBeInTheDocument()
   })
 })

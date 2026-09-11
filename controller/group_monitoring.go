@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/perf_metrics_setting"
@@ -20,6 +21,13 @@ import (
 const (
 	groupMonitoringWindowHours   = 24
 	groupMonitoringWindowSeconds = int64(groupMonitoringWindowHours) * 3600
+
+	// Latency deliberately uses a much shorter window than availability.
+	// Availability is a stability metric: a 24h uptime figure is what tells a
+	// user whether a pool is dependable. Latency is a "how does it feel right
+	// now" metric, and a 24h mean buries a slowdown that started an hour ago
+	// under a day of healthy samples. Do not "tidy this up" by unifying them.
+	groupMonitoringLatencyWindowSeconds = int64(3600)
 
 	// A display bucket built from one or two requests carries no signal: with
 	// two requests a single failure already reads as 50% and paints the whole
@@ -46,26 +54,35 @@ type groupMonitoringModelSummary struct {
 	ModelName string `json:"model_name"`
 	// Icon and vendor come from the pricing catalog, the same source the model
 	// square renders, so a model looks identical in both places.
-	Icon             string                  `json:"icon,omitempty"`
-	VendorName       string                  `json:"vendor_name,omitempty"`
-	VendorIcon       string                  `json:"vendor_icon,omitempty"`
-	HasData          bool                    `json:"has_data"`
-	State            string                  `json:"state"`
-	AvailabilityRate float64                 `json:"availability_rate"`
-	AvgLatencyMs     int64                   `json:"avg_latency_ms"`
-	AvgTtftMs        *int64                  `json:"avg_ttft_ms"`
-	TtftSampleCount  int64                   `json:"ttft_sample_count"`
-	RequestCount     int64                   `json:"request_count"`
-	Buckets          []groupMonitoringBucket `json:"buckets"`
+	Icon       string `json:"icon,omitempty"`
+	VendorName string `json:"vendor_name,omitempty"`
+	VendorIcon string `json:"vendor_icon,omitempty"`
+	HasData    bool   `json:"has_data"`
+	State      string `json:"state"`
+	// AvailabilityRate and RequestCount cover the full 24h window; the two
+	// latency averages cover the last hour only.
+	AvailabilityRate float64 `json:"availability_rate"`
+	// AvgLatencyMs is null when the model served no request in the latency
+	// window, even if it served plenty earlier in the day. Falling back to the
+	// 24h mean would leave the user unable to tell which window they read.
+	AvgLatencyMs *int64 `json:"avg_latency_ms"`
+	// AvgTtftMs is null when the latency window holds no streamed sample, which
+	// is the normal case for image generation, embeddings and rerank.
+	AvgTtftMs       *int64                  `json:"avg_ttft_ms"`
+	TtftSampleCount int64                   `json:"ttft_sample_count"`
+	RequestCount    int64                   `json:"request_count"`
+	Buckets         []groupMonitoringBucket `json:"buckets"`
 }
 
 type groupMonitoringGroupSummary struct {
 	GroupName   string `json:"group_name"`
 	Description string `json:"description"`
-	// Always true for a non-admin viewer, who never receives a hidden group.
-	// Admins get every group and use this to spot the hidden ones.
-	VisibleToUsers bool                          `json:"visible_to_users"`
-	Models         []groupMonitoringModelSummary `json:"models"`
+	// VisibleToGroups mirrors the configured user-group allow list: null means
+	// every logged-in user, an empty array means administrators only. A regular
+	// viewer only ever receives groups they are allowed to see; an admin
+	// receives all of them and uses this to spot the restricted ones.
+	VisibleToGroups []string                      `json:"visible_to_groups"`
+	Models          []groupMonitoringModelSummary `json:"models"`
 }
 
 // groupMonitoringThresholds mirrors the constants this file applies to a
@@ -232,37 +249,46 @@ func groupMonitoringModelMetaMap(groups []operation_setting.GroupMonitoringGroup
 	return metas
 }
 
-func buildGroupMonitoringGroups(rows []model.PerfMetricGroupBucket, groups []operation_setting.GroupMonitoringGroup, metas map[string]groupMonitoringModelMeta, seriesStart int64, bucketCount int, displaySeconds int64) []groupMonitoringGroupSummary {
+func buildGroupMonitoringGroups(rows []model.PerfMetricGroupBucket, groups []operation_setting.GroupMonitoringGroup, metas map[string]groupMonitoringModelMeta, seriesStart int64, bucketCount int, displaySeconds int64, latencyStart int64) []groupMonitoringGroupSummary {
 	seriesEnd := seriesStart + int64(bucketCount)*displaySeconds
 	rolled := make(map[string]map[int64]groupMonitoringCounters, len(rows))
+	// Latency is summed from the storage buckets rather than from the display
+	// series, so the one hour window stays exact even when the timeline renders
+	// hour-wide bars.
+	recent := make(map[string]groupMonitoringCounters, len(rows))
 	for _, row := range rows {
 		displayTs := row.BucketTs - row.BucketTs%displaySeconds
 		if displayTs < seriesStart || displayTs >= seriesEnd {
 			continue
 		}
 		key := row.Group + "\x00" + row.ModelName
-		if _, ok := rolled[key]; !ok {
-			rolled[key] = make(map[int64]groupMonitoringCounters)
-		}
-		rolled[key][displayTs] = rolled[key][displayTs].plus(groupMonitoringCounters{
+		counters := groupMonitoringCounters{
 			requestCount:   row.RequestCount,
 			successCount:   row.SuccessCount,
 			totalLatencyMs: row.TotalLatencyMs,
 			ttftSumMs:      row.TtftSumMs,
 			ttftCount:      row.TtftCount,
-		})
+		}
+		if _, ok := rolled[key]; !ok {
+			rolled[key] = make(map[int64]groupMonitoringCounters)
+		}
+		rolled[key][displayTs] = rolled[key][displayTs].plus(counters)
+		if row.BucketTs >= latencyStart && row.BucketTs < seriesEnd {
+			recent[key] = recent[key].plus(counters)
+		}
 	}
 
 	summaries := make([]groupMonitoringGroupSummary, 0, len(groups))
 	for _, group := range groups {
 		summary := groupMonitoringGroupSummary{
-			GroupName:      group.Group,
-			Description:    group.Description,
-			VisibleToUsers: group.IsVisibleToUsers(),
-			Models:         make([]groupMonitoringModelSummary, 0, len(group.Models)),
+			GroupName:       group.Group,
+			Description:     group.Description,
+			VisibleToGroups: group.VisibleToGroups,
+			Models:          make([]groupMonitoringModelSummary, 0, len(group.Models)),
 		}
 		for _, modelName := range group.Models {
-			buckets := rolled[group.Group+"\x00"+modelName]
+			key := group.Group + "\x00" + modelName
+			buckets := rolled[key]
 			total := groupMonitoringCounters{}
 			series := make([]groupMonitoringBucket, bucketCount)
 			for index := range series {
@@ -282,6 +308,7 @@ func buildGroupMonitoringGroups(rows []model.PerfMetricGroupBucket, groups []ope
 			}
 
 			meta := metas[modelName]
+			recentCounters := recent[key]
 			modelSummary := groupMonitoringModelSummary{
 				ModelName:       modelName,
 				Icon:            meta.Icon,
@@ -289,20 +316,25 @@ func buildGroupMonitoringGroups(rows []model.PerfMetricGroupBucket, groups []ope
 				VendorIcon:      meta.VendorIcon,
 				HasData:         total.requestCount > 0,
 				State:           groupMonitoringStateNoData,
-				TtftSampleCount: total.ttftCount,
+				TtftSampleCount: recentCounters.ttftCount,
 				RequestCount:    total.requestCount,
 				Buckets:         series,
 			}
+			// The badge state follows the 24h availability and must stay
+			// independent of the shorter latency window.
 			if total.requestCount > 0 {
 				modelSummary.AvailabilityRate = groupMonitoringAvailability(total)
-				modelSummary.AvgLatencyMs = total.totalLatencyMs / total.requestCount
 				modelSummary.State = groupMonitoringHealthState(modelSummary.AvailabilityRate)
+			}
+			if recentCounters.requestCount > 0 {
+				avgLatency := recentCounters.totalLatencyMs / recentCounters.requestCount
+				modelSummary.AvgLatencyMs = &avgLatency
 			}
 			// Non-streaming relays (image generation, embeddings, rerank) never
 			// accumulate TTFT, so a zero average would be indistinguishable from
 			// a genuine 0 ms. Report null and let the UI fall back to latency.
-			if total.ttftCount > 0 {
-				avgTtft := total.ttftSumMs / total.ttftCount
+			if recentCounters.ttftCount > 0 {
+				avgTtft := recentCounters.ttftSumMs / recentCounters.ttftCount
 				modelSummary.AvgTtftMs = &avgTtft
 			}
 			summary.Models = append(summary.Models, modelSummary)
@@ -313,19 +345,33 @@ func buildGroupMonitoringGroups(rows []model.PerfMetricGroupBucket, groups []ope
 }
 
 // groupMonitoringVisibleGroups drops the groups a regular user must not see.
-// The route stays behind UserAuth; the split is by role inside the handler so
-// no anonymous entry point is introduced.
-func groupMonitoringVisibleGroups(groups []operation_setting.GroupMonitoringGroup, isAdmin bool) []operation_setting.GroupMonitoringGroup {
+// Administrators are exempt from the allow list; everyone else is matched by
+// the group their account belongs to. The route stays behind UserAuth, the
+// split is by role inside the handler, so no anonymous entry point exists.
+func groupMonitoringVisibleGroups(groups []operation_setting.GroupMonitoringGroup, isAdmin bool, userGroup string) []operation_setting.GroupMonitoringGroup {
 	if isAdmin {
 		return groups
 	}
 	visible := make([]operation_setting.GroupMonitoringGroup, 0, len(groups))
 	for _, group := range groups {
-		if group.IsVisibleToUsers() {
+		if group.IsVisibleToUserGroup(userGroup) {
 			visible = append(visible, group)
 		}
 	}
 	return visible
+}
+
+// groupMonitoringLatencyStart returns the inclusive lower bound of the latency
+// window, aligned to whole storage buckets. The bucket count is derived from
+// the configured storage width instead of being hard-coded, so an administrator
+// widening the global bucket to an hour still gets exactly one hour of latency.
+func groupMonitoringLatencyStart(seriesEnd int64) int64 {
+	storageSeconds := perf_metrics_setting.GetBucketSeconds()
+	bucketCount := groupMonitoringLatencyWindowSeconds / storageSeconds
+	if bucketCount < 1 {
+		bucketCount = 1
+	}
+	return seriesEnd - bucketCount*storageSeconds
 }
 
 func GetGroupMonitoringSummary(c *gin.Context) {
@@ -346,7 +392,9 @@ func GetGroupMonitoringSummary(c *gin.Context) {
 		},
 		Groups: []groupMonitoringGroupSummary{},
 	}
-	groups := groupMonitoringVisibleGroups(setting.Groups, c.GetInt("role") >= common.RoleAdminUser)
+	isAdmin := c.GetInt("role") >= common.RoleAdminUser
+	userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+	groups := groupMonitoringVisibleGroups(setting.Groups, isAdmin, userGroup)
 	if !setting.Enabled || len(groups) == 0 {
 		c.JSON(http.StatusOK, gin.H{"success": true, "data": response})
 		return
@@ -358,7 +406,15 @@ func GetGroupMonitoringSummary(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	response.Groups = buildGroupMonitoringGroups(rows, groups, groupMonitoringModelMetaMap(groups), seriesStart, bucketCount, displaySeconds)
+	response.Groups = buildGroupMonitoringGroups(rows, groups, groupMonitoringModelMetaMap(groups), seriesStart, bucketCount, displaySeconds, groupMonitoringLatencyStart(seriesEnd))
+	if !isAdmin {
+		// The allow list names other user groups, which a regular viewer has no
+		// business learning about. They already passed the filter above, so the
+		// restriction badge is only meaningful to an administrator anyway.
+		for index := range response.Groups {
+			response.Groups[index].VisibleToGroups = nil
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": response})
 }
 
@@ -403,10 +459,11 @@ func UpdateGroupMonitoringAdmin(c *gin.Context) {
 	for index := range setting.Groups {
 		setting.Groups[index].Group = strings.TrimSpace(setting.Groups[index].Group)
 		setting.Groups[index].Description = strings.TrimSpace(setting.Groups[index].Description)
-		// A payload without the field keeps the pre-flag behaviour (visible);
-		// persisting it explicitly makes the stored option self-describing.
-		visibleToUsers := setting.Groups[index].IsVisibleToUsers()
-		setting.Groups[index].VisibleToUsers = &visibleToUsers
+		// Trim in place: allocating a new slice here would turn the "no regular
+		// user" empty list into a nil one, which means the opposite.
+		for visibleIndex := range setting.Groups[index].VisibleToGroups {
+			setting.Groups[index].VisibleToGroups[visibleIndex] = strings.TrimSpace(setting.Groups[index].VisibleToGroups[visibleIndex])
+		}
 		for modelIndex := range setting.Groups[index].Models {
 			setting.Groups[index].Models[modelIndex] = strings.TrimSpace(setting.Groups[index].Models[modelIndex])
 		}
@@ -420,6 +477,15 @@ func UpdateGroupMonitoringAdmin(c *gin.Context) {
 		if _, ok := knownGroups[group.Group]; !ok {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("unknown group %q", group.Group)})
 			return
+		}
+		// The allow list is checked against the same group universe as the
+		// monitored group itself, so a typo cannot silently hide a group from
+		// everyone. Rejecting matches how an unknown monitored group is handled.
+		for _, visibleGroup := range group.VisibleToGroups {
+			if _, ok := knownGroups[visibleGroup]; !ok {
+				c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("unknown user group %q in the visibility list of group %q", visibleGroup, group.Group)})
+				return
+			}
 		}
 		available := model.GetGroupEnabledModels(group.Group)
 		for modelIndex, modelName := range group.Models {

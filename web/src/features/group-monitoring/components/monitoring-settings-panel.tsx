@@ -64,9 +64,11 @@ function toFormValues(
     groups: (setting.groups ?? []).map((group) => ({
       group: group.group,
       description: group.description ?? '',
-      // The API resolves a missing flag to visible, matching the behaviour
-      // before the flag existed; mirror that for a config saved back then.
-      visible_to_users: group.visible_to_users !== false,
+      // Keep null as null: it is "visible to everyone", which an empty array
+      // would silently turn into "administrators only".
+      visible_to_groups: group.visible_to_groups
+        ? [...group.visible_to_groups]
+        : null,
       models: [...(group.models ?? [])],
     })),
   }
@@ -112,7 +114,7 @@ export function MonitoringSettingsPanel(props: MonitoringSettingsPanelProps) {
     groups.insert(insertAt, {
       group: groupName,
       description: '',
-      visible_to_users: true,
+      visible_to_groups: null,
       models: props.availableModelsByGroup[groupName]?.slice(0, 1) ?? [],
     })
   }
@@ -183,7 +185,7 @@ export function MonitoringSettingsPanel(props: MonitoringSettingsPanelProps) {
           </FieldDescription>
           <FieldDescription>
             {t(
-              'Administrators always see every monitored group, whether or not it is visible to regular users.'
+              'Administrators always see every monitored group, regardless of the visibility restrictions below.'
             )}
           </FieldDescription>
         </div>
@@ -201,6 +203,26 @@ export function MonitoringSettingsPanel(props: MonitoringSettingsPanelProps) {
               const monitored = index >= 0
               const models = props.availableModelsByGroup[groupName] ?? []
               const groupErrors = form.formState.errors.groups?.[index]
+              // null is "no restriction"; an array (even an empty one) means
+              // the allow list decides.
+              const allowList = watchedGroups[index]?.visible_to_groups ?? null
+              // A user group that disappeared from the group ratio settings is
+              // still listed while selected, otherwise it could never be
+              // removed and every save would be rejected as unknown.
+              const userGroupOptions = [
+                ...props.availableGroups,
+                ...(allowList ?? []).filter(
+                  (group) => !props.availableGroups.includes(group)
+                ),
+              ]
+              let visibilityHint = t('Visible to all logged-in users')
+              if (allowList?.length) {
+                visibilityHint = t(
+                  'Visible to administrators and the selected user groups'
+                )
+              } else if (allowList) {
+                visibilityHint = t('Visible to administrators only')
+              }
 
               return (
                 <div key={groupName} className='rounded-lg border p-3'>
@@ -223,69 +245,109 @@ export function MonitoringSettingsPanel(props: MonitoringSettingsPanelProps) {
                     {monitored && (
                       <div className='flex items-center gap-2'>
                         <Switch
-                          id={`monitoring-visible-${groupName}`}
-                          checked={
-                            watchedGroups[index]?.visible_to_users ?? true
-                          }
+                          id={`monitoring-restricted-${groupName}`}
+                          checked={allowList !== null}
                           onCheckedChange={(checked) =>
                             form.setValue(
-                              `groups.${index}.visible_to_users`,
-                              checked,
-                              { shouldDirty: true }
+                              `groups.${index}.visible_to_groups`,
+                              // Turning the restriction on starts from an empty
+                              // allow list, which is "administrators only".
+                              checked ? [] : null,
+                              { shouldDirty: true, shouldValidate: true }
                             )
                           }
                         />
                         <FieldLabel
-                          htmlFor={`monitoring-visible-${groupName}`}
+                          htmlFor={`monitoring-restricted-${groupName}`}
                           className='text-muted-foreground font-normal'
                         >
-                          {t('Visible to regular users')}
+                          {t('Restrict visibility')}
                         </FieldLabel>
                       </div>
                     )}
                   </div>
 
                   {monitored && (
-                    <div className='mt-3 grid gap-3 lg:grid-cols-2'>
-                      <Field data-invalid={Boolean(groupErrors?.models)}>
-                        <FieldLabel htmlFor={`monitoring-models-${groupName}`}>
-                          {t('Monitored models')}
-                        </FieldLabel>
-                        <MultiSelect
-                          id={`monitoring-models-${groupName}`}
-                          options={models.map((model) => ({
-                            label: model,
-                            value: model,
-                          }))}
-                          selected={watchedGroups[index]?.models ?? []}
-                          onChange={(values) =>
-                            form.setValue(`groups.${index}.models`, values, {
-                              shouldDirty: true,
-                              shouldValidate: true,
-                            })
-                          }
-                          placeholder={t('Select models to monitor')}
-                          emptyText={t('No models available')}
-                          maxVisibleChips={8}
-                        />
-                        <FieldError errors={[groupErrors?.models]} />
-                      </Field>
+                    <div className='mt-3 space-y-3'>
+                      <div className='grid gap-3 lg:grid-cols-2'>
+                        <Field data-invalid={Boolean(groupErrors?.models)}>
+                          <FieldLabel
+                            htmlFor={`monitoring-models-${groupName}`}
+                          >
+                            {t('Monitored models')}
+                          </FieldLabel>
+                          <MultiSelect
+                            id={`monitoring-models-${groupName}`}
+                            options={models.map((model) => ({
+                              label: model,
+                              value: model,
+                            }))}
+                            selected={watchedGroups[index]?.models ?? []}
+                            onChange={(values) =>
+                              form.setValue(`groups.${index}.models`, values, {
+                                shouldDirty: true,
+                                shouldValidate: true,
+                              })
+                            }
+                            placeholder={t('Select models to monitor')}
+                            emptyText={t('No models available')}
+                            maxVisibleChips={8}
+                          />
+                          <FieldError errors={[groupErrors?.models]} />
+                        </Field>
 
-                      <Field data-invalid={Boolean(groupErrors?.description)}>
-                        <FieldLabel
-                          htmlFor={`monitoring-description-${groupName}`}
-                        >
-                          {t('Description')}
-                        </FieldLabel>
-                        <Input
-                          id={`monitoring-description-${groupName}`}
-                          maxLength={MAX_GROUP_DESCRIPTION_LENGTH}
-                          placeholder={t(
-                            'Shown above this group on the monitoring page'
-                          )}
-                          {...form.register(`groups.${index}.description`)}
+                        <Field data-invalid={Boolean(groupErrors?.description)}>
+                          <FieldLabel
+                            htmlFor={`monitoring-description-${groupName}`}
+                          >
+                            {t('Description')}
+                          </FieldLabel>
+                          <Input
+                            id={`monitoring-description-${groupName}`}
+                            maxLength={MAX_GROUP_DESCRIPTION_LENGTH}
+                            placeholder={t(
+                              'Shown above this group on the monitoring page'
+                            )}
+                            {...form.register(`groups.${index}.description`)}
+                          />
+                          <FieldError errors={[groupErrors?.description]} />
+                        </Field>
+                      </div>
+
+                      <Field
+                        data-invalid={Boolean(groupErrors?.visible_to_groups)}
+                      >
+                        {allowList !== null && (
+                          <>
+                            <FieldLabel
+                              htmlFor={`monitoring-visible-groups-${groupName}`}
+                            >
+                              {t('Visible to user groups')}
+                            </FieldLabel>
+                            <MultiSelect
+                              id={`monitoring-visible-groups-${groupName}`}
+                              options={userGroupOptions.map((group) => ({
+                                label: group,
+                                value: group,
+                              }))}
+                              selected={allowList}
+                              onChange={(values) =>
+                                form.setValue(
+                                  `groups.${index}.visible_to_groups`,
+                                  values,
+                                  { shouldDirty: true, shouldValidate: true }
+                                )
+                              }
+                              placeholder={t('Select user groups')}
+                              emptyText={t('No groups available')}
+                              maxVisibleChips={8}
+                            />
+                          </>
+                        )}
+                        <FieldDescription>{visibilityHint}</FieldDescription>
+                        <FieldError
+                          errors={[groupErrors?.visible_to_groups?.root]}
                         />
-                        <FieldError errors={[groupErrors?.description]} />
                       </Field>
                     </div>
                   )}

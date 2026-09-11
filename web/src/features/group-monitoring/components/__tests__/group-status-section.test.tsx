@@ -50,7 +50,7 @@ function model(
 const GROUP: GroupMonitoringGroupSummary = {
   group_name: 'default',
   description: 'shared pool',
-  visible_to_users: true,
+  visible_to_groups: null,
   models: [model('gpt-4o-mini', 'healthy'), model('gpt-image-2', 'down')],
 }
 
@@ -100,16 +100,22 @@ describe('GroupStatusSection', () => {
     expect(screen.getByText('gpt-4o-mini')).toBeInTheDocument()
   })
 
-  test('marks a group that regular users cannot see', () => {
-    renderSection({ ...GROUP, visible_to_users: false })
+  test('marks a group restricted to an allow list', () => {
+    renderSection({ ...GROUP, visible_to_groups: ['vip', 'internal'] })
 
-    expect(screen.getByText('Hidden from users')).toBeInTheDocument()
+    expect(screen.getByText('Visible to vip, internal')).toBeInTheDocument()
   })
 
-  test('does not mark a group that regular users can see', () => {
+  test('marks a group with an empty allow list as administrators only', () => {
+    renderSection({ ...GROUP, visible_to_groups: [] })
+
+    expect(screen.getByText('Administrators only')).toBeInTheDocument()
+  })
+
+  test('leaves an unrestricted group unmarked', () => {
     renderSection()
 
-    expect(screen.queryByText('Hidden from users')).toBeNull()
+    expect(screen.queryByText(/Visible to|Administrators only/)).toBeNull()
   })
 
   test('explains an empty group instead of rendering a blank grid', () => {

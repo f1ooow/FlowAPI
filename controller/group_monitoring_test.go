@@ -127,8 +127,10 @@ func TestBuildGroupMonitoringGroupsRollsUpStorageBuckets(t *testing.T) {
 		"gpt-4o-mini": {Icon: "OpenAI", VendorName: "OpenAI", VendorIcon: "OpenAI.Color"},
 	}
 
-	// 15 minute display buckets over a one hour window.
-	summaries := buildGroupMonitoringGroups(rows, groups, metas, 0, 4, 900)
+	// 15 minute display buckets over a one hour window. The latency window
+	// covers the whole series here, so latency and availability read the same
+	// samples; the narrower latency window is exercised separately below.
+	summaries := buildGroupMonitoringGroups(rows, groups, metas, 0, 4, 900, 0)
 	require.Len(t, summaries, 2)
 
 	assert.Equal(t, "default", summaries[0].GroupName)
@@ -146,7 +148,8 @@ func TestBuildGroupMonitoringGroupsRollsUpStorageBuckets(t *testing.T) {
 	assert.EqualValues(t, 22, chat.RequestCount)
 	assert.Equal(t, 86.36, chat.AvailabilityRate)
 	assert.Equal(t, groupMonitoringStateDegraded, chat.State)
-	assert.EqualValues(t, 109, chat.AvgLatencyMs)
+	require.NotNil(t, chat.AvgLatencyMs)
+	assert.EqualValues(t, 109, *chat.AvgLatencyMs)
 	require.NotNil(t, chat.AvgTtftMs)
 	assert.EqualValues(t, 50, *chat.AvgTtftMs)
 	assert.EqualValues(t, 20, chat.TtftSampleCount)
@@ -168,7 +171,8 @@ func TestBuildGroupMonitoringGroupsRollsUpStorageBuckets(t *testing.T) {
 	assert.Empty(t, image.VendorName, "a model missing from the pricing catalog must not fabricate a vendor")
 	assert.True(t, image.HasData)
 	assert.Equal(t, groupMonitoringStateHealthy, image.State)
-	assert.EqualValues(t, 120000, image.AvgLatencyMs)
+	require.NotNil(t, image.AvgLatencyMs)
+	assert.EqualValues(t, 120000, *image.AvgLatencyMs)
 	assert.Nil(t, image.AvgTtftMs, "non-streaming models must report no TTFT sample instead of 0 ms")
 	assert.EqualValues(t, 0, image.TtftSampleCount)
 
@@ -176,6 +180,7 @@ func TestBuildGroupMonitoringGroupsRollsUpStorageBuckets(t *testing.T) {
 	assert.False(t, unused.HasData)
 	assert.Equal(t, groupMonitoringStateNoData, unused.State)
 	assert.EqualValues(t, 0, unused.RequestCount)
+	assert.Nil(t, unused.AvgLatencyMs)
 	assert.Nil(t, unused.AvgTtftMs)
 	require.Len(t, unused.Buckets, 4)
 
@@ -213,7 +218,7 @@ func TestBuildGroupMonitoringGroupsBucketStateThresholds(t *testing.T) {
 				RequestCount: test.requestCount,
 				SuccessCount: test.successCount,
 			}}
-			summaries := buildGroupMonitoringGroups(rows, groups, nil, 0, 1, 300)
+			summaries := buildGroupMonitoringGroups(rows, groups, nil, 0, 1, 300, 0)
 			require.Len(t, summaries, 1)
 			require.Len(t, summaries[0].Models[0].Buckets, 1)
 			assert.Equal(t, test.want, summaries[0].Models[0].Buckets[0].State)
@@ -226,21 +231,130 @@ func TestBuildGroupMonitoringGroupsBucketStateThresholds(t *testing.T) {
 }
 
 func TestGroupMonitoringVisibleGroups(t *testing.T) {
-	hidden := false
-	shown := true
 	groups := []operation_setting.GroupMonitoringGroup{
-		{Group: "public", VisibleToUsers: &shown, Models: []string{"gpt-4o-mini"}},
-		{Group: "internal", VisibleToUsers: &hidden, Models: []string{"gpt-4o-mini"}},
-		// Configured before the flag existed: it must stay visible, otherwise an
-		// upgrade would blank the page for every non-admin.
+		// Configured before the allow list existed: a nil list must stay visible
+		// to everyone, otherwise an upgrade blanks the page for every non-admin.
 		{Group: "legacy", Models: []string{"gpt-4o-mini"}},
+		{Group: "admin-only", VisibleToGroups: []string{}, Models: []string{"gpt-4o-mini"}},
+		{Group: "codex-pro", VisibleToGroups: []string{"vip", "internal"}, Models: []string{"gpt-4o-mini"}},
+		{Group: "vip-only", VisibleToGroups: []string{"vip"}, Models: []string{"gpt-4o-mini"}},
 	}
 
-	admin := groupMonitoringVisibleGroups(groups, true)
-	assert.Equal(t, []string{"public", "internal", "legacy"}, groupMonitoringGroupNames(admin))
+	tests := []struct {
+		name      string
+		isAdmin   bool
+		userGroup string
+		want      []string
+	}{
+		{
+			name:    "administrators ignore the allow list",
+			isAdmin: true,
+			// An admin whose own group is listed nowhere still sees everything.
+			userGroup: "default",
+			want:      []string{"legacy", "admin-only", "codex-pro", "vip-only"},
+		},
+		{
+			name:      "listed user group sees the groups it is allowed in",
+			userGroup: "vip",
+			want:      []string{"legacy", "codex-pro", "vip-only"},
+		},
+		{
+			name:      "another listed group sees only its own entry",
+			userGroup: "internal",
+			want:      []string{"legacy", "codex-pro"},
+		},
+		{
+			name:      "unlisted user group sees only the unrestricted groups",
+			userGroup: "default",
+			want:      []string{"legacy"},
+		},
+		{
+			name:      "empty user group never matches a non-empty allow list",
+			userGroup: "",
+			want:      []string{"legacy"},
+		},
+	}
 
-	user := groupMonitoringVisibleGroups(groups, false)
-	assert.Equal(t, []string{"public", "legacy"}, groupMonitoringGroupNames(user))
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			visible := groupMonitoringVisibleGroups(groups, test.isAdmin, test.userGroup)
+			assert.Equal(t, test.want, groupMonitoringGroupNames(visible))
+		})
+	}
+}
+
+func TestGroupMonitoringLatencyStart(t *testing.T) {
+	// Aligned to a 5 minute grid so every storage width divides it evenly.
+	const seriesEnd = int64(1_700_000_100)
+
+	tests := []struct {
+		name           string
+		storageBucket  string
+		storageSeconds int64
+	}{
+		{name: "5min storage covers twelve buckets", storageBucket: "5min", storageSeconds: 300},
+		{name: "minute storage covers sixty buckets", storageBucket: "minute", storageSeconds: 60},
+		{name: "hourly storage covers the single bucket it can offer", storageBucket: "hour", storageSeconds: 3600},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			overridePerfMetricsSetting(t, test.storageBucket, 5)
+			start := groupMonitoringLatencyStart(seriesEnd)
+			assert.Equal(t, seriesEnd-groupMonitoringLatencyWindowSeconds, start)
+			assert.EqualValues(t, 0, (seriesEnd-start)%test.storageSeconds, "the window must cover whole storage buckets")
+		})
+	}
+}
+
+func TestBuildGroupMonitoringGroupsLatencyUsesRecentWindowOnly(t *testing.T) {
+	groups := []operation_setting.GroupMonitoringGroup{{
+		Group:  "default",
+		Models: []string{"streaming-model", "image-model", "idle-model"},
+	}}
+	// Two hours of 5 minute storage buckets rendered as 30 minute display
+	// buckets; the latency window is the last hour, so it starts at 3600.
+	rows := []model.PerfMetricGroupBucket{
+		// Older half: slow and failing, must move the 24h availability but must
+		// not touch either latency average.
+		{Group: "default", ModelName: "streaming-model", BucketTs: 0, RequestCount: 10, SuccessCount: 5, TotalLatencyMs: 200_000, TtftSumMs: 100_000, TtftCount: 10},
+		// Recent half.
+		{Group: "default", ModelName: "streaming-model", BucketTs: 3600, RequestCount: 6, SuccessCount: 6, TotalLatencyMs: 3_000, TtftSumMs: 1_200, TtftCount: 6},
+		{Group: "default", ModelName: "streaming-model", BucketTs: 6900, RequestCount: 4, SuccessCount: 4, TotalLatencyMs: 1_000, TtftSumMs: 600, TtftCount: 2},
+		// Non-streaming: recent requests but no TTFT sample at all.
+		{Group: "default", ModelName: "image-model", BucketTs: 3600, RequestCount: 4, SuccessCount: 4, TotalLatencyMs: 480_000},
+		// Served traffic today but nothing in the latency window.
+		{Group: "default", ModelName: "idle-model", BucketTs: 0, RequestCount: 20, SuccessCount: 20, TotalLatencyMs: 40_000, TtftSumMs: 20_000, TtftCount: 20},
+	}
+
+	summaries := buildGroupMonitoringGroups(rows, groups, nil, 0, 4, 1800, 3600)
+	require.Len(t, summaries, 1)
+	require.Len(t, summaries[0].Models, 3)
+
+	streaming := summaries[0].Models[0]
+	assert.EqualValues(t, 20, streaming.RequestCount, "the request count stays on the full window")
+	assert.Equal(t, 75.0, streaming.AvailabilityRate, "availability stays on the full window")
+	assert.Equal(t, groupMonitoringStateDown, streaming.State)
+	require.NotNil(t, streaming.AvgTtftMs)
+	// 1800ms over 8 samples, not the 5655ms the whole window would yield.
+	assert.EqualValues(t, 225, *streaming.AvgTtftMs)
+	assert.EqualValues(t, 8, streaming.TtftSampleCount, "only the samples inside the latency window count")
+	require.NotNil(t, streaming.AvgLatencyMs)
+	assert.EqualValues(t, 400, *streaming.AvgLatencyMs)
+
+	image := summaries[0].Models[1]
+	assert.Nil(t, image.AvgTtftMs)
+	require.NotNil(t, image.AvgLatencyMs)
+	// Same window as the streaming card, so the two latency figures compare.
+	assert.EqualValues(t, 120_000, *image.AvgLatencyMs)
+
+	idle := summaries[0].Models[2]
+	assert.True(t, idle.HasData, "the model did serve traffic inside the availability window")
+	assert.Equal(t, groupMonitoringStateHealthy, idle.State, "the badge must not follow the latency window")
+	assert.EqualValues(t, 20, idle.RequestCount)
+	assert.Nil(t, idle.AvgLatencyMs, "no request in the latency window must not fall back to the 24h mean")
+	assert.Nil(t, idle.AvgTtftMs)
+	assert.EqualValues(t, 0, idle.TtftSampleCount)
 }
 
 func groupMonitoringGroupNames(groups []operation_setting.GroupMonitoringGroup) []string {

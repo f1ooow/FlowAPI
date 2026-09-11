@@ -49,27 +49,45 @@ export type GroupMonitoringModelSummary = {
   vendor_name?: string
   /** @lobehub/icons key of the vendor, used when the model has no icon. */
   vendor_icon?: string
+  /** Whether the model served any request in the 24 hour window. */
   has_data: boolean
   state: GroupMonitoringState
-  /** Percentage in [0, 100]. Only meaningful when `has_data` is true. */
+  /** Percentage in [0, 100] over 24 hours. Only meaningful when `has_data`. */
   availability_rate: number
-  /** Average total request latency. Never a time-to-first-token value. */
-  avg_latency_ms: number
-  /** `null` when the model produced no time-to-first-token samples. */
+  /**
+   * Average total request latency over the last hour, never a time-to-first
+   * token value. `null` when the model served no request in that hour, even if
+   * it served some earlier in the day.
+   */
+  avg_latency_ms: number | null
+  /**
+   * Average time to first token over the last hour. `null` when that hour holds
+   * no streamed sample, which is permanent for image/embedding/rerank models.
+   */
   avg_ttft_ms: number | null
+  /** Streamed samples inside the latency window, not the 24 hour window. */
   ttft_sample_count: number
+  /** Requests over the 24 hour window. */
   request_count: number
   buckets: GroupMonitoringBucket[]
 }
 
+/**
+ * User groups allowed to see a monitored group. The three states are distinct
+ * and must not be normalised away:
+ * - `null`: every logged-in user.
+ * - `[]`: administrators only.
+ * - non-empty: only users in the listed groups (plus administrators).
+ *
+ * A regular viewer always receives `null` because they only ever get groups
+ * they already passed the filter for; the allow list is admin-only detail.
+ */
+export type GroupMonitoringVisibility = string[] | null
+
 export type GroupMonitoringGroupSummary = {
   group_name: string
   description: string
-  /**
-   * Always true for a regular user, who never receives a hidden group. Admins
-   * receive every group and see a badge on the hidden ones.
-   */
-  visible_to_users: boolean
+  visible_to_groups: GroupMonitoringVisibility
   models: GroupMonitoringModelSummary[]
 }
 
@@ -85,8 +103,8 @@ export type GroupMonitoringSummary = {
 export type GroupMonitoringGroupConfig = {
   group: string
   description: string
-  /** Whether non-admin users may see this group on the monitoring page. */
-  visible_to_users: boolean
+  /** User-group allow list; see {@link GroupMonitoringVisibility}. */
+  visible_to_groups: GroupMonitoringVisibility
   models: string[]
 }
 
