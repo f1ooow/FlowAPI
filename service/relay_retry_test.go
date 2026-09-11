@@ -28,11 +28,12 @@ func TestClassifyRelayRetryStopsLocalAndCommittedErrors(t *testing.T) {
 	assert.False(t, committedDecision.AutoBanEligible)
 }
 
-// TestClassifyRelayRetryHonoursChannelAffinitySkipRetry keeps the affinity
-// rule's skip_retry_on_failure policy authoritative for traversal. The retry
-// classifier replaced the old shouldRetry path, and dropping this check let a
-// pinned session silently fan out to other channels.
-func TestClassifyRelayRetryHonoursChannelAffinitySkipRetry(t *testing.T) {
+// TestClassifyRelayRetryFailsOverDespiteChannelAffinitySkipRetry locks the
+// regression where an affinity rule with skip_retry_on_failure made every
+// upstream failure terminal: groups that use affinity lost cross-channel
+// failover entirely and clients got the raw 502 while healthy channels were
+// still untried. Affinity is a routing preference, not a retry veto.
+func TestClassifyRelayRetryFailsOverDespiteChannelAffinitySkipRetry(t *testing.T) {
 	c := buildChannelAffinityTemplateContextForTest(channelAffinityMeta{
 		RuleName:   "rule-skip-retry",
 		SkipRetry:  true,
@@ -41,13 +42,11 @@ func TestClassifyRelayRetryHonoursChannelAffinitySkipRetry(t *testing.T) {
 	})
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 
-	upstreamErr := types.NewErrorWithStatusCode(errors.New("unavailable"), types.ErrorCodeBadResponseStatusCode, http.StatusServiceUnavailable)
+	upstreamErr := types.NewErrorWithStatusCode(errors.New("bad gateway"), types.ErrorCodeBadResponseStatusCode, http.StatusBadGateway)
 	decision := ClassifyRelayRetry(c, upstreamErr, false)
-	assert.False(t, decision.Retryable)
-	assert.Equal(t, "channel_affinity_skip_retry", decision.Reason)
-	// Not retrying is a routing policy; the upstream failure still counts
-	// towards that channel's health.
+	assert.True(t, decision.Retryable)
 	assert.True(t, decision.AutoBanEligible)
+	assert.Equal(t, "retryable_upstream_status", decision.Reason)
 
 	localErr := types.NewError(errors.New("bad request"), types.ErrorCodeInvalidRequest)
 	localDecision := ClassifyRelayRetry(c, localErr, false)

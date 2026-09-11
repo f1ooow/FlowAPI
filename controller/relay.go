@@ -336,10 +336,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				stopTraversal = true
 				break
 			}
-			// Only reached for a retryable decision, i.e. after
-			// ClassifyRelayRetry already honoured an affinity rule that opts
-			// out of traversal. Clearing the affinity cache here also resets
-			// that opt-out flag, so it must never run before the decision.
+			// Only reached for a retryable decision: we are about to move off
+			// this channel, so the affinity pin to it must go too, otherwise the
+			// next request for the same key sticks to the channel that just
+			// failed.
 			service.ClearCurrentChannelAffinityCache(c)
 			if attempt < maxAttempts {
 				routeState.RecordDetails(service.RouteAttempt{

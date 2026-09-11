@@ -33,17 +33,9 @@ func ClassifyRelayRetry(c *gin.Context, relayErr *types.NewAPIError, responseCom
 	if types.IsSkipRetryError(relayErr) {
 		return RelayRetryDecision{Reason: "explicit_skip"}
 	}
-	if ShouldSkipRetryAfterChannelAffinityFailure(c) {
-		// The affinity rule opted out of traversal, but the upstream failure
-		// itself still says something about channel health, so keep the
-		// auto-ban classification of the underlying error.
-		decision := classifyRelayError(relayErr)
-		return RelayRetryDecision{AutoBanEligible: decision.AutoBanEligible, Reason: "channel_affinity_skip_retry"}
-	}
-	return classifyRelayError(relayErr)
-}
-
-func classifyRelayError(relayErr *types.NewAPIError) RelayRetryDecision {
+	// Channel affinity must not block cross-channel failover: a sticky rule is a
+	// routing preference, not a reason to hand the client an upstream 5xx while
+	// healthy channels are still untried.
 	switch relayErr.GetErrorCode() {
 	case types.ErrorCodeInvalidRequest,
 		types.ErrorCodeReadRequestBodyFailed,
