@@ -191,6 +191,15 @@ var (
 	CriticalRateLimitNum            = 20
 	CriticalRateLimitDuration int64 = 20 * 60
 
+	// Dashboard session refresh has its own budget instead of sharing the
+	// critical (anti-bruteforce) one with login: every full page load refreshes
+	// the access token, so a user who reloads often would otherwise lock
+	// themselves out of login. See middleware.SessionRefreshRateLimit.
+	SessionRefreshRateLimitEnable         = true
+	SessionRefreshRateLimitNum            = 120
+	SessionRefreshIPRateLimitNum          = 1200
+	SessionRefreshRateLimitDuration int64 = 20 * 60
+
 	UploadRateLimitNum            = 10
 	UploadRateLimitDuration int64 = 60
 

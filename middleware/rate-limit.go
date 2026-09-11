@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -47,6 +48,10 @@ func redisIPRateLimitKey(mark string, clientIP string) string {
 
 func redisUserRateLimitKey(mark string, userID int) string {
 	return fmt.Sprintf("%s:user:%s:%d", redisRateLimitNamespace, mark, userID)
+}
+
+func redisSessionRateLimitKey(mark string, sessionID string) string {
+	return fmt.Sprintf("%s:session:%s:%s", redisRateLimitNamespace, mark, sessionID)
 }
 
 func redisReplyInteger(value interface{}) (int64, error) {
@@ -176,6 +181,78 @@ func CriticalRateLimit() func(c *gin.Context) {
 		return rateLimitFactory(common.CriticalRateLimitNum, common.CriticalRateLimitDuration, "CT")
 	}
 	return defNext
+}
+
+// Marks for the dashboard session refresh budget. They are deliberately
+// distinct from the critical ("CT") mark used by login.
+const (
+	sessionRefreshSessionRateLimitMark = "RFS"
+	sessionRefreshIPRateLimitMark      = "RFI"
+)
+
+// SessionRefreshRateLimit limits POST /api/user/auth/refresh.
+//
+// Refresh must not share a counter with login. The dashboard refreshes its
+// access token on every full page load, so with a shared counter a user who
+// reloads more often than the critical limit allows locks themselves out of
+// /api/user/login for the rest of the window.
+//
+// Two counters are taken per request:
+//   - the login session id carried by the refresh cookie, so users behind a
+//     shared egress IP (office NAT, mobile carrier) get independent budgets;
+//   - the client IP, because that session id comes from a client-controlled
+//     cookie and can be rotated at will, so it cannot be the only bound.
+//
+// A request without a parseable refresh cookie is rejected by the handler
+// before any database access, so it only consumes the IP budget.
+func SessionRefreshRateLimit() func(c *gin.Context) {
+	if !common.SessionRefreshRateLimitEnable {
+		return defNext
+	}
+	if !common.RedisEnabled {
+		// It's safe to call multi times.
+		inMemoryRateLimiter.Init(common.RateLimitKeyExpirationDuration)
+	}
+	return func(c *gin.Context) {
+		duration := common.SessionRefreshRateLimitDuration
+		if rawRefreshToken, err := c.Cookie(service.RefreshCookieName); err == nil {
+			// RefreshTokenSID only accepts a UUID session id, which keeps the
+			// client-supplied cookie from growing the rate limit key.
+			if sid, ok := service.RefreshTokenSID(rawRefreshToken); ok {
+				sessionKey := redisSessionRateLimitKey(sessionRefreshSessionRateLimitMark, sid)
+				if !takeRateLimitBudget(c, sessionKey, common.SessionRefreshRateLimitNum, duration) {
+					return
+				}
+			}
+		}
+		ipKey := redisIPRateLimitKey(sessionRefreshIPRateLimitMark, c.ClientIP())
+		takeRateLimitBudget(c, ipKey, common.SessionRefreshIPRateLimitNum, duration)
+	}
+}
+
+// takeRateLimitBudget consumes one unit of the counter at key and reports
+// whether the request may continue. It aborts the request itself when the
+// budget is exhausted or the counter is unavailable.
+func takeRateLimitBudget(c *gin.Context, key string, maxRequestNum int, duration int64) bool {
+	if !common.RedisEnabled {
+		if inMemoryRateLimiter.Request(key, maxRequestNum, duration) {
+			return true
+		}
+		writeRateLimited(c, duration)
+		return false
+	}
+	allowed, _, ttlSeconds, err := redisFixedWindowTake(c.Request.Context(), key, maxRequestNum, duration)
+	if err != nil {
+		logger.LogError(c.Request.Context(), fmt.Sprintf("rate limit check failed (key=%s): %v", key, err))
+		c.Status(http.StatusInternalServerError)
+		c.Abort()
+		return false
+	}
+	if !allowed {
+		writeRateLimited(c, ttlSeconds)
+		return false
+	}
+	return true
 }
 
 func UserCriticalRateLimit(scope string) func(c *gin.Context) {

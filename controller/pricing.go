@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -9,6 +8,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// filterPricingByUsableGroups keeps only the models the caller can reach and
+// narrows every model's EnableGroup to the caller's own usable groups. Without
+// the second step the catalog discloses group names that were granted to other
+// users through group_ratio_setting.group_special_usable_group, because a model
+// enabled in both a shared group and a restricted one would carry the restricted
+// name in its response.
+//
+// The returned items must not share the EnableGroup backing array with the
+// process-wide pricing cache, so each kept model gets a freshly built slice.
 func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string]string) []model.Pricing {
 	if len(pricing) == 0 {
 		return pricing
@@ -19,16 +27,23 @@ func filterPricingByUsableGroups(pricing []model.Pricing, usableGroup map[string
 
 	filtered := make([]model.Pricing, 0, len(pricing))
 	for _, item := range pricing {
-		if common.StringsContains(item.EnableGroup, "all") {
-			filtered = append(filtered, item)
-			continue
-		}
+		visibleGroups := make([]string, 0, len(item.EnableGroup))
 		for _, group := range item.EnableGroup {
+			// "all" is a wildcard marker meaning every group, not a grant to a
+			// specific group, so it is never a disclosure.
+			if group == "all" {
+				visibleGroups = append(visibleGroups, group)
+				continue
+			}
 			if _, ok := usableGroup[group]; ok {
-				filtered = append(filtered, item)
-				break
+				visibleGroups = append(visibleGroups, group)
 			}
 		}
+		if len(visibleGroups) == 0 {
+			continue
+		}
+		item.EnableGroup = visibleGroups
+		filtered = append(filtered, item)
 	}
 	return filtered
 }
