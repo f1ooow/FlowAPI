@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -438,6 +439,133 @@ func TestCacheWriteTokensTotal(t *testing.T) {
 		}
 		require.Equal(t, 30, cacheWriteTokensTotal(summary))
 	})
+}
+
+// The cache-hit-rate denominator is the one number that is easy to get wrong,
+// because prompt_tokens means different things per upstream: OpenAI reports a
+// total that already contains the cache reads and writes, Claude reports
+// input_tokens text-only. Claude Code Hub's SQL adds input + cache_creation +
+// cache_read unconditionally, which is right only because every row it sees is
+// Claude. Copying that literally here would double-count cache on every
+// non-Claude channel, inflate its denominator and systematically understate its
+// hit rate; treating Claude as OpenAI would do the opposite and produce ratios
+// far above 100%.
+func TestChannelCacheSampleNormalizesDenominatorPerUsageSemantic(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	priceData := hosttypes.PriceData{
+		ModelRatio:         1,
+		CompletionRatio:    1,
+		CacheRatio:         0.1,
+		CacheCreationRatio: 1.25,
+		GroupRatioInfo:     hosttypes.GroupRatioInfo{GroupRatio: 1},
+	}
+
+	tests := []struct {
+		name        string
+		relayFormat types.RelayFormat
+		usage       *dto.Usage
+		want        perfmetrics.ChannelCacheSample
+	}{
+		{
+			// prompt_tokens is the whole input already, so the denominator is
+			// exactly prompt_tokens: 1000, giving 40%. Adding the cache read
+			// would say 1400 and report 28.6% for the same traffic.
+			name:        "openai semantic keeps prompt tokens as the denominator",
+			relayFormat: types.RelayFormatOpenAI,
+			usage: &dto.Usage{
+				PromptTokens:        1000,
+				CompletionTokens:    50,
+				PromptTokensDetails: dto.InputTokenDetails{CachedTokens: 400},
+			},
+			want: perfmetrics.ChannelCacheSample{CacheReadTokens: 400, CacheWriteTokens: 0, CacheInputTokens: 1000},
+		},
+		{
+			// Native OpenAI cache-write counts are unadjusted prefix counts and
+			// can exceed prompt_tokens, so they must not enter the denominator
+			// either; they are only reported as a write volume.
+			name:        "openai native cache write stays out of the denominator",
+			relayFormat: types.RelayFormatOpenAI,
+			usage: &dto.Usage{
+				PromptTokens:     1000,
+				CompletionTokens: 50,
+				PromptTokensDetails: dto.InputTokenDetails{
+					CachedTokens:     400,
+					CacheWriteTokens: 900,
+				},
+			},
+			want: perfmetrics.ChannelCacheSample{CacheReadTokens: 400, CacheWriteTokens: 900, CacheInputTokens: 1000},
+		},
+		{
+			// input_tokens is text-only here, so the cache terms have to be
+			// added back: 200 + 800 + 100 = 1100.
+			name:        "claude semantic adds cache read and split cache writes",
+			relayFormat: types.RelayFormatClaude,
+			usage: &dto.Usage{
+				PromptTokens:                200,
+				CompletionTokens:            50,
+				PromptTokensDetails:         dto.InputTokenDetails{CachedTokens: 800},
+				ClaudeCacheCreation5mTokens: 60,
+				ClaudeCacheCreation1hTokens: 40,
+			},
+			want: perfmetrics.ChannelCacheSample{CacheReadTokens: 800, CacheWriteTokens: 100, CacheInputTokens: 1100},
+		},
+		{
+			// Claude without the 5m/1h breakdown: the aggregate cache creation
+			// total is the write volume and belongs in the denominator too.
+			name:        "claude semantic falls back to the aggregate cache creation total",
+			relayFormat: types.RelayFormatClaude,
+			usage: &dto.Usage{
+				PromptTokens:     200,
+				CompletionTokens: 50,
+				PromptTokensDetails: dto.InputTokenDetails{
+					CachedTokens:         800,
+					CachedCreationTokens: 300,
+				},
+			},
+			want: perfmetrics.ChannelCacheSample{CacheReadTokens: 800, CacheWriteTokens: 300, CacheInputTokens: 1300},
+		},
+		{
+			// No usage semantic tag but Claude 5m/1h fields present: billed as
+			// Claude, so it must be measured as Claude. Measuring it as OpenAI
+			// would give a denominator of 62 and a 5716% hit rate that the
+			// clamp would silently flatten to 100%.
+			name:        "legacy claude derived openai usage is measured as claude",
+			relayFormat: types.RelayFormatOpenAI,
+			usage: &dto.Usage{
+				PromptTokens:                62,
+				CompletionTokens:            95,
+				PromptTokensDetails:         dto.InputTokenDetails{CachedTokens: 3544},
+				ClaudeCacheCreation5mTokens: 586,
+			},
+			want: perfmetrics.ChannelCacheSample{CacheReadTokens: 3544, CacheWriteTokens: 586, CacheInputTokens: 4192},
+		},
+		{
+			// Nothing cached either way: the sample carries no signal and the
+			// pre-filter drops it from the token sums downstream.
+			name:        "request without any cache signal",
+			relayFormat: types.RelayFormatOpenAI,
+			usage: &dto.Usage{
+				PromptTokens:     500,
+				CompletionTokens: 20,
+			},
+			want: perfmetrics.ChannelCacheSample{CacheReadTokens: 0, CacheWriteTokens: 0, CacheInputTokens: 500},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			relayInfo := &relaycommon.RelayInfo{
+				RelayFormat:     test.relayFormat,
+				OriginModelName: "model-under-test",
+				PriceData:       priceData,
+				StartTime:       time.Now(),
+			}
+
+			summary := calculateTextQuotaSummary(ctx, relayInfo, test.usage)
+			assert.Equal(t, test.want, channelCacheSample(summary))
+		})
+	}
 }
 
 func TestCalculateTextQuotaSummaryHandlesLegacyClaudeDerivedOpenAIUsage(t *testing.T) {

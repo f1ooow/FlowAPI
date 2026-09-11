@@ -74,8 +74,12 @@ export function MonitoringOverviewCards(props: {
         : 'text-amber-600 dark:text-amber-400'
   }
 
+  // Cache has its own emptiness: the window can be full of attempts and still
+  // contain no request that reported cache usage.
+  const hasCacheData = props.overall.has_cache_data
+
   return (
-    <div className='grid gap-3 sm:grid-cols-3'>
+    <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-4'>
       <OverviewCard
         title={t('Overall availability')}
         value={
@@ -103,6 +107,22 @@ export function MonitoringOverviewCards(props: {
         title={t('Error rate')}
         value={hasData ? `${props.overall.error_rate.toFixed(2)}%` : NO_VALUE}
         hint={hasData ? t('Share of attempts that failed') : noDataHint}
+      />
+      <OverviewCard
+        title={t('Cache hit rate')}
+        value={
+          hasCacheData
+            ? `${props.overall.cache_hit_rate.toFixed(2)}%`
+            : NO_VALUE
+        }
+        hint={
+          hasCacheData
+            ? t(
+                'Cache reads over input tokens across the {{count}} settled requests that reported cache usage. Not comparable between providers.',
+                { count: props.overall.cache_signal_count }
+              )
+            : t('No request reported cache usage in this window')
+        }
       />
     </div>
   )

@@ -107,6 +107,88 @@ func TestBuildChannelMonitoringChannelsSumsCountersBeforeDividing(t *testing.T) 
 	assert.EqualValues(t, 101, overall.attemptCount)
 }
 
+// The cache metrics have their own denominators and must be summed before
+// dividing, exactly like availability. Averaging the two buckets below would
+// report (80 + 1) / 2 = 40.5% for a channel that actually read 810 of 9000
+// input tokens.
+func TestBuildChannelMonitoringChannelsDerivesCacheRatesFromSummedTokens(t *testing.T) {
+	rows := []model.ChannelMetricBucket{
+		{
+			ChannelId: 5, BucketTs: 0, AttemptCount: 1, SuccessCount: 1, TotalLatencyMs: 100,
+			CacheRequestCount: 1, CacheSignalCount: 1, CacheReadTokens: 800, CacheWriteTokens: 0, CacheInputTokens: 1000,
+		},
+		{
+			ChannelId: 5, BucketTs: 300, AttemptCount: 40, SuccessCount: 40, TotalLatencyMs: 4000,
+			CacheRequestCount: 40, CacheSignalCount: 9, CacheReadTokens: 10, CacheWriteTokens: 300, CacheInputTokens: 8000,
+		},
+	}
+
+	channels, overall := buildChannelMonitoringChannels(rows, []model.ChannelIdentity{{Id: 5, Name: "claude"}}, 0, 2, 300)
+	require.Len(t, channels, 1)
+
+	// 810 / 9000 = 9%, not the mean of the two per-bucket rates.
+	assert.True(t, channels[0].CacheHasData)
+	assert.EqualValues(t, 9, channels[0].CacheHitRate)
+	// 10 of 41 settled requests carried a cache signal.
+	assert.EqualValues(t, 24.39, channels[0].CacheEngagementRate)
+	assert.EqualValues(t, 41, channels[0].CacheRequestCount)
+	assert.EqualValues(t, 10, channels[0].CacheSignalCount)
+	assert.EqualValues(t, 810, channels[0].CacheReadTokens)
+	assert.EqualValues(t, 300, channels[0].CacheWriteTokens)
+	assert.EqualValues(t, 9000, channels[0].CacheInputTokens)
+	assert.EqualValues(t, 810, overall.cacheReadTokens)
+
+	// The cache denominator is never attempt_count: the two calibers differ
+	// because a failed attempt has no usage.
+	assert.EqualValues(t, 41, channels[0].AttemptCount)
+	assert.NotEqual(t, channels[0].CacheSignalCount, channels[0].AttemptCount)
+}
+
+// A channel that received traffic but never a single cache number must report
+// "no cache data" rather than a 0% hit rate: the operator would read 0% as
+// "caching is broken here" when the provider simply does not report it.
+func TestBuildChannelMonitoringChannelsSeparatesCacheDataFromAttemptData(t *testing.T) {
+	rows := []model.ChannelMetricBucket{
+		{
+			ChannelId: 5, BucketTs: 0, AttemptCount: 10, SuccessCount: 10, TotalLatencyMs: 1000,
+			CacheRequestCount: 10, CacheSignalCount: 0, CacheInputTokens: 0,
+		},
+		// Cache samples with no attempt in the window: the settlement of a
+		// request whose attempt was recorded in the previous bucket.
+		{
+			ChannelId: 6, BucketTs: 0, AttemptCount: 0, SuccessCount: 0,
+			CacheRequestCount: 2, CacheSignalCount: 2, CacheReadTokens: 500, CacheInputTokens: 1000,
+		},
+	}
+
+	channels, _ := buildChannelMonitoringChannels(rows, []model.ChannelIdentity{{Id: 5, Name: "no-cache"}, {Id: 6, Name: "cache-only"}}, 0, 1, 300)
+
+	noCache := channelSummaryById(t, channels, 5)
+	assert.True(t, noCache.HasData, "it did serve attempts")
+	assert.False(t, noCache.CacheHasData, "but nothing passed the cache pre-filter")
+	assert.EqualValues(t, 0, noCache.CacheHitRate)
+	assert.EqualValues(t, 0, noCache.CacheEngagementRate)
+	assert.EqualValues(t, 10, noCache.CacheRequestCount)
+
+	cacheOnly := channelSummaryById(t, channels, 6)
+	assert.False(t, cacheOnly.HasData, "no attempt landed in this window")
+	assert.True(t, cacheOnly.CacheHasData, "the cache sample must survive anyway")
+	assert.EqualValues(t, 50, cacheOnly.CacheHitRate)
+	assert.EqualValues(t, 100, cacheOnly.CacheEngagementRate)
+}
+
+// OpenAI reports unadjusted cache-write prefix counts, so cached_tokens can
+// exceed the normalized input on a single request. The ratio has to stay a
+// percentage instead of rendering something like 137%.
+func TestChannelMonitoringCacheHitRateClampsToPercentRange(t *testing.T) {
+	assert.EqualValues(t, 100, channelMonitoringCacheHitRate(channelMonitoringCounters{
+		cacheSignalCount: 1, cacheReadTokens: 1370, cacheInputTokens: 1000,
+	}))
+	assert.EqualValues(t, 0, channelMonitoringCacheHitRate(channelMonitoringCounters{
+		cacheSignalCount: 1, cacheReadTokens: 400, cacheInputTokens: 0,
+	}))
+}
+
 func TestChannelMonitoringRangeToStep(t *testing.T) {
 	tests := []struct {
 		rangeKey      string
@@ -189,7 +271,10 @@ func TestGetChannelMonitoringSummaryReadsChannelMetrics(t *testing.T) {
 	step := channelMonitoringStepSeconds(channelMonitoringWindows["24h"].stepSeconds)
 	seriesEnd := channelMonitoringSeriesEnd(time.Now().Unix(), step)
 	sampleTs := seriesEnd - 4*step
-	require.NoError(t, model.UpsertChannelMetric(&model.ChannelMetric{ChannelId: 11, BucketTs: sampleTs, AttemptCount: 4, SuccessCount: 1, TotalLatencyMs: 800}))
+	require.NoError(t, model.UpsertChannelMetric(&model.ChannelMetric{
+		ChannelId: 11, BucketTs: sampleTs, AttemptCount: 4, SuccessCount: 1, TotalLatencyMs: 800,
+		CacheRequestCount: 4, CacheSignalCount: 2, CacheReadTokens: 600, CacheWriteTokens: 120, CacheInputTokens: 2000,
+	}))
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -212,10 +297,22 @@ func TestGetChannelMonitoringSummaryReadsChannelMetrics(t *testing.T) {
 	assert.EqualValues(t, 200, flaky.AvgLatencyMs)
 	assert.Len(t, flaky.Buckets, 48)
 
+	// The cache metrics travel flat in the same JSON object and keep their own
+	// caliber: 600 / 2000 read, 2 of 4 settled requests with a signal.
+	assert.True(t, flaky.CacheHasData)
+	assert.EqualValues(t, 30, flaky.CacheHitRate)
+	assert.EqualValues(t, 50, flaky.CacheEngagementRate)
+	assert.EqualValues(t, 4, flaky.CacheRequestCount)
+	assert.EqualValues(t, 2, flaky.CacheSignalCount)
+	assert.EqualValues(t, 120, flaky.CacheWriteTokens)
+	assert.EqualValues(t, 2000, flaky.CacheInputTokens)
+
 	idle := channelSummaryById(t, payload.Data.Channels, 33)
 	assert.False(t, idle.HasData)
+	assert.False(t, idle.CacheHasData)
 
 	assert.True(t, payload.Data.Overall.HasData)
 	assert.EqualValues(t, 25, payload.Data.Overall.AvailabilityRate)
 	assert.EqualValues(t, 75, payload.Data.Overall.ErrorRate)
+	assert.EqualValues(t, 30, payload.Data.Overall.CacheHitRate)
 }

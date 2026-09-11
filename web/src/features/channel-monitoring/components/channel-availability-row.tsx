@@ -48,6 +48,32 @@ function bucketTitle(
 }
 
 /**
+ * The cache hit rate needs its caliber spelled out on every row, because it is
+ * the one number on this page that is neither attempt level nor comparable
+ * between providers.
+ */
+function cacheHitTitle(
+  channel: ChannelMonitoringChannelSummary,
+  translate: (key: string, options?: Record<string, unknown>) => string
+) {
+  if (!channel.has_cache_data) {
+    return translate('No request reported cache usage in this window')
+  }
+  return [
+    translate(
+      'Cache reads over input tokens, summed across the {{signal}} of {{total}} settled requests that reported cache usage.',
+      {
+        signal: channel.cache_signal_count.toLocaleString(),
+        total: channel.cache_request_count.toLocaleString(),
+      }
+    ),
+    translate(
+      'Not comparable between providers: a Claude miss still reports a cache write and stays in the denominator, while an OpenAI miss reports nothing and is excluded, which reads higher.'
+    ),
+  ].join(' ')
+}
+
+/**
  * One channel row: identity on the left, the availability timeline underneath,
  * and the window totals at the end of the row.
  *
@@ -61,6 +87,10 @@ export function ChannelAvailabilityRow(props: {
 }) {
   const { t } = useTranslation()
   const hasData = props.channel.has_data
+  // A separate flag on purpose: a channel can serve plenty of attempts and
+  // still have no cache sample at all, and 0% would read as "caching broken"
+  // rather than "this provider never reports cache".
+  const hasCacheData = props.channel.has_cache_data
   // A channel deleted after producing samples keeps its metrics but loses its
   // name, so the id is the only identity left to show.
   const isDeleted = props.channel.channel_name === ''
@@ -138,6 +168,19 @@ export function ChannelAvailabilityRow(props: {
               )}
             >
               {t('Attempts')}
+            </div>
+          </div>
+          <div className='text-right'>
+            <div className='font-mono text-sm leading-none font-semibold'>
+              {hasCacheData
+                ? `${props.channel.cache_hit_rate.toFixed(2)}%`
+                : NO_VALUE}
+            </div>
+            <div
+              className='text-muted-foreground decoration-muted-foreground/50 mt-1 text-[11px] uppercase underline decoration-dotted'
+              title={cacheHitTitle(props.channel, t)}
+            >
+              {t('Cache hit')}
             </div>
           </div>
         </div>

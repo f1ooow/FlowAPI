@@ -57,17 +57,50 @@ type channelMonitoringBucket struct {
 	State        string `json:"state"`
 }
 
+// channelMonitoringCacheStats is the cache half of a channel row and of the
+// window totals. It is embedded flat into both so the two DTOs can never drift
+// apart, and it is a separate type because it does NOT share a denominator with
+// the availability fields it sits next to: availability is attempt level, cache
+// is successful-request level, because a failed attempt never produces usage.
+// attempt_count must never be used as a cache denominator, which is why
+// CacheRequestCount and CacheSignalCount exist.
+type channelMonitoringCacheStats struct {
+	// CacheHasData is true once at least one request passed the cache pre-filter
+	// (cache read or cache write > 0). Without such a sample the hit rate has no
+	// denominator and the UI must render a placeholder, not 0%.
+	CacheHasData bool `json:"has_cache_data"`
+	// CacheHitRate is cache_read / normalized_input over the pre-filtered
+	// requests, in percent. It is structurally NOT comparable across providers:
+	// Claude reports cache_creation on a miss so its misses stay in the
+	// denominator, while an OpenAI miss reports nothing at all and gets dropped
+	// by the pre-filter, leaving only requests that did hit. The UI has to say
+	// so; do not rank channels on this number.
+	CacheHitRate float64 `json:"cache_hit_rate"`
+	// CacheEngagementRate is the share of settled requests carrying any cache
+	// signal. It is the only way to see how much the pre-filter removed, which
+	// is exactly what makes CacheHitRate hard to compare.
+	CacheEngagementRate float64 `json:"cache_engagement_rate"`
+	CacheRequestCount   int64   `json:"cache_request_count"`
+	CacheSignalCount    int64   `json:"cache_signal_count"`
+	CacheReadTokens     int64   `json:"cache_read_tokens"`
+	CacheWriteTokens    int64   `json:"cache_write_tokens"`
+	// CacheInputTokens is the hit-rate denominator, normalized per usage
+	// semantic by the service layer, not a sum of raw prompt_tokens.
+	CacheInputTokens int64 `json:"cache_input_tokens"`
+}
+
 type channelMonitoringChannelSummary struct {
-	ChannelId        int                       `json:"channel_id"`
-	ChannelName      string                    `json:"channel_name"`
-	HasData          bool                      `json:"has_data"`
-	State            string                    `json:"state"`
-	AvailabilityRate float64                   `json:"availability_rate"`
-	ErrorRate        float64                   `json:"error_rate"`
-	AvgLatencyMs     int64                     `json:"avg_latency_ms"`
-	AttemptCount     int64                     `json:"attempt_count"`
-	SuccessCount     int64                     `json:"success_count"`
-	Buckets          []channelMonitoringBucket `json:"buckets"`
+	ChannelId        int     `json:"channel_id"`
+	ChannelName      string  `json:"channel_name"`
+	HasData          bool    `json:"has_data"`
+	State            string  `json:"state"`
+	AvailabilityRate float64 `json:"availability_rate"`
+	ErrorRate        float64 `json:"error_rate"`
+	AvgLatencyMs     int64   `json:"avg_latency_ms"`
+	AttemptCount     int64   `json:"attempt_count"`
+	SuccessCount     int64   `json:"success_count"`
+	channelMonitoringCacheStats
+	Buckets []channelMonitoringBucket `json:"buckets"`
 }
 
 type channelMonitoringOverall struct {
@@ -76,6 +109,7 @@ type channelMonitoringOverall struct {
 	ErrorRate        float64 `json:"error_rate"`
 	AvgLatencyMs     int64   `json:"avg_latency_ms"`
 	AttemptCount     int64   `json:"attempt_count"`
+	channelMonitoringCacheStats
 }
 
 type channelMonitoringSummaryResponse struct {
@@ -91,12 +125,24 @@ type channelMonitoringCounters struct {
 	attemptCount   int64
 	successCount   int64
 	totalLatencyMs int64
+
+	// Successful-request level, unlike the three above. See channel_metrics.
+	cacheRequestCount int64
+	cacheSignalCount  int64
+	cacheReadTokens   int64
+	cacheWriteTokens  int64
+	cacheInputTokens  int64
 }
 
 func (counters channelMonitoringCounters) plus(other channelMonitoringCounters) channelMonitoringCounters {
 	counters.attemptCount += other.attemptCount
 	counters.successCount += other.successCount
 	counters.totalLatencyMs += other.totalLatencyMs
+	counters.cacheRequestCount += other.cacheRequestCount
+	counters.cacheSignalCount += other.cacheSignalCount
+	counters.cacheReadTokens += other.cacheReadTokens
+	counters.cacheWriteTokens += other.cacheWriteTokens
+	counters.cacheInputTokens += other.cacheInputTokens
 	return counters
 }
 
@@ -109,6 +155,53 @@ func channelMonitoringAvailability(counters channelMonitoringCounters) float64 {
 	}
 	rate := float64(counters.successCount) / float64(counters.attemptCount) * 100
 	return math.Round(rate*100) / 100
+}
+
+// channelMonitoringPercent divides two summed counters once and clamps the
+// result into [0, 100]. Cache token counts come from upstream responses and
+// their inclusion relations are not always clean (OpenAI can report
+// cached_tokens + cache_write_tokens above prompt_tokens), so a ratio slightly
+// above 1 is possible; clamping keeps the display honest.
+func channelMonitoringPercent(numerator int64, denominator int64) float64 {
+	if denominator <= 0 {
+		return 0
+	}
+	rate := float64(numerator) / float64(denominator) * 100
+	if rate < 0 {
+		return 0
+	}
+	if rate > 100 {
+		return 100
+	}
+	return math.Round(rate*100) / 100
+}
+
+// channelMonitoringCacheHitRate is CCH's hitRateTokens: sum the cache reads,
+// sum the normalized inputs of the same requests, then divide once. Averaging
+// per-bucket rates would let a bucket with a single request outweigh a bucket
+// with thousands.
+func channelMonitoringCacheHitRate(counters channelMonitoringCounters) float64 {
+	return channelMonitoringPercent(counters.cacheReadTokens, counters.cacheInputTokens)
+}
+
+// channelMonitoringCacheEngagement is CCH's engagementRate: the share of
+// settled requests that carried any cache signal at all. Its denominator is
+// cacheRequestCount, never attemptCount.
+func channelMonitoringCacheEngagement(counters channelMonitoringCounters) float64 {
+	return channelMonitoringPercent(counters.cacheSignalCount, counters.cacheRequestCount)
+}
+
+func channelMonitoringCacheStatsOf(counters channelMonitoringCounters) channelMonitoringCacheStats {
+	return channelMonitoringCacheStats{
+		CacheHasData:        counters.cacheSignalCount > 0,
+		CacheHitRate:        channelMonitoringCacheHitRate(counters),
+		CacheEngagementRate: channelMonitoringCacheEngagement(counters),
+		CacheRequestCount:   counters.cacheRequestCount,
+		CacheSignalCount:    counters.cacheSignalCount,
+		CacheReadTokens:     counters.cacheReadTokens,
+		CacheWriteTokens:    counters.cacheWriteTokens,
+		CacheInputTokens:    counters.cacheInputTokens,
+	}
 }
 
 func channelMonitoringHealthState(availabilityRate float64) string {
@@ -159,9 +252,14 @@ func buildChannelMonitoringChannels(rows []model.ChannelMetricBucket, identities
 			rolled[row.ChannelId] = make(map[int64]channelMonitoringCounters)
 		}
 		rolled[row.ChannelId][row.BucketTs] = rolled[row.ChannelId][row.BucketTs].plus(channelMonitoringCounters{
-			attemptCount:   row.AttemptCount,
-			successCount:   row.SuccessCount,
-			totalLatencyMs: row.TotalLatencyMs,
+			attemptCount:      row.AttemptCount,
+			successCount:      row.SuccessCount,
+			totalLatencyMs:    row.TotalLatencyMs,
+			cacheRequestCount: row.CacheRequestCount,
+			cacheSignalCount:  row.CacheSignalCount,
+			cacheReadTokens:   row.CacheReadTokens,
+			cacheWriteTokens:  row.CacheWriteTokens,
+			cacheInputTokens:  row.CacheInputTokens,
 		})
 	}
 
@@ -203,13 +301,14 @@ func buildChannelMonitoringChannels(rows []model.ChannelMetricBucket, identities
 		overall = overall.plus(total)
 
 		summary := channelMonitoringChannelSummary{
-			ChannelId:    channelId,
-			ChannelName:  names[channelId],
-			HasData:      total.attemptCount > 0,
-			State:        channelMonitoringStateNoData,
-			AttemptCount: total.attemptCount,
-			SuccessCount: total.successCount,
-			Buckets:      series,
+			ChannelId:                   channelId,
+			ChannelName:                 names[channelId],
+			HasData:                     total.attemptCount > 0,
+			State:                       channelMonitoringStateNoData,
+			AttemptCount:                total.attemptCount,
+			SuccessCount:                total.successCount,
+			channelMonitoringCacheStats: channelMonitoringCacheStatsOf(total),
+			Buckets:                     series,
 		}
 		if total.attemptCount > 0 {
 			summary.AvailabilityRate = channelMonitoringAvailability(total)
@@ -267,8 +366,9 @@ func GetChannelMonitoringSummary(c *gin.Context) {
 		StepMinutes:   int(stepSeconds / 60),
 		WindowSeconds: int64(bucketCount) * stepSeconds,
 		Overall: channelMonitoringOverall{
-			HasData:      overall.attemptCount > 0,
-			AttemptCount: overall.attemptCount,
+			HasData:                     overall.attemptCount > 0,
+			AttemptCount:                overall.attemptCount,
+			channelMonitoringCacheStats: channelMonitoringCacheStatsOf(overall),
 		},
 		Channels: channels,
 	}

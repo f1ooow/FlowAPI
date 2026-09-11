@@ -62,6 +62,7 @@ type textQuotaSummary struct {
 	CacheCreationRatio1h   float64
 	Quota                  int
 	IsClaudeUsageSemantic  bool
+	LegacyClaudeDerived    bool
 	UsageSemantic          string
 	AudioInputPrice        float64
 	ToolSurchargeItems     []ToolSurchargeItem
@@ -85,6 +86,42 @@ func cacheWriteTokensTotal(summary textQuotaSummary) int {
 		return splitCacheWriteTokens
 	}
 	return summary.CacheCreationTokens
+}
+
+// channelCacheSample turns one settled request into its contribution to the
+// per-channel cache statistics.
+//
+// CacheInputTokens is the only field that needs thought: it is the hit-rate
+// denominator and it must be the *normalized* total input context length, the
+// same `inputLen` BuildTieredTokenParams computes and the same `len` defined in
+// pkg/billingexpr/expr.md. prompt_tokens does not mean the same thing across
+// upstreams — OpenAI/Gemini report a total that already includes cache reads
+// and cache writes, Claude reports input_tokens text-only and bills cache
+// separately. CCH's SQL adds `input + cache_creation + cache_read`
+// unconditionally because every row it sees is Claude; copying that literally
+// would double-count cache on every non-Claude channel, inflate its denominator
+// and drag its hit rate down for no reason.
+//
+// The Claude branch also covers isLegacyClaudeDerivedOpenAIUsage: usage with no
+// semantic tag but with Claude 5m/1h fields is billed as Claude, so it has to
+// be measured as Claude too, otherwise those requests get a too-small
+// denominator and a too-high hit rate.
+//
+// Non-Claude semantics must not add any cache term: cached_tokens +
+// cache_write_tokens can legitimately exceed prompt_tokens there (see the clamp
+// comments in calculateTextQuotaSummary and BuildTieredTokenParams), so adding
+// them would produce ratios above 1 that only a clamp would hide.
+func channelCacheSample(summary textQuotaSummary) perfmetrics.ChannelCacheSample {
+	writeTokens := cacheWriteTokensTotal(summary)
+	inputTokens := summary.PromptTokens
+	if summary.IsClaudeUsageSemantic || summary.LegacyClaudeDerived {
+		inputTokens = summary.PromptTokens + summary.CacheTokens + writeTokens
+	}
+	return perfmetrics.ChannelCacheSample{
+		CacheReadTokens:  int64(summary.CacheTokens),
+		CacheWriteTokens: int64(writeTokens),
+		CacheInputTokens: int64(inputTokens),
+	}
 }
 
 func isLegacyClaudeDerivedOpenAIUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) bool {
@@ -263,7 +300,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	summary.CacheCreationTokens1h = usage.ClaudeCacheCreation1hTokens
 	summary.ImageTokens = usage.PromptTokensDetails.ImageTokens
 	summary.AudioTokens = usage.PromptTokensDetails.AudioTokens
-	legacyClaudeDerived := isLegacyClaudeDerivedOpenAIUsage(relayInfo, usage)
+	summary.LegacyClaudeDerived = isLegacyClaudeDerivedOpenAIUsage(relayInfo, usage)
 	isOpenRouterClaudeBilling := relayInfo.ChannelMeta != nil &&
 		relayInfo.ChannelType == constant.ChannelTypeOpenRouter &&
 		summary.IsClaudeUsageSemantic
@@ -306,7 +343,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 
 		var cachedTokensWithRatio decimal.Decimal
 		if !dCacheTokens.IsZero() {
-			if !summary.IsClaudeUsageSemantic && !legacyClaudeDerived {
+			if !summary.IsClaudeUsageSemantic && !summary.LegacyClaudeDerived {
 				baseTokens = baseTokens.Sub(dCacheTokens)
 			}
 			cachedTokensWithRatio = dCacheTokens.Mul(dCacheRatio)
@@ -315,7 +352,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		var cachedCreationTokensWithRatio decimal.Decimal
 		hasSplitCacheCreationTokens := summary.CacheCreationTokens5m > 0 || summary.CacheCreationTokens1h > 0
 		if !dCachedCreationTokens.IsZero() || hasSplitCacheCreationTokens {
-			if !summary.IsClaudeUsageSemantic && !legacyClaudeDerived {
+			if !summary.IsClaudeUsageSemantic && !summary.LegacyClaudeDerived {
 				baseTokens = baseTokens.Sub(dCachedCreationTokens)
 				cachedCreationTokensWithRatio = dCachedCreationTokens.Mul(dCacheCreationRatio)
 			} else {
@@ -537,7 +574,18 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		Group:            relayInfo.UsingGroup,
 		Other:            other,
 	})
+	// A request the upstream answered without any usage at all tells us nothing
+	// about caching, so it is left out of the cache sample entirely rather than
+	// counted as "a request with no cache signal", which would understate the
+	// engagement rate. The channel id is safe to read here: settlement only
+	// happens after a channel was picked.
+	channelId := relayInfo.ChannelId
+	cacheSample := channelCacheSample(summary)
+	recordCacheSample := originUsage != nil
 	gopool.Go(func() {
 		perfmetrics.RecordRelaySample(relayInfo, true, int64(summary.CompletionTokens))
+		if recordCacheSample {
+			perfmetrics.RecordChannelCacheUsage(relayInfo, channelId, cacheSample)
+		}
 	})
 }

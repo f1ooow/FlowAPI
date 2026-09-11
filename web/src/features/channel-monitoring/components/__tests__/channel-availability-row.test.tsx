@@ -50,6 +50,14 @@ const healthyChannel: ChannelMonitoringChannelSummary = {
   avg_latency_ms: 1840,
   attempt_count: 1204,
   success_count: 1198,
+  has_cache_data: true,
+  cache_hit_rate: 62.5,
+  cache_engagement_rate: 40,
+  cache_request_count: 1000,
+  cache_signal_count: 400,
+  cache_read_tokens: 50_000,
+  cache_write_tokens: 4000,
+  cache_input_tokens: 80_000,
   buckets: [
     bucket(0, 0, 0, 'no-data'),
     bucket(1800, 10, 10, 'healthy'),
@@ -103,6 +111,10 @@ describe('ChannelAvailabilityRow', () => {
           avg_latency_ms: 0,
           attempt_count: 0,
           success_count: 0,
+          has_cache_data: false,
+          cache_hit_rate: 0,
+          cache_request_count: 0,
+          cache_signal_count: 0,
           buckets: [bucket(0, 0, 0, 'no-data')],
         }}
         stepMinutes={30}
@@ -111,7 +123,48 @@ describe('ChannelAvailabilityRow', () => {
 
     expect(screen.getByText('No attempts in this window')).toBeInTheDocument()
     expect(screen.queryByText('0.00%')).toBeNull()
-    expect(screen.getAllByText('--')).toHaveLength(2)
+    // Availability, latency and cache hit; attempts legitimately shows 0.
+    expect(screen.getAllByText('--')).toHaveLength(3)
+  })
+
+  // Cache has its own emptiness. A channel can serve plenty of attempts while
+  // its provider never reports a cache number, and 0% would read as "caching is
+  // broken on this channel" instead of "there is nothing to measure".
+  test('shows a placeholder for the cache hit rate when no request reported cache usage', () => {
+    render(
+      <ChannelAvailabilityRow
+        channel={{
+          ...healthyChannel,
+          has_cache_data: false,
+          cache_hit_rate: 0,
+          cache_engagement_rate: 0,
+          cache_request_count: 1200,
+          cache_signal_count: 0,
+        }}
+        stepMinutes={30}
+      />
+    )
+
+    expect(screen.getByText('99.53%')).toBeInTheDocument()
+    expect(screen.getAllByText('--')).toHaveLength(1)
+    expect(
+      screen.getByTitle('No request reported cache usage in this window')
+    ).toBeInTheDocument()
+  })
+
+  // The number is structurally higher on OpenAI than on Claude, so the row has
+  // to carry that warning; without it an operator ranks channels on it.
+  test('reports the cache hit rate with its caliber and its incomparability', () => {
+    render(<ChannelAvailabilityRow channel={healthyChannel} stepMinutes={30} />)
+
+    expect(screen.getByText('62.50%')).toBeInTheDocument()
+    const label = screen.getByText('Cache hit')
+    expect(label.getAttribute('title')).toContain(
+      '400 of 1,000 settled requests'
+    )
+    expect(label.getAttribute('title')).toContain(
+      'Not comparable between providers'
+    )
   })
 
   test('falls back to the channel id when the channel has been deleted', () => {

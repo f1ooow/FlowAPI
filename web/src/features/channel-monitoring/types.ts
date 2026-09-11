@@ -34,7 +34,41 @@ export type ChannelMonitoringBucket = {
   state: ChannelMonitoringState
 }
 
-export type ChannelMonitoringChannelSummary = {
+/**
+ * Cache statistics share the row with the availability numbers but not their
+ * denominator: availability is counted per channel attempt, while cache is
+ * counted per successfully settled request, because a failed attempt never
+ * produces usage. `attempt_count` is therefore never a cache denominator, and
+ * `has_cache_data` is a separate flag from `has_data`.
+ */
+export type ChannelMonitoringCacheStats = {
+  /**
+   * True once at least one request passed the cache pre-filter (it reported a
+   * cache read or a cache write). Without such a sample the hit rate has no
+   * denominator and must render as a placeholder, not as 0%.
+   */
+  has_cache_data: boolean
+  /**
+   * Cache reads over normalized input tokens across the pre-filtered requests,
+   * in percent.
+   *
+   * NOT comparable across providers, and the UI has to say so. A Claude miss
+   * still reports cache_creation, so Claude's misses stay in the denominator.
+   * An OpenAI miss reports nothing at all and is dropped by the pre-filter, so
+   * only requests that did hit remain and the number reads systematically
+   * higher. Never rank channels on this value.
+   */
+  cache_hit_rate: number
+  /** Share of settled requests that carried any cache signal, in percent. */
+  cache_engagement_rate: number
+  cache_request_count: number
+  cache_signal_count: number
+  cache_read_tokens: number
+  cache_write_tokens: number
+  cache_input_tokens: number
+}
+
+export type ChannelMonitoringChannelSummary = ChannelMonitoringCacheStats & {
   channel_id: number
   /** Empty once the channel is deleted; the UI falls back to `#<id>`. */
   channel_name: string
@@ -49,7 +83,7 @@ export type ChannelMonitoringChannelSummary = {
   buckets: ChannelMonitoringBucket[]
 }
 
-export type ChannelMonitoringOverall = {
+export type ChannelMonitoringOverall = ChannelMonitoringCacheStats & {
   has_data: boolean
   availability_rate: number
   error_rate: number

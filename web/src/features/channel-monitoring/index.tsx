@@ -172,16 +172,34 @@ export function ChannelMonitoring() {
                 error_rate: 0,
                 avg_latency_ms: 0,
                 attempt_count: 0,
+                has_cache_data: false,
+                cache_hit_rate: 0,
+                cache_engagement_rate: 0,
+                cache_request_count: 0,
+                cache_signal_count: 0,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+                cache_input_tokens: 0,
               }
             }
           />
 
           <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
-            <p className='text-muted-foreground text-sm'>
-              {t(
-                'Built from real traffic. Every retry of a failed request counts as an attempt on the channel it hit, so a channel that fails over silently still shows its failures here.'
-              )}
-            </p>
+            <div className='space-y-1'>
+              <p className='text-muted-foreground text-sm'>
+                {t(
+                  'Built from real traffic. Every retry of a failed request counts as an attempt on the channel it hit, so a channel that fails over silently still shows its failures here.'
+                )}
+              </p>
+              {/* The cache hit rate is the one metric here that is neither
+                  attempt level nor comparable between providers, so the page
+                  states both limits instead of leaving them to a tooltip. */}
+              <p className='text-muted-foreground text-sm'>
+                {t(
+                  'Cache hit rate counts settled requests that reported cache usage, not attempts, and it is not comparable between providers: a Claude miss still reports a cache write and stays in the denominator, while an OpenAI miss reports nothing and is excluded. Compare a channel against itself over time, not against a channel on another provider.'
+                )}
+              </p>
+            </div>
             <div className='flex items-center gap-3'>
               <Label className='text-muted-foreground gap-2 text-xs'>
                 <Switch
