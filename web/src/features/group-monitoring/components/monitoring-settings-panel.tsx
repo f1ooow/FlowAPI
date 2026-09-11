@@ -64,6 +64,9 @@ function toFormValues(
     groups: (setting.groups ?? []).map((group) => ({
       group: group.group,
       description: group.description ?? '',
+      // The API resolves a missing flag to visible, matching the behaviour
+      // before the flag existed; mirror that for a config saved back then.
+      visible_to_users: group.visible_to_users !== false,
       models: [...(group.models ?? [])],
     })),
   }
@@ -109,6 +112,7 @@ export function MonitoringSettingsPanel(props: MonitoringSettingsPanelProps) {
     groups.insert(insertAt, {
       group: groupName,
       description: '',
+      visible_to_users: true,
       models: props.availableModelsByGroup[groupName]?.slice(0, 1) ?? [],
     })
   }
@@ -177,6 +181,11 @@ export function MonitoringSettingsPanel(props: MonitoringSettingsPanelProps) {
               'Pick the groups to show on the monitoring page, then choose which models to track inside each one.'
             )}
           </FieldDescription>
+          <FieldDescription>
+            {t(
+              'Administrators always see every monitored group, whether or not it is visible to regular users.'
+            )}
+          </FieldDescription>
         </div>
 
         {listedGroups.length === 0 ? (
@@ -195,20 +204,45 @@ export function MonitoringSettingsPanel(props: MonitoringSettingsPanelProps) {
 
               return (
                 <div key={groupName} className='rounded-lg border p-3'>
-                  <div className='flex items-center gap-2'>
-                    <Checkbox
-                      id={`monitoring-group-${groupName}`}
-                      checked={monitored}
-                      onCheckedChange={(checked) =>
-                        toggleGroup(groupName, checked === true)
-                      }
-                    />
-                    <FieldLabel
-                      htmlFor={`monitoring-group-${groupName}`}
-                      className='min-w-0 truncate'
-                    >
-                      {groupName}
-                    </FieldLabel>
+                  <div className='flex flex-wrap items-center justify-between gap-2'>
+                    <div className='flex min-w-0 items-center gap-2'>
+                      <Checkbox
+                        id={`monitoring-group-${groupName}`}
+                        checked={monitored}
+                        onCheckedChange={(checked) =>
+                          toggleGroup(groupName, checked === true)
+                        }
+                      />
+                      <FieldLabel
+                        htmlFor={`monitoring-group-${groupName}`}
+                        className='min-w-0 truncate'
+                      >
+                        {groupName}
+                      </FieldLabel>
+                    </div>
+                    {monitored && (
+                      <div className='flex items-center gap-2'>
+                        <Switch
+                          id={`monitoring-visible-${groupName}`}
+                          checked={
+                            watchedGroups[index]?.visible_to_users ?? true
+                          }
+                          onCheckedChange={(checked) =>
+                            form.setValue(
+                              `groups.${index}.visible_to_users`,
+                              checked,
+                              { shouldDirty: true }
+                            )
+                          }
+                        />
+                        <FieldLabel
+                          htmlFor={`monitoring-visible-${groupName}`}
+                          className='text-muted-foreground font-normal'
+                        >
+                          {t('Visible to regular users')}
+                        </FieldLabel>
+                      </div>
+                    )}
                   </div>
 
                   {monitored && (

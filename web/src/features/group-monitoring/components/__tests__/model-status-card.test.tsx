@@ -8,13 +8,23 @@ License, or (at your option) any later version.
 */
 
 import { render, screen } from '@testing-library/react'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 
 import type {
   GroupMonitoringBucket,
   GroupMonitoringModelSummary,
+  GroupMonitoringThresholds,
 } from '../../types'
 import { ModelStatusCard } from '../model-status-card'
+
+// The brand icon package uses directory imports unsupported by Node's ESM loader.
+vi.mock('@lobehub/icons', () => new Proxy({}, { has: () => true }))
+
+const THRESHOLDS: GroupMonitoringThresholds = {
+  healthy_rate: 99,
+  degraded_rate: 80,
+  min_bucket_requests: 3,
+}
 
 function bucket(
   ts: number,
@@ -27,6 +37,9 @@ function bucket(
 
 const streamingModel: GroupMonitoringModelSummary = {
   model_name: 'claude-sonnet-4-6',
+  icon: 'Claude',
+  vendor_name: 'Anthropic',
+  vendor_icon: 'Anthropic.Color',
   has_data: true,
   state: 'healthy',
   availability_rate: 99.53,
@@ -42,71 +55,74 @@ const streamingModel: GroupMonitoringModelSummary = {
   ],
 }
 
-describe('ModelStatusCard', () => {
-  test('labels the metric as first token latency when TTFT samples exist', () => {
-    render(
-      <ModelStatusCard
-        model={streamingModel}
-        bucketMinutes={5}
-        windowHours={24}
-      />
-    )
+function renderCard(model: GroupMonitoringModelSummary, bucketMinutes = 5) {
+  return render(
+    <ModelStatusCard
+      model={model}
+      bucketMinutes={bucketMinutes}
+      windowHours={24}
+      thresholds={THRESHOLDS}
+    />
+  )
+}
 
-    expect(screen.getByText('First token (24H)')).toBeInTheDocument()
+describe('ModelStatusCard', () => {
+  test('labels the metric as TTFT when time-to-first-token samples exist', () => {
+    renderCard(streamingModel)
+
+    expect(screen.getByText('TTFT (24H)')).toBeInTheDocument()
     expect(screen.getByText('820 ms')).toBeInTheDocument()
     expect(screen.queryByText('Latency (24H)')).toBeNull()
     expect(screen.getByText('99.53%')).toBeInTheDocument()
   })
 
+  test('shows the vendor name under the model name', () => {
+    renderCard(streamingModel)
+
+    expect(screen.getByText('claude-sonnet-4-6')).toBeInTheDocument()
+    expect(screen.getByText('Anthropic')).toBeInTheDocument()
+  })
+
+  test('falls back to a placeholder provider when the model has no vendor', () => {
+    renderCard({
+      ...streamingModel,
+      icon: undefined,
+      vendor_name: undefined,
+      vendor_icon: undefined,
+    })
+
+    expect(screen.getByText('Unknown provider')).toBeInTheDocument()
+  })
+
   test('falls back to total latency under a distinct label when TTFT is null', () => {
-    render(
-      <ModelStatusCard
-        model={{
-          ...streamingModel,
-          model_name: 'gpt-image-2',
-          avg_ttft_ms: null,
-          ttft_sample_count: 0,
-          avg_latency_ms: 117260,
-        }}
-        bucketMinutes={5}
-        windowHours={24}
-      />
-    )
+    renderCard({
+      ...streamingModel,
+      model_name: 'gpt-image-2',
+      avg_ttft_ms: null,
+      ttft_sample_count: 0,
+      avg_latency_ms: 117260,
+    })
 
     expect(screen.getByText('Latency (24H)')).toBeInTheDocument()
     expect(screen.getByText('117.3 s')).toBeInTheDocument()
-    expect(screen.queryByText('First token (24H)')).toBeNull()
+    expect(screen.queryByText('TTFT (24H)')).toBeNull()
     expect(
       screen.getByTitle(/No time to first token samples/)
     ).toBeInTheDocument()
   })
 
   test('shows a real zero TTFT instead of the no-sample fallback', () => {
-    render(
-      <ModelStatusCard
-        model={{ ...streamingModel, avg_ttft_ms: 0, ttft_sample_count: 42 }}
-        bucketMinutes={5}
-        windowHours={24}
-      />
-    )
+    renderCard({ ...streamingModel, avg_ttft_ms: 0, ttft_sample_count: 42 })
 
-    expect(screen.getByText('First token (24H)')).toBeInTheDocument()
+    expect(screen.getByText('TTFT (24H)')).toBeInTheDocument()
     expect(screen.getByText('0 ms')).toBeInTheDocument()
   })
 
-  test('renders one timeline bar per returned bucket with the backend state', () => {
-    const view = render(
-      <ModelStatusCard
-        model={streamingModel}
-        bucketMinutes={5}
-        windowHours={24}
-      />
-    )
+  test('renders one timeline bar per bucket while they fit the card', () => {
+    const view = renderCard(streamingModel)
 
-    const bars = [...view.container.querySelectorAll('[data-state]')]
-    expect(bars).toHaveLength(streamingModel.buckets.length + 1) // + status badge
     const timeline = view.container.querySelector('[role="img"]')
-    expect(timeline?.children).toHaveLength(4)
+    expect(timeline?.children).toHaveLength(streamingModel.buckets.length)
     expect(
       [...(timeline?.children ?? [])].map((element) =>
         element.getAttribute('data-state')
@@ -114,26 +130,35 @@ describe('ModelStatusCard', () => {
     ).toEqual(['no-data', 'healthy', 'degraded', 'down'])
   })
 
+  test('collapses a full 24h series so every bar keeps a visible width', () => {
+    const buckets = Array.from({ length: 288 }, (_, index) =>
+      bucket(index * 300, 10, 10, 'healthy')
+    )
+    const view = renderCard({ ...streamingModel, buckets })
+
+    const timeline = view.container.querySelector('[role="img"]')
+    // Merged down from 288 buckets: sub-pixel bars are unreadable in a card.
+    expect(timeline?.children.length).toBeLessThan(buckets.length)
+    expect(timeline?.children.length).toBeGreaterThan(0)
+  })
+
   test('renders a no-data model without an availability number', () => {
-    render(
-      <ModelStatusCard
-        model={{
-          model_name: 'sora-2',
-          has_data: false,
-          state: 'no-data',
-          availability_rate: 0,
-          avg_latency_ms: 0,
-          avg_ttft_ms: null,
-          ttft_sample_count: 0,
-          request_count: 0,
-          buckets: [bucket(0, 0, 0, 'no-data')],
-        }}
-        bucketMinutes={60}
-        windowHours={24}
-      />
+    renderCard(
+      {
+        model_name: 'sora-2',
+        has_data: false,
+        state: 'no-data',
+        availability_rate: 0,
+        avg_latency_ms: 0,
+        avg_ttft_ms: null,
+        ttft_sample_count: 0,
+        request_count: 0,
+        buckets: [bucket(0, 0, 0, 'no-data')],
+      },
+      60
     )
 
-    expect(screen.getAllByText('--')).toHaveLength(2)
+    expect(screen.getAllByText('—')).toHaveLength(2)
     expect(screen.queryByText('0.00%')).toBeNull()
     expect(screen.getByText('No data')).toBeInTheDocument()
   })

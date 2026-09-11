@@ -27,8 +27,28 @@ export type GroupMonitoringBucket = {
   state: GroupMonitoringState
 }
 
+/**
+ * Thresholds the backend applied to every bucket it returned. The timeline
+ * merges adjacent buckets to fit the card width and has to colour the merged
+ * bar from the summed counters, so it reuses these numbers instead of keeping
+ * a second copy that could drift from the server.
+ */
+export type GroupMonitoringThresholds = {
+  /** Availability percentage at or above which a bucket counts as healthy. */
+  healthy_rate: number
+  /** Availability percentage at or above which a bucket counts as degraded. */
+  degraded_rate: number
+  /** Below this many requests a bucket carries no signal and reads as no-data. */
+  min_bucket_requests: number
+}
+
 export type GroupMonitoringModelSummary = {
   model_name: string
+  /** @lobehub/icons key of the model itself, from the pricing catalog. */
+  icon?: string
+  vendor_name?: string
+  /** @lobehub/icons key of the vendor, used when the model has no icon. */
+  vendor_icon?: string
   has_data: boolean
   state: GroupMonitoringState
   /** Percentage in [0, 100]. Only meaningful when `has_data` is true. */
@@ -45,6 +65,11 @@ export type GroupMonitoringModelSummary = {
 export type GroupMonitoringGroupSummary = {
   group_name: string
   description: string
+  /**
+   * Always true for a regular user, who never receives a hidden group. Admins
+   * receive every group and see a badge on the hidden ones.
+   */
+  visible_to_users: boolean
   models: GroupMonitoringModelSummary[]
 }
 
@@ -53,12 +78,15 @@ export type GroupMonitoringSummary = {
   /** Effective bucket width; may be wider than configured when storage is coarser. */
   bucket_minutes: number
   window_hours: number
+  thresholds: GroupMonitoringThresholds
   groups: GroupMonitoringGroupSummary[]
 }
 
 export type GroupMonitoringGroupConfig = {
   group: string
   description: string
+  /** Whether non-admin users may see this group on the monitoring page. */
+  visible_to_users: boolean
   models: string[]
 }
 

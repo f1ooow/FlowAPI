@@ -21,13 +21,6 @@ const BUCKET_CLASSES: Record<GroupMonitoringState, string> = {
   'no-data': 'bg-muted',
 }
 
-const DOT_CLASSES: Record<GroupMonitoringState, string> = {
-  healthy: 'bg-emerald-500',
-  degraded: 'bg-amber-500',
-  down: 'bg-red-500',
-  'no-data': 'bg-muted-foreground/40',
-}
-
 const TEXT_CLASSES: Record<GroupMonitoringState, string> = {
   healthy: 'text-emerald-600 dark:text-emerald-400',
   degraded: 'text-amber-600 dark:text-amber-400',
@@ -44,10 +37,6 @@ const STATE_LABELS: Record<GroupMonitoringState, string> = {
 
 export function bucketClassName(state: GroupMonitoringState) {
   return BUCKET_CLASSES[state] ?? BUCKET_CLASSES['no-data']
-}
-
-export function stateDotClassName(state: GroupMonitoringState) {
-  return DOT_CLASSES[state] ?? DOT_CLASSES['no-data']
 }
 
 export function stateTextClassName(state: GroupMonitoringState) {

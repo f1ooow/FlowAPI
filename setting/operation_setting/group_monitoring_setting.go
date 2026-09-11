@@ -22,9 +22,23 @@ const (
 var GroupMonitoringBucketMinuteOptions = []int{5, 15, 30, 60}
 
 type GroupMonitoringGroup struct {
-	Group       string   `json:"group"`
-	Description string   `json:"description"`
-	Models      []string `json:"models"`
+	Group       string `json:"group"`
+	Description string `json:"description"`
+	// VisibleToUsers gates the group on the user-facing monitoring page.
+	// Administrators always see every configured group.
+	//
+	// A nil pointer means "visible". The monitoring page shipped before this
+	// flag existed and showed every configured group to every logged-in user,
+	// so decoding a missing field into the Go zero value would blank the page
+	// for non-admins right after an upgrade. The pointer keeps an absent field
+	// apart from an explicit false, which does hide the group.
+	VisibleToUsers *bool    `json:"visible_to_users"`
+	Models         []string `json:"models"`
+}
+
+// IsVisibleToUsers reports whether non-admin users may see this group.
+func (group GroupMonitoringGroup) IsVisibleToUsers() bool {
+	return group.VisibleToUsers == nil || *group.VisibleToUsers
 }
 
 type GroupMonitoringSetting struct {
@@ -49,10 +63,14 @@ func GetGroupMonitoringSetting() GroupMonitoringSetting {
 	}
 	setting.Groups = make([]GroupMonitoringGroup, 0, len(groupMonitoringSetting.Groups))
 	for _, group := range groupMonitoringSetting.Groups {
+		// Resolve the visibility default here so every consumer, including the
+		// settings UI, sees a concrete value instead of re-deriving it.
+		visibleToUsers := group.IsVisibleToUsers()
 		setting.Groups = append(setting.Groups, GroupMonitoringGroup{
-			Group:       group.Group,
-			Description: group.Description,
-			Models:      append([]string(nil), group.Models...),
+			Group:          group.Group,
+			Description:    group.Description,
+			VisibleToUsers: &visibleToUsers,
+			Models:         append([]string(nil), group.Models...),
 		})
 	}
 	return setting

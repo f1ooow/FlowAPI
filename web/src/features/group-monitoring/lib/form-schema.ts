@@ -28,6 +28,7 @@ export const groupMonitoringFormSchema = z.object({
       z.object({
         group: z.string().trim().min(1).max(64),
         description: z.string().trim().max(MAX_GROUP_DESCRIPTION_LENGTH),
+        visible_to_users: z.boolean(),
         models: z
           .array(z.string().trim().min(1).max(255))
           .min(1)

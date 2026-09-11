@@ -23,7 +23,12 @@ const SETTING: GroupMonitoringSetting = {
   enabled: true,
   bucket_minutes: 5,
   groups: [
-    { group: 'default', description: 'core traffic', models: ['gpt-4o-mini'] },
+    {
+      group: 'default',
+      description: 'core traffic',
+      visible_to_users: true,
+      models: ['gpt-4o-mini'],
+    },
   ],
 }
 
@@ -83,6 +88,38 @@ describe('MonitoringSettingsPanel', () => {
     )
   })
 
+  test('shows a newly checked group as visible to regular users', async () => {
+    const user = userEvent.setup()
+    const onSave = renderPanel()
+
+    await user.click(screen.getByRole('checkbox', { name: 'vip' }))
+    const switches = screen.getAllByRole('switch', {
+      name: 'Visible to regular users',
+    })
+    expect(switches).toHaveLength(2)
+    expect(switches[1]).toBeChecked()
+
+    await user.click(screen.getByRole('button', { name: 'Save settings' }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    const saved = onSave.mock.calls[0][0] as GroupMonitoringSetting
+    expect(saved.groups[1].visible_to_users).toBe(true)
+  })
+
+  test('saves a group as hidden once its visibility switch is turned off', async () => {
+    const user = userEvent.setup()
+    const onSave = renderPanel()
+
+    await user.click(
+      screen.getByRole('switch', { name: 'Visible to regular users' })
+    )
+    await user.click(screen.getByRole('button', { name: 'Save settings' }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    const saved = onSave.mock.calls[0][0] as GroupMonitoringSetting
+    expect(saved.groups[0].visible_to_users).toBe(false)
+  })
+
   test('rejects saving a monitored group with no models selected', async () => {
     const user = userEvent.setup()
     const onSave = renderPanel()
@@ -114,7 +151,14 @@ describe('MonitoringSettingsPanel', () => {
         setting={{
           enabled: true,
           bucket_minutes: 5,
-          groups: [{ group: 'vip', description: '', models: ['gpt-image-2'] }],
+          groups: [
+            {
+              group: 'vip',
+              description: '',
+              visible_to_users: true,
+              models: ['gpt-image-2'],
+            },
+          ],
         }}
         saving={false}
         onSave={onSave}
@@ -140,7 +184,14 @@ describe('MonitoringSettingsPanel', () => {
         setting={{
           enabled: true,
           bucket_minutes: 5,
-          groups: [{ group: 'retired', description: '', models: ['old'] }],
+          groups: [
+            {
+              group: 'retired',
+              description: '',
+              visible_to_users: false,
+              models: ['old'],
+            },
+          ],
         }}
         saving={false}
         onSave={onSave}
@@ -149,6 +200,9 @@ describe('MonitoringSettingsPanel', () => {
 
     const retired = screen.getByRole('checkbox', { name: 'retired' })
     expect(retired).toBeChecked()
+    expect(
+      screen.getByRole('switch', { name: 'Visible to regular users' })
+    ).not.toBeChecked()
 
     await user.click(retired)
     await user.click(screen.getByRole('button', { name: 'Save settings' }))

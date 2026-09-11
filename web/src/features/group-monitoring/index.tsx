@@ -79,9 +79,9 @@ export function GroupMonitoring() {
   let monitoringContent: ReactNode
   if (summaryQuery.isLoading) {
     monitoringContent = (
-      <div className='space-y-3'>
-        {[0, 1, 2].map((item) => (
-          <Skeleton key={item} className='h-36 rounded-lg' />
+      <div className='space-y-4'>
+        {[0, 1].map((item) => (
+          <Skeleton key={item} className='h-56 rounded-xl' />
         ))}
       </div>
     )
@@ -105,15 +105,17 @@ export function GroupMonitoring() {
         </EmptyHeader>
       </Empty>
     )
-  } else if (visibleGroups.length > 0) {
+  } else if (visibleGroups.length > 0 && summaryQuery.data) {
+    const summary = summaryQuery.data
     monitoringContent = (
-      <div className='space-y-8'>
+      <div className='space-y-4'>
         {visibleGroups.map((group) => (
           <GroupStatusSection
             key={group.group_name}
             group={group}
-            bucketMinutes={summaryQuery.data?.bucket_minutes ?? 5}
-            windowHours={summaryQuery.data?.window_hours ?? 24}
+            bucketMinutes={summary.bucket_minutes}
+            windowHours={summary.window_hours}
+            thresholds={summary.thresholds}
           />
         ))}
       </div>
@@ -171,13 +173,7 @@ export function GroupMonitoring() {
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='space-y-4'>
-          <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
-            <p className='text-muted-foreground text-sm'>
-              {t(
-                'Built from real traffic over the last {{hours}} hours. A model with no calls in the window shows as no data, not as an outage.',
-                { hours: summaryQuery.data?.window_hours ?? 24 }
-              )}
-            </p>
+          <div className='flex justify-end'>
             <div className='relative w-full sm:max-w-xs'>
               <Search
                 className='text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2'

@@ -10,26 +10,19 @@ License, or (at your option) any later version.
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
-import {
-  bucketClassName,
-  stateDotClassName,
-  stateLabelKey,
-  stateTextClassName,
-} from '../lib/status'
+import { stateLabelKey, stateTextClassName } from '../lib/status'
 import type {
-  GroupMonitoringBucket,
   GroupMonitoringModelSummary,
+  GroupMonitoringThresholds,
 } from '../types'
+import { AvailabilityTimeline } from './availability-timeline'
 
-function formatClockTime(unixSeconds: number) {
-  return new Intl.DateTimeFormat(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(unixSeconds * 1000)
-}
+/** Shown wherever a metric has no sample to report. */
+const NO_VALUE = '—'
 
 function formatMilliseconds(
   value: number,
@@ -41,27 +34,15 @@ function formatMilliseconds(
   return translate('{{value}} ms', { value: Math.round(value) })
 }
 
-function bucketTitle(
-  bucket: GroupMonitoringBucket,
-  translate: (key: string, options?: Record<string, unknown>) => string
-) {
-  const time = formatClockTime(bucket.ts)
-  if (bucket.state === 'no-data') {
-    return `${time} · ${translate('No data')}`
-  }
-  const rate = Math.round((bucket.success_count / bucket.request_count) * 100)
-  return `${time} · ${rate}% (${bucket.success_count}/${bucket.request_count})`
-}
-
 /**
- * One monitored model inside a group section: 24h uptime, a latency figure and
- * the bucket timeline. The bar count is driven entirely by `model.buckets`,
- * which the backend sizes from the configured bucket width.
+ * One monitored model: identity on top, the two headline metrics in the middle
+ * and the availability timeline at the bottom.
  */
 export function ModelStatusCard(props: {
   model: GroupMonitoringModelSummary
   bucketMinutes: number
   windowHours: number
+  thresholds: GroupMonitoringThresholds
 }) {
   const { t } = useTranslation()
   const hasData = props.model.has_data
@@ -69,17 +50,17 @@ export function ModelStatusCard(props: {
 
   const availability = hasData
     ? `${props.model.availability_rate.toFixed(2)}%`
-    : '--'
+    : NO_VALUE
 
   // A model that never streams (image generation, embeddings, rerank) has no
   // time-to-first-token samples at all, which the API reports as a null average
   // rather than 0 ms. Falling back to the average total latency is fine, but it
   // must never be labelled as first-token latency.
   let latencyLabel = t('Latency (24H)')
-  let latencyValue = '--'
+  let latencyValue = NO_VALUE
   let latencyHint = t('No requests in the last 24 hours')
   if (avgTtftMs !== null) {
-    latencyLabel = t('First token (24H)')
+    latencyLabel = t('TTFT (24H)')
     latencyValue = formatMilliseconds(avgTtftMs, t)
     latencyHint = t(
       'Average time to first token over {{count}} streamed requests',
@@ -92,21 +73,30 @@ export function ModelStatusCard(props: {
     )
   }
 
+  // The model icon and its vendor fall back to each other so a model without
+  // its own artwork still shows the vendor's.
+  const iconKey = props.model.icon || props.model.vendor_icon
+
   return (
-    <Card size='sm' className='rounded-lg'>
-      <CardHeader className='grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3'>
-        <CardTitle className='flex min-w-0 items-center gap-2'>
+    <Card size='sm' className='rounded-xl'>
+      <CardHeader className='grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2'>
+        <span
+          className='bg-muted/50 flex size-8 shrink-0 items-center justify-center rounded-lg'
+          aria-hidden='true'
+        >
+          {getLobeIcon(iconKey, 18)}
+        </span>
+        <span className='min-w-0'>
           <span
-            className={cn(
-              'size-2 shrink-0 rounded-full',
-              stateDotClassName(props.model.state)
-            )}
-            aria-hidden='true'
-          />
-          <span className='truncate font-mono' title={props.model.model_name}>
+            className='block truncate font-mono text-sm font-medium'
+            title={props.model.model_name}
+          >
             {props.model.model_name}
           </span>
-        </CardTitle>
+          <span className='text-muted-foreground block truncate text-xs'>
+            {props.model.vendor_name || t('Unknown provider')}
+          </span>
+        </span>
         <Badge
           variant='outline'
           data-state={props.model.state}
@@ -116,68 +106,42 @@ export function ModelStatusCard(props: {
         </Badge>
       </CardHeader>
       <CardContent className='space-y-3'>
-        <div className='flex flex-wrap items-baseline gap-x-8 gap-y-2'>
-          <div>
+        <div className='grid grid-cols-2 gap-2'>
+          <div
+            className='rounded-lg border px-2.5 py-2'
+            title={t('{{count}} requests in the last {{hours}} hours', {
+              count: props.model.request_count,
+              hours: props.windowHours,
+            })}
+          >
+            <div className='text-muted-foreground truncate text-[11px]'>
+              {t('Uptime (24H)')}
+            </div>
             <div
               className={cn(
-                'font-mono text-xl leading-none font-semibold',
+                'mt-1 font-mono text-lg leading-none font-semibold',
                 stateTextClassName(props.model.state)
               )}
             >
               {availability}
             </div>
-            <div className='text-muted-foreground mt-1 text-[11px] uppercase'>
-              {t('Uptime (24H)')}
-            </div>
           </div>
-          <div>
-            <div
-              className='font-mono text-xl leading-none font-semibold'
-              title={latencyHint}
-            >
-              {latencyValue}
-            </div>
-            <div className='text-muted-foreground mt-1 text-[11px] uppercase'>
+          <div className='rounded-lg border px-2.5 py-2' title={latencyHint}>
+            <div className='text-muted-foreground truncate text-[11px]'>
               {latencyLabel}
             </div>
-          </div>
-          <div>
-            <div className='font-mono text-xl leading-none font-semibold'>
-              {props.model.request_count.toLocaleString()}
-            </div>
-            <div className='text-muted-foreground mt-1 text-[11px] uppercase'>
-              {t('Requests (24H)')}
+            <div className='mt-1 font-mono text-lg leading-none font-semibold'>
+              {latencyValue}
             </div>
           </div>
         </div>
 
-        <div
-          className='grid h-6 auto-cols-fr grid-flow-col gap-0 sm:gap-px'
-          role='img'
-          aria-label={t('Availability timeline for the last {{hours}} hours', {
-            hours: props.windowHours,
-          })}
-        >
-          {props.model.buckets.map((bucket) => (
-            <span
-              key={bucket.ts}
-              data-state={bucket.state}
-              className={cn(
-                'min-w-0 rounded-[1px]',
-                bucketClassName(bucket.state)
-              )}
-              title={bucketTitle(bucket, t)}
-            />
-          ))}
-        </div>
-
-        <div className='text-muted-foreground flex items-center justify-between gap-2 text-[11px]'>
-          <span>{t('{{hours}}h ago', { hours: props.windowHours })}</span>
-          <span>
-            {t('{{minutes}} min per bar', { minutes: props.bucketMinutes })}
-          </span>
-          <span>{t('Now')}</span>
-        </div>
+        <AvailabilityTimeline
+          buckets={props.model.buckets}
+          bucketMinutes={props.bucketMinutes}
+          windowHours={props.windowHours}
+          thresholds={props.thresholds}
+        />
       </CardContent>
     </Card>
   )

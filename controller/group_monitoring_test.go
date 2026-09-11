@@ -123,8 +123,12 @@ func TestBuildGroupMonitoringGroupsRollsUpStorageBuckets(t *testing.T) {
 		{Group: "vip", ModelName: "gpt-4o-mini", BucketTs: 0, RequestCount: 4, SuccessCount: 1, TotalLatencyMs: 800},
 	}
 
+	metas := map[string]groupMonitoringModelMeta{
+		"gpt-4o-mini": {Icon: "OpenAI", VendorName: "OpenAI", VendorIcon: "OpenAI.Color"},
+	}
+
 	// 15 minute display buckets over a one hour window.
-	summaries := buildGroupMonitoringGroups(rows, groups, 0, 4, 900)
+	summaries := buildGroupMonitoringGroups(rows, groups, metas, 0, 4, 900)
 	require.Len(t, summaries, 2)
 
 	assert.Equal(t, "default", summaries[0].GroupName)
@@ -133,6 +137,9 @@ func TestBuildGroupMonitoringGroupsRollsUpStorageBuckets(t *testing.T) {
 
 	chat := summaries[0].Models[0]
 	assert.Equal(t, "gpt-4o-mini", chat.ModelName)
+	assert.Equal(t, "OpenAI", chat.Icon)
+	assert.Equal(t, "OpenAI", chat.VendorName)
+	assert.Equal(t, "OpenAI.Color", chat.VendorIcon)
 	assert.True(t, chat.HasData)
 	// 19 successes over 22 requests. Averaging the three storage bucket rates
 	// (100%, 0%, 100%) would produce 66.67 instead.
@@ -158,6 +165,7 @@ func TestBuildGroupMonitoringGroupsRollsUpStorageBuckets(t *testing.T) {
 	assert.Equal(t, groupMonitoringStateNoData, chat.Buckets[3].State)
 
 	image := summaries[0].Models[1]
+	assert.Empty(t, image.VendorName, "a model missing from the pricing catalog must not fabricate a vendor")
 	assert.True(t, image.HasData)
 	assert.Equal(t, groupMonitoringStateHealthy, image.State)
 	assert.EqualValues(t, 120000, image.AvgLatencyMs)
@@ -205,7 +213,7 @@ func TestBuildGroupMonitoringGroupsBucketStateThresholds(t *testing.T) {
 				RequestCount: test.requestCount,
 				SuccessCount: test.successCount,
 			}}
-			summaries := buildGroupMonitoringGroups(rows, groups, 0, 1, 300)
+			summaries := buildGroupMonitoringGroups(rows, groups, nil, 0, 1, 300)
 			require.Len(t, summaries, 1)
 			require.Len(t, summaries[0].Models[0].Buckets, 1)
 			assert.Equal(t, test.want, summaries[0].Models[0].Buckets[0].State)
@@ -215,6 +223,32 @@ func TestBuildGroupMonitoringGroupsBucketStateThresholds(t *testing.T) {
 			assert.True(t, summaries[0].Models[0].HasData)
 		})
 	}
+}
+
+func TestGroupMonitoringVisibleGroups(t *testing.T) {
+	hidden := false
+	shown := true
+	groups := []operation_setting.GroupMonitoringGroup{
+		{Group: "public", VisibleToUsers: &shown, Models: []string{"gpt-4o-mini"}},
+		{Group: "internal", VisibleToUsers: &hidden, Models: []string{"gpt-4o-mini"}},
+		// Configured before the flag existed: it must stay visible, otherwise an
+		// upgrade would blank the page for every non-admin.
+		{Group: "legacy", Models: []string{"gpt-4o-mini"}},
+	}
+
+	admin := groupMonitoringVisibleGroups(groups, true)
+	assert.Equal(t, []string{"public", "internal", "legacy"}, groupMonitoringGroupNames(admin))
+
+	user := groupMonitoringVisibleGroups(groups, false)
+	assert.Equal(t, []string{"public", "legacy"}, groupMonitoringGroupNames(user))
+}
+
+func groupMonitoringGroupNames(groups []operation_setting.GroupMonitoringGroup) []string {
+	names := make([]string, 0, len(groups))
+	for _, group := range groups {
+		names = append(names, group.Group)
+	}
+	return names
 }
 
 func TestCanonicalGroupMonitoringModel(t *testing.T) {

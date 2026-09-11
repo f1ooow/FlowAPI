@@ -43,7 +43,12 @@ type groupMonitoringBucket struct {
 }
 
 type groupMonitoringModelSummary struct {
-	ModelName        string                  `json:"model_name"`
+	ModelName string `json:"model_name"`
+	// Icon and vendor come from the pricing catalog, the same source the model
+	// square renders, so a model looks identical in both places.
+	Icon             string                  `json:"icon,omitempty"`
+	VendorName       string                  `json:"vendor_name,omitempty"`
+	VendorIcon       string                  `json:"vendor_icon,omitempty"`
 	HasData          bool                    `json:"has_data"`
 	State            string                  `json:"state"`
 	AvailabilityRate float64                 `json:"availability_rate"`
@@ -55,16 +60,39 @@ type groupMonitoringModelSummary struct {
 }
 
 type groupMonitoringGroupSummary struct {
-	GroupName   string                        `json:"group_name"`
-	Description string                        `json:"description"`
-	Models      []groupMonitoringModelSummary `json:"models"`
+	GroupName   string `json:"group_name"`
+	Description string `json:"description"`
+	// Always true for a non-admin viewer, who never receives a hidden group.
+	// Admins get every group and use this to spot the hidden ones.
+	VisibleToUsers bool                          `json:"visible_to_users"`
+	Models         []groupMonitoringModelSummary `json:"models"`
+}
+
+// groupMonitoringThresholds mirrors the constants this file applies to a
+// display bucket. The timeline collapses adjacent buckets to fit the card
+// width, and a collapsed bar must be coloured from the summed counters rather
+// than from an average of the child rates, so the client needs the very same
+// thresholds. Shipping them keeps one source of truth instead of a second copy
+// hard-coded in the frontend.
+type groupMonitoringThresholds struct {
+	HealthyRate       float64 `json:"healthy_rate"`
+	DegradedRate      float64 `json:"degraded_rate"`
+	MinBucketRequests int64   `json:"min_bucket_requests"`
 }
 
 type groupMonitoringSummaryResponse struct {
 	Enabled       bool                          `json:"enabled"`
 	BucketMinutes int                           `json:"bucket_minutes"`
 	WindowHours   int                           `json:"window_hours"`
+	Thresholds    groupMonitoringThresholds     `json:"thresholds"`
 	Groups        []groupMonitoringGroupSummary `json:"groups"`
+}
+
+// groupMonitoringModelMeta is the presentation metadata of a monitored model.
+type groupMonitoringModelMeta struct {
+	Icon       string
+	VendorName string
+	VendorIcon string
 }
 
 type groupMonitoringCounters struct {
@@ -172,7 +200,39 @@ func groupMonitoringQueryScope(groups []operation_setting.GroupMonitoringGroup) 
 	return groupNames, modelNames
 }
 
-func buildGroupMonitoringGroups(rows []model.PerfMetricGroupBucket, groups []operation_setting.GroupMonitoringGroup, seriesStart int64, bucketCount int, displaySeconds int64) []groupMonitoringGroupSummary {
+// groupMonitoringModelMetaMap resolves icons and vendors from the pricing
+// cache the model square already renders from, so the monitoring page does not
+// grow a second model-to-vendor mapping that can drift.
+func groupMonitoringModelMetaMap(groups []operation_setting.GroupMonitoringGroup) map[string]groupMonitoringModelMeta {
+	wanted := make(map[string]struct{})
+	for _, group := range groups {
+		for _, modelName := range group.Models {
+			wanted[modelName] = struct{}{}
+		}
+	}
+	if len(wanted) == 0 {
+		return nil
+	}
+	vendors := make(map[int]model.PricingVendor)
+	for _, vendor := range model.GetVendors() {
+		vendors[vendor.ID] = vendor
+	}
+	metas := make(map[string]groupMonitoringModelMeta, len(wanted))
+	for _, pricing := range model.GetPricing() {
+		if _, ok := wanted[pricing.ModelName]; !ok {
+			continue
+		}
+		meta := groupMonitoringModelMeta{Icon: pricing.Icon}
+		if vendor, ok := vendors[pricing.VendorID]; ok {
+			meta.VendorName = vendor.Name
+			meta.VendorIcon = vendor.Icon
+		}
+		metas[pricing.ModelName] = meta
+	}
+	return metas
+}
+
+func buildGroupMonitoringGroups(rows []model.PerfMetricGroupBucket, groups []operation_setting.GroupMonitoringGroup, metas map[string]groupMonitoringModelMeta, seriesStart int64, bucketCount int, displaySeconds int64) []groupMonitoringGroupSummary {
 	seriesEnd := seriesStart + int64(bucketCount)*displaySeconds
 	rolled := make(map[string]map[int64]groupMonitoringCounters, len(rows))
 	for _, row := range rows {
@@ -196,9 +256,10 @@ func buildGroupMonitoringGroups(rows []model.PerfMetricGroupBucket, groups []ope
 	summaries := make([]groupMonitoringGroupSummary, 0, len(groups))
 	for _, group := range groups {
 		summary := groupMonitoringGroupSummary{
-			GroupName:   group.Group,
-			Description: group.Description,
-			Models:      make([]groupMonitoringModelSummary, 0, len(group.Models)),
+			GroupName:      group.Group,
+			Description:    group.Description,
+			VisibleToUsers: group.IsVisibleToUsers(),
+			Models:         make([]groupMonitoringModelSummary, 0, len(group.Models)),
 		}
 		for _, modelName := range group.Models {
 			buckets := rolled[group.Group+"\x00"+modelName]
@@ -220,8 +281,12 @@ func buildGroupMonitoringGroups(rows []model.PerfMetricGroupBucket, groups []ope
 				}
 			}
 
+			meta := metas[modelName]
 			modelSummary := groupMonitoringModelSummary{
 				ModelName:       modelName,
+				Icon:            meta.Icon,
+				VendorName:      meta.VendorName,
+				VendorIcon:      meta.VendorIcon,
 				HasData:         total.requestCount > 0,
 				State:           groupMonitoringStateNoData,
 				TtftSampleCount: total.ttftCount,
@@ -247,6 +312,22 @@ func buildGroupMonitoringGroups(rows []model.PerfMetricGroupBucket, groups []ope
 	return summaries
 }
 
+// groupMonitoringVisibleGroups drops the groups a regular user must not see.
+// The route stays behind UserAuth; the split is by role inside the handler so
+// no anonymous entry point is introduced.
+func groupMonitoringVisibleGroups(groups []operation_setting.GroupMonitoringGroup, isAdmin bool) []operation_setting.GroupMonitoringGroup {
+	if isAdmin {
+		return groups
+	}
+	visible := make([]operation_setting.GroupMonitoringGroup, 0, len(groups))
+	for _, group := range groups {
+		if group.IsVisibleToUsers() {
+			visible = append(visible, group)
+		}
+	}
+	return visible
+}
+
 func GetGroupMonitoringSummary(c *gin.Context) {
 	setting := operation_setting.GetGroupMonitoringSetting()
 	displaySeconds := groupMonitoringDisplaySeconds(setting.BucketMinutes)
@@ -258,20 +339,26 @@ func GetGroupMonitoringSummary(c *gin.Context) {
 		Enabled:       setting.Enabled,
 		BucketMinutes: int(displaySeconds / 60),
 		WindowHours:   groupMonitoringWindowHours,
-		Groups:        []groupMonitoringGroupSummary{},
+		Thresholds: groupMonitoringThresholds{
+			HealthyRate:       groupMonitoringHealthyRate,
+			DegradedRate:      groupMonitoringDegradedRate,
+			MinBucketRequests: groupMonitoringMinBucketRequests,
+		},
+		Groups: []groupMonitoringGroupSummary{},
 	}
-	if !setting.Enabled || len(setting.Groups) == 0 {
+	groups := groupMonitoringVisibleGroups(setting.Groups, c.GetInt("role") >= common.RoleAdminUser)
+	if !setting.Enabled || len(groups) == 0 {
 		c.JSON(http.StatusOK, gin.H{"success": true, "data": response})
 		return
 	}
 
-	groupNames, modelNames := groupMonitoringQueryScope(setting.Groups)
+	groupNames, modelNames := groupMonitoringQueryScope(groups)
 	rows, err := model.GetPerfMetricGroupBuckets(groupNames, modelNames, seriesStart, seriesEnd-1)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	response.Groups = buildGroupMonitoringGroups(rows, setting.Groups, seriesStart, bucketCount, displaySeconds)
+	response.Groups = buildGroupMonitoringGroups(rows, groups, groupMonitoringModelMetaMap(groups), seriesStart, bucketCount, displaySeconds)
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": response})
 }
 
@@ -316,6 +403,10 @@ func UpdateGroupMonitoringAdmin(c *gin.Context) {
 	for index := range setting.Groups {
 		setting.Groups[index].Group = strings.TrimSpace(setting.Groups[index].Group)
 		setting.Groups[index].Description = strings.TrimSpace(setting.Groups[index].Description)
+		// A payload without the field keeps the pre-flag behaviour (visible);
+		// persisting it explicitly makes the stored option self-describing.
+		visibleToUsers := setting.Groups[index].IsVisibleToUsers()
+		setting.Groups[index].VisibleToUsers = &visibleToUsers
 		for modelIndex := range setting.Groups[index].Models {
 			setting.Groups[index].Models[modelIndex] = strings.TrimSpace(setting.Groups[index].Models[modelIndex])
 		}

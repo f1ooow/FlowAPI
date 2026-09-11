@@ -108,3 +108,29 @@ func TestGetGroupMonitoringSettingIsAnIsolatedCopy(t *testing.T) {
 	assert.Equal(t, "gpt-4o-mini", groupMonitoringSetting.Groups[0].Models[0])
 	assert.Equal(t, 0, groupMonitoringSetting.BucketMinutes)
 }
+
+func TestGetGroupMonitoringSettingResolvesVisibilityDefault(t *testing.T) {
+	hidden := false
+	previous := groupMonitoringSetting
+	groupMonitoringSetting = GroupMonitoringSetting{
+		BucketMinutes: 5,
+		Groups: []GroupMonitoringGroup{
+			// Stored before the flag existed: a missing field means visible, so
+			// an upgrade cannot blank the page for non-admin users.
+			{Group: "legacy", Models: []string{"gpt-4o-mini"}},
+			{Group: "internal", VisibleToUsers: &hidden, Models: []string{"gpt-4o-mini"}},
+		},
+	}
+	t.Cleanup(func() { groupMonitoringSetting = previous })
+
+	setting := GetGroupMonitoringSetting()
+	require.Len(t, setting.Groups, 2)
+	require.NotNil(t, setting.Groups[0].VisibleToUsers)
+	assert.True(t, *setting.Groups[0].VisibleToUsers)
+	require.NotNil(t, setting.Groups[1].VisibleToUsers)
+	assert.False(t, *setting.Groups[1].VisibleToUsers)
+
+	// The resolved pointer must not alias the stored setting.
+	*setting.Groups[1].VisibleToUsers = true
+	assert.False(t, groupMonitoringSetting.Groups[1].IsVisibleToUsers())
+}
