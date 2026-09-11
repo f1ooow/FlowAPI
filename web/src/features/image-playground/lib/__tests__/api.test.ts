@@ -25,6 +25,21 @@ import {
   normalizeImageResponse,
 } from '../api'
 
+const sixteenBySixteenPng = Uint8Array.from(
+  atob(
+    'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAHUlEQVR4nGP8////fwYKABMlmkcNGDVg1IDBZAAAa8oEHMu6Z0kAAAAASUVORK5CYII='
+  ),
+  (value) => value.charCodeAt(0)
+)
+
+function pngWithDimensions(width: number, height: number): Blob {
+  const bytes = new Uint8Array(sixteenBySixteenPng)
+  const view = new DataView(bytes.buffer)
+  view.setUint32(16, width)
+  view.setUint32(20, height)
+  return new Blob([bytes], { type: 'image/png' })
+}
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -102,13 +117,29 @@ describe('image playground API', () => {
       apiKey: 'sk-key',
       prompt: 'replace the background',
       params: DEFAULT_IMAGE_PARAMS,
-      images: [new Blob(['source'], { type: 'image/png' })],
-      mask: new Blob(['mask'], { type: 'image/png' }),
+      images: [new Blob([sixteenBySixteenPng], { type: 'image/png' })],
+      mask: new Blob([sixteenBySixteenPng], { type: 'image/png' }),
     })
 
     const formData = fetchMock.mock.calls[0]?.[1]?.body as FormData
     expect(formData.get('image')).toBeInstanceOf(Blob)
     expect(formData.get('mask')).toBeInstanceOf(Blob)
+  })
+
+  test('rejects mismatched mask dimensions before making an edit request', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      callImageEdit({
+        apiKey: 'sk-key',
+        prompt: 'replace the background',
+        params: DEFAULT_IMAGE_PARAMS,
+        images: [pngWithDimensions(32, 16)],
+        mask: pngWithDimensions(16, 16),
+      })
+    ).rejects.toThrow('Mask dimensions 16x16 do not match image 32x16')
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   test('keeps URL results usable when URL materialization is blocked', async () => {

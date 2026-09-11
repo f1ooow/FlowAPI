@@ -145,6 +145,99 @@ func formatUserLogs(logs []*Log, startIdx int) {
 	assignDisplayLogIds(logs, startIdx)
 }
 
+// decodeLogRouteHistory reads the structured routing chain stored under
+// Other.admin_info. Keeping this parsing in the model layer lets admin log
+// views enrich older records, while formatUserLogs still removes the whole
+// admin_info object for user-facing endpoints.
+func decodeLogRouteHistory(other string) (map[string]interface{}, map[string]interface{}, []interface{}, bool) {
+	if strings.TrimSpace(other) == "" {
+		return nil, nil, nil, false
+	}
+	var otherMap map[string]interface{}
+	if err := common.UnmarshalJsonStr(other, &otherMap); err != nil || otherMap == nil {
+		return nil, nil, nil, false
+	}
+	adminInfo, ok := otherMap["admin_info"].(map[string]interface{})
+	if !ok || adminInfo == nil {
+		return otherMap, nil, nil, false
+	}
+	history, ok := adminInfo["route_history"].([]interface{})
+	if !ok || len(history) == 0 {
+		return otherMap, adminInfo, nil, false
+	}
+	return otherMap, adminInfo, history, true
+}
+
+func routeHistoryAttemptMap(value interface{}) (map[string]interface{}, bool) {
+	attempt, ok := value.(map[string]interface{})
+	return attempt, ok
+}
+
+func routeHistoryAttemptChannelID(value interface{}) (int, bool) {
+	attempt, ok := routeHistoryAttemptMap(value)
+	if !ok {
+		return 0, false
+	}
+	idValue, ok := attempt["channel_id"].(float64)
+	if !ok || idValue <= 0 || idValue != float64(int(idValue)) {
+		return 0, false
+	}
+	channelID := int(idValue)
+	if channelID <= 0 {
+		return 0, false
+	}
+	return channelID, true
+}
+
+func collectRouteHistoryChannelIDs(logs []*Log, channelIds *types.Set[int]) {
+	for _, log := range logs {
+		_, _, history, ok := decodeLogRouteHistory(log.Other)
+		if !ok {
+			continue
+		}
+		for _, value := range history {
+			if channelID, ok := routeHistoryAttemptChannelID(value); ok {
+				channelIds.Add(channelID)
+			}
+		}
+	}
+}
+
+func enrichRouteHistoryChannelNames(logs []*Log, channelMap map[int]string) {
+	if len(channelMap) == 0 {
+		return
+	}
+	for _, log := range logs {
+		otherMap, adminInfo, history, ok := decodeLogRouteHistory(log.Other)
+		if !ok {
+			continue
+		}
+		changed := false
+		for _, value := range history {
+			attempt, ok := routeHistoryAttemptMap(value)
+			if !ok {
+				continue
+			}
+			channelID, ok := routeHistoryAttemptChannelID(value)
+			if !ok {
+				continue
+			}
+			if existingName, ok := attempt["channel_name"].(string); ok && strings.TrimSpace(existingName) != "" {
+				continue
+			}
+			if channelName := strings.TrimSpace(channelMap[channelID]); channelName != "" {
+				attempt["channel_name"] = channelName
+				changed = true
+			}
+		}
+		if changed {
+			adminInfo["route_history"] = history
+			otherMap["admin_info"] = adminInfo
+			log.Other = common.MapToJsonStr(otherMap)
+		}
+	}
+}
+
 func GetLogByTokenId(tokenId int) (logs []*Log, err error) {
 	order := "id desc"
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
@@ -536,6 +629,7 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 			channelIds.Add(log.ChannelId)
 		}
 	}
+	collectRouteHistoryChannelIDs(logs, channelIds)
 
 	if channelIds.Len() > 0 {
 		var channels []struct {
@@ -568,6 +662,7 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 		for i := range logs {
 			logs[i].ChannelName = channelMap[logs[i].ChannelId]
 		}
+		enrichRouteHistoryChannelNames(logs, channelMap)
 	}
 
 	return logs, total, err

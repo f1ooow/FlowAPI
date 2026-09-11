@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -342,7 +343,7 @@ func (channel *Channel) GetOtherInfo() map[string]interface{} {
 }
 
 func (channel *Channel) SetOtherInfo(otherInfo map[string]interface{}) {
-	otherInfoBytes, err := json.Marshal(otherInfo)
+	otherInfoBytes, err := common.Marshal(otherInfo)
 	if err != nil {
 		common.SysLog(fmt.Sprintf("failed to marshal other info: channel_id=%d, tag=%s, name=%s, error=%v", channel.Id, channel.GetTag(), channel.Name, err))
 		return
@@ -366,6 +367,216 @@ func (channel *Channel) GetAutoBan() bool {
 		return false
 	}
 	return *channel.AutoBan == 1
+}
+
+const (
+	autoBanFailuresInfoKey = "auto_ban_failures"
+	autoBanUntilInfoKey    = "auto_ban_until"
+)
+
+type ChannelAutoBanFailureResult struct {
+	ConsecutiveFailures int
+	Threshold           int
+	Banned              bool
+	BanUntil            int64
+}
+
+func (channel *Channel) GetAutoBanUntil() int64 {
+	if channel == nil {
+		return 0
+	}
+	value, ok := channel.GetOtherInfo()[autoBanUntilInfoKey]
+	if !ok {
+		return 0
+	}
+	switch typed := value.(type) {
+	case float64:
+		return int64(typed)
+	case int64:
+		return typed
+	case int:
+		return int64(typed)
+	}
+	return 0
+}
+
+func (channel *Channel) GetAutoBanFailureCount() int {
+	value, ok := channel.GetOtherInfo()[autoBanFailuresInfoKey].(float64)
+	if !ok || value <= 0 {
+		return 0
+	}
+	return int(value)
+}
+
+func RecordChannelAutoBanFailure(channelID int, reason string) (ChannelAutoBanFailureResult, error) {
+	result := ChannelAutoBanFailureResult{}
+	if common.MemoryCacheEnabled {
+		channelStatusLock.Lock()
+		defer channelStatusLock.Unlock()
+	}
+	pollingLock := GetChannelPollingLock(channelID)
+	pollingLock.Lock()
+	defer pollingLock.Unlock()
+
+	var channel Channel
+	updated := false
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockForUpdate(tx).Where("id = ?", channelID).First(&channel).Error; err != nil {
+			return err
+		}
+		if channel.Status != common.ChannelStatusEnabled || !channel.GetAutoBan() {
+			return nil
+		}
+
+		settings := channel.GetReliabilitySettings()
+		info := channel.GetOtherInfo()
+		failures := 0
+		if value, ok := info[autoBanFailuresInfoKey].(float64); ok {
+			failures = int(value)
+		}
+		failures++
+		info[autoBanFailuresInfoKey] = failures
+		result.ConsecutiveFailures = failures
+		result.Threshold = settings.AutoBanThreshold
+
+		if failures >= settings.AutoBanThreshold {
+			result.Banned = true
+			result.BanUntil = time.Now().Add(time.Duration(settings.AutoBanDurationSecs) * time.Second).Unix()
+			info[autoBanUntilInfoKey] = result.BanUntil
+			info["status_reason"] = reason
+			info["status_time"] = common.GetTimestamp()
+			channel.Status = common.ChannelStatusAutoDisabled
+		}
+		channel.SetOtherInfo(info)
+		updated = true
+		return tx.Model(&Channel{}).Where("id = ?", channelID).Updates(map[string]any{
+			"status":     channel.Status,
+			"other_info": channel.OtherInfo,
+		}).Error
+	})
+	if err != nil || !updated {
+		return result, err
+	}
+
+	if common.MemoryCacheEnabled {
+		if result.Banned {
+			CacheUpdateChannelStatus(channelID, common.ChannelStatusAutoDisabled)
+		}
+		CacheUpdateChannel(&channel)
+	}
+	if result.Banned {
+		if err := UpdateAbilityStatus(channelID, false); err != nil {
+			common.SysLog(fmt.Sprintf("failed to disable abilities for automatically banned channel: channel_id=%d, error=%v", channelID, err))
+		}
+	}
+	return result, nil
+}
+
+func ClearChannelAutoBanFailures(channelID int) (bool, error) {
+	if common.MemoryCacheEnabled {
+		channelStatusLock.Lock()
+		defer channelStatusLock.Unlock()
+	}
+	pollingLock := GetChannelPollingLock(channelID)
+	pollingLock.Lock()
+	defer pollingLock.Unlock()
+
+	var channel Channel
+	cleared := false
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockForUpdate(tx).Where("id = ?", channelID).First(&channel).Error; err != nil {
+			return err
+		}
+		if channel.Status != common.ChannelStatusEnabled {
+			return nil
+		}
+		info := channel.GetOtherInfo()
+		if _, exists := info[autoBanFailuresInfoKey]; !exists {
+			return nil
+		}
+		delete(info, autoBanFailuresInfoKey)
+		channel.SetOtherInfo(info)
+		cleared = true
+		return tx.Model(&Channel{}).Where("id = ?", channelID).Update("other_info", channel.OtherInfo).Error
+	})
+	if err != nil || !cleared {
+		return cleared, err
+	}
+	if common.MemoryCacheEnabled {
+		CacheUpdateChannel(&channel)
+	}
+	return true, nil
+}
+
+func MaybeRestoreAutoBannedChannel(channel *Channel) bool {
+	if channel == nil || channel.Status != common.ChannelStatusAutoDisabled {
+		return channel != nil && channel.Status == common.ChannelStatusEnabled
+	}
+	until := channel.GetAutoBanUntil()
+	if until <= 0 || time.Now().Unix() < until {
+		return false
+	}
+	if common.MemoryCacheEnabled {
+		channelStatusLock.Lock()
+		defer channelStatusLock.Unlock()
+	}
+	pollingLock := GetChannelPollingLock(channel.Id)
+	pollingLock.Lock()
+	defer pollingLock.Unlock()
+
+	var current Channel
+	restored := false
+	available := false
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockForUpdate(tx).Where("id = ?", channel.Id).First(&current).Error; err != nil {
+			return err
+		}
+		if current.Status == common.ChannelStatusEnabled {
+			available = true
+			return nil
+		}
+		if current.Status != common.ChannelStatusAutoDisabled {
+			return nil
+		}
+		currentUntil := current.GetAutoBanUntil()
+		if currentUntil <= 0 || time.Now().Unix() < currentUntil {
+			return nil
+		}
+
+		info := current.GetOtherInfo()
+		delete(info, autoBanUntilInfoKey)
+		delete(info, autoBanFailuresInfoKey)
+		info["status_reason"] = "automatic ban window expired"
+		info["status_time"] = common.GetTimestamp()
+		current.SetOtherInfo(info)
+		current.Status = common.ChannelStatusEnabled
+		if err := tx.Model(&Channel{}).Where("id = ?", current.Id).Updates(map[string]any{
+			"status":     current.Status,
+			"other_info": current.OtherInfo,
+		}).Error; err != nil {
+			return err
+		}
+		restored = true
+		available = true
+		return nil
+	})
+	if err != nil {
+		common.SysLog(fmt.Sprintf("failed to restore automatically banned channel: channel_id=%d, error=%v", channel.Id, err))
+		return false
+	}
+	if available {
+		*channel = current
+	}
+	if !restored {
+		return available
+	}
+	if common.MemoryCacheEnabled {
+		CacheUpdateChannel(&current)
+	}
+	if err := UpdateAbilityStatus(current.Id, true); err != nil {
+		common.SysLog(fmt.Sprintf("failed to enable abilities for restored channel: channel_id=%d, error=%v", current.Id, err))
+	}
+	return true
 }
 
 func (channel *Channel) Save() error {
@@ -546,6 +757,47 @@ func (channel *Channel) GetModelMapping() string {
 		return ""
 	}
 	return *channel.ModelMapping
+}
+
+func (channel *Channel) GetModelRedirectRules() ([]dto.ModelRedirectRule, error) {
+	return dto.ParseModelRedirectRules(channel.GetModelMapping())
+}
+
+func (channel *Channel) SupportsModel(modelName string) bool {
+	modelName = strings.TrimSpace(modelName)
+	if modelName == "" {
+		return false
+	}
+	for _, supported := range channel.GetModels() {
+		if strings.TrimSpace(supported) == modelName {
+			return true
+		}
+	}
+	rules, err := channel.GetModelRedirectRules()
+	if err != nil {
+		return false
+	}
+	_, matched := dto.MatchModelRedirect(rules, modelName)
+	return matched
+}
+
+func (channel *Channel) SupportsRequestPath(requestPath string, modelName string) bool {
+	if channel.Type != constant.ChannelTypeAdvancedCustom {
+		return true
+	}
+	config := channel.GetOtherSettings().AdvancedCustom
+	if config == nil {
+		return false
+	}
+	if config.SupportsPathForModel(requestPath, modelName) {
+		return true
+	}
+	rules, err := channel.GetModelRedirectRules()
+	if err != nil {
+		return false
+	}
+	target, matched := dto.MatchModelRedirect(rules, modelName)
+	return matched && config.SupportsPathForModel(requestPath, target)
 }
 
 func (channel *Channel) GetStatusCodeMapping() string {
@@ -767,12 +1019,24 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 			beforeStatus := channelCache.Status
 			// 如果是多Key模式，更新缓存中的状态
 			handlerMultiKeyUpdate(channelCache, usingKey, status, reason)
+			if status != common.ChannelStatusAutoDisabled {
+				info := channelCache.GetOtherInfo()
+				delete(info, autoBanUntilInfoKey)
+				delete(info, autoBanFailuresInfoKey)
+				channelCache.SetOtherInfo(info)
+			}
 			if beforeStatus != channelCache.Status {
 				CacheUpdateChannelStatus(channelId, channelCache.Status)
 			}
 			//CacheUpdateChannel(channelCache)
 			//return true
 		} else {
+			if status != common.ChannelStatusAutoDisabled {
+				info := channelCache.GetOtherInfo()
+				delete(info, autoBanUntilInfoKey)
+				delete(info, autoBanFailuresInfoKey)
+				channelCache.SetOtherInfo(info)
+			}
 			// 如果缓存渠道存在，且状态已是目标状态，直接返回
 			if channelCache.Status == status {
 				return false
@@ -801,11 +1065,21 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 		if channel.ChannelInfo.IsMultiKey {
 			beforeStatus := channel.Status
 			handlerMultiKeyUpdate(channel, usingKey, status, reason)
+			if status != common.ChannelStatusAutoDisabled {
+				info := channel.GetOtherInfo()
+				delete(info, autoBanUntilInfoKey)
+				delete(info, autoBanFailuresInfoKey)
+				channel.SetOtherInfo(info)
+			}
 			if beforeStatus != channel.Status {
 				shouldUpdateAbilities = true
 			}
 		} else {
 			info := channel.GetOtherInfo()
+			if status != common.ChannelStatusAutoDisabled {
+				delete(info, autoBanUntilInfoKey)
+				delete(info, autoBanFailuresInfoKey)
+			}
 			info["status_reason"] = reason
 			info["status_time"] = common.GetTimestamp()
 			channel.SetOtherInfo(info)
@@ -994,6 +1268,22 @@ func (channel *Channel) ValidateSettings() error {
 	if err := channelParams.ValidateHTTPTransport(); err != nil {
 		return err
 	}
+	if channelParams.Reliability != nil {
+		if err := channelParams.Reliability.Validate(); err != nil {
+			return err
+		}
+	}
+	if channel.ModelMapping != nil {
+		rules, err := dto.ParseModelRedirectRules(*channel.ModelMapping)
+		if err != nil {
+			return err
+		}
+		normalized, err := common.Marshal(rules)
+		if err != nil {
+			return fmt.Errorf("failed to normalize model redirect rules: %w", err)
+		}
+		channel.ModelMapping = common.GetPointer(string(normalized))
+	}
 	channelOtherSettings := &dto.ChannelOtherSettings{}
 	if channel.OtherSettings != "" {
 		err := common.UnmarshalJsonStr(channel.OtherSettings, channelOtherSettings)
@@ -1030,6 +1320,14 @@ func (channel *Channel) GetSetting() dto.ChannelSettings {
 		}
 	}
 	return setting
+}
+
+func (channel *Channel) GetReliabilitySettings() dto.ChannelReliabilitySettings {
+	setting := channel.GetSetting()
+	if setting.Reliability == nil {
+		return dto.DefaultChannelReliabilitySettings()
+	}
+	return setting.Reliability.WithDefaults()
 }
 
 func (channel *Channel) SetSetting(setting dto.ChannelSettings) {

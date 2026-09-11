@@ -45,9 +45,18 @@ import {
 } from '../constants'
 import { useImagePlayground } from '../hooks/use-image-playground'
 import { copyImageToClipboard, downloadImage } from '../lib/image-utils'
-import type { MaskSaveResult, PreparedMaskTarget } from '../lib/mask-preprocess'
+import {
+  createMaskPreviewDataUrl,
+  type MaskSaveResult,
+  type PreparedMaskTarget,
+} from '../lib/mask-preprocess'
 import { getPlaygroundTokens } from '../lib/tokens'
-import type { PlaygroundImage, PlaygroundTask, PlaygroundToken } from '../types'
+import type {
+  PlaygroundImage,
+  PlaygroundMask,
+  PlaygroundTask,
+  PlaygroundToken,
+} from '../types'
 import { MaskEditor } from './mask-editor'
 import { TaskCard } from './task-card'
 import { TaskDetail } from './task-detail'
@@ -135,14 +144,42 @@ function ImageContextMenu(props: {
 
 function ReferenceThumb(props: {
   image: PlaygroundImage
+  mask?: PlaygroundMask
   onRemove: () => void
   onPreview: () => void
   onEdit: () => void
   onContextMenu: (event: MouseEvent) => void
 }) {
   const { t } = useTranslation()
+  const isMaskTarget = props.mask?.targetImageId === props.image.id
+  const [maskPreviewSrc, setMaskPreviewSrc] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!isMaskTarget || !props.mask) {
+      setMaskPreviewSrc(null)
+      return
+    }
+
+    let cancelled = false
+    setMaskPreviewSrc(null)
+    void createMaskPreviewDataUrl(props.image.src, props.mask.src)
+      .then((previewSrc) => {
+        if (!cancelled) setMaskPreviewSrc(previewSrc)
+      })
+      .catch(() => {
+        if (!cancelled) setMaskPreviewSrc(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [isMaskTarget, props.image.src, props.mask])
+
+  const displaySrc = maskPreviewSrc || props.image.src
   return (
-    <div className='group relative size-16 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50'>
+    <div
+      className={`group relative size-16 shrink-0 overflow-hidden rounded-lg border bg-slate-50 ${isMaskTarget ? 'border-blue-400 ring-2 ring-blue-100' : 'border-slate-200'}`}
+    >
       <button
         type='button'
         onClick={props.onPreview}
@@ -150,11 +187,13 @@ function ReferenceThumb(props: {
         className='block h-full w-full'
         aria-label={t('Preview reference image')}
       >
-        <img
-          src={props.image.src}
-          alt=''
-          className='h-full w-full object-cover'
-        />
+        <img src={displaySrc} alt='' className='h-full w-full object-cover' />
+        {isMaskTarget ? (
+          <span
+            className='absolute top-1 right-1 size-2 rounded-full bg-blue-500 ring-2 ring-white'
+            aria-label={t('Mask ready')}
+          />
+        ) : null}
       </button>
       <div className='pointer-events-none absolute inset-x-0 bottom-0 flex justify-center gap-1 bg-slate-950/60 p-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100'>
         <button
@@ -347,6 +386,21 @@ export function ImagePlayground() {
   }
   const saveMask = (target: PreparedMaskTarget, result: MaskSaveResult) => {
     if (!maskImage) return
+    const currentImage = state.inputImages.find(
+      (image) => image.id === maskImage.id
+    )
+    if (!currentImage) {
+      setMaskImage(null)
+      return
+    }
+    state.replaceInputImage(maskImage.id, {
+      src: target.dataUrl,
+      blob: target.blob,
+      mimeType: 'image/png',
+      sourceUrl: undefined,
+      width: target.width,
+      height: target.height,
+    })
     state.setMask({
       targetImageId: maskImage.id,
       blob: result.maskBlob,
@@ -436,6 +490,7 @@ export function ImagePlayground() {
                   <ReferenceThumb
                     key={image.id}
                     image={image}
+                    mask={state.mask}
                     onRemove={() => state.removeInputImage(image.id)}
                     onPreview={() => setPreviewImage(image)}
                     onEdit={() => void beginMaskEdit(image)}

@@ -245,6 +245,13 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		Group:            relayInfo.UsingGroup,
 		Other:            other,
 	})
+	// Realtime WSS reaches this function only on the success path (relay/websocket.go),
+	// mirroring PostTextConsumeQuota / PostAudioConsumeQuota. Without this sample only
+	// realtime failures (controller/relay.go) would land in perf_metrics, making every
+	// realtime model report a 0% success rate.
+	gopool.Go(func() {
+		perfmetrics.RecordRelaySample(relayInfo, true, int64(usage.OutputTokens))
+	})
 }
 
 func CalcOpenRouterCacheCreateTokens(usage dto.Usage, priceData types.PriceData) int {

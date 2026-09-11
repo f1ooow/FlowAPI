@@ -50,7 +50,9 @@ export function Channels() {
   })
   const retryTimes = channelOpsQuery.data?.data?.retry_times
   const retryLabel =
-    typeof retryTimes === 'number' ? `${t('Max Retries')}: ${retryTimes}` : null
+    typeof retryTimes === 'number'
+      ? `${t('Async task retries')}: ${retryTimes}`
+      : null
   let retryBadge = null
   if (retryLabel) {
     retryBadge = isRoot ? (
@@ -60,7 +62,7 @@ export function Channels() {
             <Badge
               variant='outline'
               className='shrink-0 cursor-pointer'
-              aria-label={t('Retry Settings')}
+              aria-label={t('Async task retry settings')}
               render={
                 <Link
                   to='/system-settings/models/$section'

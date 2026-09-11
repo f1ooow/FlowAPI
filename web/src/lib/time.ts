@@ -97,6 +97,32 @@ export function getRollingDateRange(
   return { start, end }
 }
 
+const SECONDS_PER_DAY = 24 * 60 * 60
+const CHINA_STANDARD_TIME_OFFSET_SECONDS = 8 * 60 * 60
+
+/**
+ * Calculate today's range in China Standard Time (UTC+8).
+ *
+ * The range starts at 00:00:00 in China and ends at the current second. A
+ * fixed offset is intentional because China Standard Time does not observe
+ * daylight saving time.
+ */
+export function getChinaTodayTimestampRange(now: Date = new Date()): {
+  start_timestamp: number
+  end_timestamp: number
+} {
+  const endTimestamp = dateToUnixTimestamp(now)
+  const chinaTimestamp = endTimestamp + CHINA_STANDARD_TIME_OFFSET_SECONDS
+  const startTimestamp =
+    Math.floor(chinaTimestamp / SECONDS_PER_DAY) * SECONDS_PER_DAY -
+    CHINA_STANDARD_TIME_OFFSET_SECONDS
+
+  return {
+    start_timestamp: startTimestamp,
+    end_timestamp: endTimestamp,
+  }
+}
+
 /**
  * Compute time range as Unix timestamps (seconds)
  * @param days Default number of days if no dates provided

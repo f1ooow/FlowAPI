@@ -18,7 +18,25 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { describe, expect, test } from 'vitest'
 
-import { calculateMaskWorkingSize } from '../mask-preprocess'
+import {
+  calculateMaskWorkingSize,
+  validateMaskMatchesImage,
+} from '../mask-preprocess'
+
+const basePngBytes = Uint8Array.from(
+  atob(
+    'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAHUlEQVR4nGP8////fwYKABMlmkcNGDVg1IDBZAAAa8oEHMu6Z0kAAAAASUVORK5CYII='
+  ),
+  (value) => value.charCodeAt(0)
+)
+
+function pngBlob(width: number, height: number): Blob {
+  const bytes = new Uint8Array(basePngBytes)
+  const view = new DataView(bytes.buffer)
+  view.setUint32(16, width)
+  view.setUint32(20, height)
+  return new Blob([bytes], { type: 'image/png' })
+}
 
 describe('mask working dimensions', () => {
   test('floors non-multiple dimensions to the official 16px grid', () => {
@@ -45,5 +63,17 @@ describe('mask working dimensions', () => {
       scale: 1,
       wasResized: false,
     })
+  })
+
+  test('rejects a mask whose encoded dimensions differ from its target image', async () => {
+    await expect(
+      validateMaskMatchesImage(pngBlob(16, 16), pngBlob(32, 16))
+    ).rejects.toThrow('Mask dimensions 16x16 do not match image 32x16')
+  })
+
+  test('accepts a mask whose encoded dimensions match its target image', async () => {
+    await expect(
+      validateMaskMatchesImage(pngBlob(16, 16), pngBlob(16, 16))
+    ).resolves.toBeUndefined()
   })
 })

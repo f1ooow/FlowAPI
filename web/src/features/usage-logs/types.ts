@@ -93,6 +93,17 @@ export interface ChannelAffinityInfo {
   using_group?: string
 }
 
+export interface RouteHistoryAttempt {
+  channel_id: number
+  channel_name?: string
+  attempt: number
+  outcome: string
+  reason?: string
+  status_code?: number
+  priority?: number
+  weight?: number
+}
+
 export const USAGE_BILLING_PATH = {
   LOCAL: 'local',
   UPSTREAM: 'upstream',
@@ -115,6 +126,10 @@ export interface ToolSurchargeItem {
 
 export interface LogOtherData {
   admin_info?: {
+    // Full routing chain (channel ids/names, priorities, weights, upstream
+    // status codes). Admin-only: the backend strips admin_info for non-admin
+    // log views.
+    route_history?: RouteHistoryAttempt[]
     is_multi_key?: boolean
     multi_key_index?: number
     use_channel?: number[]

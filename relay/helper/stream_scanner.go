@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
@@ -75,13 +76,29 @@ func ExtendWriteDeadline(c *gin.Context) {
 }
 
 func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, dataHandler func(data string, sr *StreamResult)) {
+	_ = streamScannerHandler(c, resp, info, "", dataHandler)
+}
 
-	if resp == nil || dataHandler == nil {
-		return
+// StreamScannerHandlerWithGate holds neutral upstream events until the first
+// protocol-valid content event. A returned error is safe for transparent
+// failover only while info.StreamStatus.IsCommitted() is false.
+func StreamScannerHandlerWithGate(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, protocol StreamProtocol, dataHandler func(data string, sr *StreamResult)) *types.NewAPIError {
+	return streamScannerHandler(c, resp, info, protocol, dataHandler)
+}
+
+func streamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, protocol StreamProtocol, dataHandler func(data string, sr *StreamResult)) *types.NewAPIError {
+
+	if resp == nil || dataHandler == nil || info == nil {
+		return nil
 	}
+	gateEnabled := protocol != ""
 
 	// 无条件新建 StreamStatus
-	info.StreamStatus = relaycommon.NewStreamStatus()
+	if gateEnabled {
+		info.StreamStatus = relaycommon.NewGatedStreamStatus()
+	} else {
+		info.StreamStatus = relaycommon.NewStreamStatus()
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -141,8 +158,10 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	defer cleanup()
 
 	scanner.Split(bufio.ScanLines)
-	copyCodexSSEHeaders(c, resp)
-	SetEventStreamHeaders(c)
+	if !gateEnabled {
+		copyCodexSSEHeaders(c, resp)
+		SetEventStreamHeaders(c)
+	}
 
 	ctx = context.WithValue(ctx, "stop_chan", stopChan)
 
@@ -168,6 +187,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			for {
 				select {
 				case <-pingTicker.C:
+					if gateEnabled && !info.StreamStatus.IsCommitted() {
+						continue
+					}
 					var err error
 					func() {
 						writeMutex.Lock()
@@ -197,6 +219,15 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	}
 
 	dataChan := make(chan string, 10)
+	var precommitErr error
+	var precommitMu sync.Mutex
+	setPrecommitErr := func(err error) {
+		precommitMu.Lock()
+		if precommitErr == nil {
+			precommitErr = err
+		}
+		precommitMu.Unlock()
+	}
 
 	wg.Add(1)
 	gopool.Go(func() {
@@ -237,6 +268,32 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			wg.Done()
 		}()
 
+		buffered := make([]string, 0, 8)
+		bufferedEvents := 0
+		bufferedBytes := 0
+		totalBufferedBytes := 0
+		// commitBufferedStream opens the gate: it publishes the SSE headers,
+		// marks the attempt as owning the response and replays every event held
+		// back so far. It reports false when the request is going away and the
+		// scanner must stop.
+		commitBufferedStream := func() bool {
+			writeMutex.Lock()
+			copyCodexSSEHeaders(c, resp)
+			SetEventStreamHeaders(c)
+			info.StreamStatus.MarkCommitted()
+			writeMutex.Unlock()
+			for _, pending := range buffered {
+				select {
+				case dataChan <- pending:
+				case <-ctx.Done():
+					return false
+				case <-stopChan:
+					return false
+				}
+			}
+			buffered = nil
+			return true
+		}
 		for scanner.Scan() {
 			// 检查是否需要停止
 			select {
@@ -262,6 +319,68 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			if data == "" {
 				continue
 			}
+			if gateEnabled && !info.StreamStatus.IsCommitted() {
+				verdict := classifyStreamFrame(protocol, data)
+				switch verdict {
+				case streamFrameError:
+					err := &StreamPrecommitFailure{Reason: "upstream_error", Frame: truncateStreamFrame(data)}
+					setPrecommitErr(err)
+					info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonHandlerStop, err)
+					return
+				case streamFrameMalformed:
+					err := &StreamPrecommitFailure{Reason: "malformed_event", Frame: truncateStreamFrame(data)}
+					setPrecommitErr(err)
+					info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonHandlerStop, err)
+					return
+				case streamFrameTerminal:
+					// A bare termination marker is only suspicious when the
+					// upstream produced nothing at all. After any neutral event
+					// it is a legitimate content-free completion (usage-only
+					// tail frame, immediate stop) and must be released instead
+					// of replayed on another channel.
+					if len(buffered) == 0 {
+						err := &StreamPrecommitFailure{Reason: "empty_stream", Frame: truncateStreamFrame(data)}
+						setPrecommitErr(err)
+						info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonEOF, err)
+						return
+					}
+					if !commitBufferedStream() {
+						return
+					}
+				case streamFrameNeutral:
+					buffered = append(buffered, data)
+					totalBufferedBytes += len(data)
+					if !isStreamRequestEcho(protocol, data) {
+						bufferedBytes += len(data)
+					}
+					// Keepalive heartbeats arrive on a wall-clock cadence, not per
+					// upstream event, so they must not consume the event budget:
+					// a 10s ping would otherwise cap every request at ~11 minutes
+					// of first-token latency. The byte caps above still bound them.
+					if !isStreamKeepAlive(data) {
+						bufferedEvents++
+					}
+					if bufferedEvents > streamGateEventCap || bufferedBytes > streamGateByteCap || totalBufferedBytes > 2*streamGateByteCap {
+						err := &StreamPrecommitFailure{Reason: "prebuffer_overflow"}
+						setPrecommitErr(err)
+						info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonHandlerStop, err)
+						return
+					}
+					// Buffered events are handed to dataChan by
+					// commitBufferedStream, bypassing the accounting below, so
+					// record first-byte latency here. TTFT must keep meaning
+					// "first upstream event" for gated and non-gated channels
+					// alike, otherwise perf_metrics mixes two definitions.
+					info.SetFirstResponseTime()
+					info.ReceivedResponseCount++
+					continue
+				case streamFrameCompleted, streamFrameContent:
+					if !commitBufferedStream() {
+						return
+					}
+				}
+			}
+
 			if !strings.HasPrefix(data, "[DONE]") {
 				info.SetFirstResponseTime()
 				info.ReceivedResponseCount++
@@ -286,13 +405,23 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, err)
 			}
 		}
+		if gateEnabled && !info.StreamStatus.IsCommitted() {
+			err := &StreamPrecommitFailure{Reason: "empty_stream"}
+			setPrecommitErr(err)
+			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonEOF, err)
+			return
+		}
 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
 	})
 
 	// 主循环等待完成或超时
 	select {
 	case <-ticker.C:
-		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, nil)
+		err := fmt.Errorf("streaming idle timeout")
+		if gateEnabled && !info.StreamStatus.IsCommitted() {
+			setPrecommitErr(&StreamPrecommitFailure{Reason: "idle_timeout"})
+		}
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, err)
 	case <-stopChan:
 		// EndReason already set by the goroutine that triggered stopChan
 	case <-c.Request.Context().Done():
@@ -307,4 +436,14 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	} else {
 		logger.LogError(c, fmt.Sprintf("stream ended: %s, received=%d", info.StreamStatus.Summary(), info.ReceivedResponseCount))
 	}
+	precommitMu.Lock()
+	err := precommitErr
+	precommitMu.Unlock()
+	if gateEnabled && !info.StreamStatus.IsCommitted() && err == nil && info.StreamStatus.EndReason != relaycommon.StreamEndReasonClientGone {
+		err = &StreamPrecommitFailure{Reason: string(info.StreamStatus.EndReason)}
+	}
+	if err != nil && !info.StreamStatus.IsCommitted() {
+		return types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway)
+	}
+	return nil
 }

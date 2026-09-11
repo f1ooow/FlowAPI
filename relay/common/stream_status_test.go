@@ -78,6 +78,17 @@ func TestStreamStatus_RecordError_Basic(t *testing.T) {
 	assert.Len(t, s.Errors, 3)
 }
 
+func TestStreamStatus_CommitIsMonotonic(t *testing.T) {
+	t.Parallel()
+
+	s := NewStreamStatus()
+	assert.False(t, s.IsCommitted())
+	s.MarkCommitted()
+	assert.True(t, s.IsCommitted())
+	s.MarkCommitted()
+	assert.True(t, s.IsCommitted())
+}
+
 func TestStreamStatus_RecordError_CapAtMax(t *testing.T) {
 	t.Parallel()
 	s := NewStreamStatus()

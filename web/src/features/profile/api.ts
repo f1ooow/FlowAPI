@@ -18,11 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
 
-import type {
-  ApiResponse,
-  UserProfile,
-  UpdateUserRequest,
-} from './types'
+import type { ApiResponse, UserProfile, UpdateUserRequest } from './types'
 
 // ============================================================================
 // User Profile APIs

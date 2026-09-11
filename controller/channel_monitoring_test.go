@@ -1,0 +1,221 @@
+package controller
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+type channelMonitoringResponse struct {
+	Success bool                             `json:"success"`
+	Message string                           `json:"message"`
+	Data    channelMonitoringSummaryResponse `json:"data"`
+}
+
+func channelSummaryById(t *testing.T, summaries []channelMonitoringChannelSummary, channelId int) channelMonitoringChannelSummary {
+	t.Helper()
+	for _, summary := range summaries {
+		if summary.ChannelId == channelId {
+			return summary
+		}
+	}
+	require.FailNowf(t, "missing channel", "channel %d is not in the response", channelId)
+	return channelMonitoringChannelSummary{}
+}
+
+// The page exists to expose the channel that a failover hid. One user request
+// that hits channel 11 twice with a 500 and then succeeds on channel 22 must
+// show 11 as down and 22 as healthy, never a single 100% success row.
+func TestBuildChannelMonitoringChannelsSurfacesFailoverVictim(t *testing.T) {
+	const step = int64(1800)
+	const seriesStart = int64(0)
+	const bucketCount = 4
+
+	rows := []model.ChannelMetricBucket{
+		{ChannelId: 11, BucketTs: 0, AttemptCount: 2, SuccessCount: 0, TotalLatencyMs: 400},
+		{ChannelId: 22, BucketTs: 0, AttemptCount: 1, SuccessCount: 1, TotalLatencyMs: 300},
+		{ChannelId: 22, BucketTs: 1800, AttemptCount: 9, SuccessCount: 9, TotalLatencyMs: 900},
+		// A channel row that outlived its channel row in `channels`.
+		{ChannelId: 99, BucketTs: 3600, AttemptCount: 10, SuccessCount: 9, TotalLatencyMs: 800},
+		// Outside the rendered window.
+		{ChannelId: 11, BucketTs: 7200, AttemptCount: 50, SuccessCount: 50, TotalLatencyMs: 5000},
+	}
+	identities := []model.ChannelIdentity{
+		{Id: 11, Name: "flaky"},
+		{Id: 22, Name: "backup"},
+		{Id: 33, Name: "idle"},
+	}
+
+	channels, overall := buildChannelMonitoringChannels(rows, identities, seriesStart, bucketCount, step)
+	require.Len(t, channels, 4)
+
+	flaky := channelSummaryById(t, channels, 11)
+	assert.True(t, flaky.HasData)
+	assert.Equal(t, channelMonitoringStateDown, flaky.State)
+	assert.EqualValues(t, 0, flaky.AvailabilityRate)
+	assert.EqualValues(t, 100, flaky.ErrorRate)
+	assert.EqualValues(t, 2, flaky.AttemptCount, "both failed attempts of the one request belong to this channel")
+	assert.EqualValues(t, 200, flaky.AvgLatencyMs)
+
+	backup := channelSummaryById(t, channels, 22)
+	assert.Equal(t, channelMonitoringStateHealthy, backup.State)
+	assert.EqualValues(t, 100, backup.AvailabilityRate)
+	assert.EqualValues(t, 10, backup.AttemptCount)
+
+	deleted := channelSummaryById(t, channels, 99)
+	assert.Empty(t, deleted.ChannelName, "a deleted channel keeps its history under the bare id")
+	assert.Equal(t, channelMonitoringStateDegraded, deleted.State)
+	assert.EqualValues(t, 90, deleted.AvailabilityRate)
+
+	idle := channelSummaryById(t, channels, 33)
+	assert.False(t, idle.HasData, "a channel without traffic is no-data, not 0% available")
+	assert.Equal(t, channelMonitoringStateNoData, idle.State)
+	assert.EqualValues(t, 0, idle.AttemptCount)
+
+	assert.Equal(t, []int{11, 99, 22, 33}, []int{channels[0].ChannelId, channels[1].ChannelId, channels[2].ChannelId, channels[3].ChannelId},
+		"worst availability first, channels without data last")
+
+	require.Len(t, backup.Buckets, bucketCount)
+	assert.Equal(t, channelMonitoringStateHealthy, backup.Buckets[0].State)
+	assert.Equal(t, channelMonitoringStateNoData, backup.Buckets[2].State)
+	assert.EqualValues(t, 3600, backup.Buckets[2].Ts)
+
+	assert.EqualValues(t, 22, overall.attemptCount)
+	assert.EqualValues(t, 19, overall.successCount)
+}
+
+// Rates must come from summed counters. Averaging the two buckets below would
+// report (100 + 1) / 2 = 50.5% for a channel that actually served 2 of 101.
+func TestBuildChannelMonitoringChannelsSumsCountersBeforeDividing(t *testing.T) {
+	rows := []model.ChannelMetricBucket{
+		{ChannelId: 5, BucketTs: 0, AttemptCount: 1, SuccessCount: 1, TotalLatencyMs: 100},
+		{ChannelId: 5, BucketTs: 300, AttemptCount: 100, SuccessCount: 1, TotalLatencyMs: 10000},
+	}
+
+	channels, overall := buildChannelMonitoringChannels(rows, []model.ChannelIdentity{{Id: 5, Name: "noisy"}}, 0, 2, 300)
+	require.Len(t, channels, 1)
+	assert.EqualValues(t, 1.98, channels[0].AvailabilityRate)
+	assert.EqualValues(t, 98.02, channels[0].ErrorRate)
+	assert.Equal(t, channelMonitoringStateDown, channels[0].State)
+	assert.EqualValues(t, 101, overall.attemptCount)
+}
+
+func TestChannelMonitoringRangeToStep(t *testing.T) {
+	tests := []struct {
+		rangeKey      string
+		windowSeconds int64
+		stepSeconds   int64
+	}{
+		{rangeKey: "15m", windowSeconds: 900, stepSeconds: 300},
+		{rangeKey: "1h", windowSeconds: 3600, stepSeconds: 300},
+		{rangeKey: "6h", windowSeconds: 21600, stepSeconds: 900},
+		{rangeKey: "24h", windowSeconds: 86400, stepSeconds: 1800},
+		{rangeKey: "7d", windowSeconds: 604800, stepSeconds: 7200},
+	}
+
+	require.Len(t, channelMonitoringWindows, len(tests))
+	for _, test := range tests {
+		t.Run(test.rangeKey, func(t *testing.T) {
+			window, ok := channelMonitoringWindows[test.rangeKey]
+			require.True(t, ok)
+			assert.Equal(t, test.windowSeconds, window.windowSeconds)
+			assert.Equal(t, test.stepSeconds, window.stepSeconds)
+			assert.Contains(t, channelMonitoringRangeKeys, test.rangeKey)
+		})
+	}
+}
+
+// A display slot narrower than the stored bucket cannot be produced, so raising
+// the global perf_metrics bucket width has to widen the timeline instead of
+// rendering empty slots between the real ones.
+func TestChannelMonitoringStepSecondsClampsToStorageWidth(t *testing.T) {
+	tests := []struct {
+		name          string
+		storageBucket string
+		stepSeconds   int64
+		want          int64
+	}{
+		{name: "5min storage keeps 5min step", storageBucket: "5min", stepSeconds: 300, want: 300},
+		{name: "5min storage keeps 2h step", storageBucket: "5min", stepSeconds: 7200, want: 7200},
+		{name: "hourly storage widens 5min step", storageBucket: "hour", stepSeconds: 300, want: 3600},
+		{name: "hourly storage keeps 2h step", storageBucket: "hour", stepSeconds: 7200, want: 7200},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			overridePerfMetricsSetting(t, test.storageBucket, 5)
+			assert.Equal(t, test.want, channelMonitoringStepSeconds(test.stepSeconds))
+		})
+	}
+}
+
+func setupChannelMonitoringTestDB(t *testing.T) {
+	t.Helper()
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.ChannelMetric{}))
+}
+
+func TestGetChannelMonitoringSummaryRejectsUnknownRange(t *testing.T) {
+	setupChannelMonitoringTestDB(t)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/channel-monitoring/summary?range=42h", nil)
+	GetChannelMonitoringSummary(c)
+
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	var payload channelMonitoringResponse
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
+	assert.False(t, payload.Success)
+	assert.Contains(t, payload.Message, "42h")
+}
+
+func TestGetChannelMonitoringSummaryReadsChannelMetrics(t *testing.T) {
+	setupChannelMonitoringTestDB(t)
+	overridePerfMetricsSetting(t, "5min", 5)
+
+	require.NoError(t, model.DB.Create(&model.Channel{Id: 11, Name: "flaky"}).Error)
+	require.NoError(t, model.DB.Create(&model.Channel{Id: 33, Name: "idle"}).Error)
+
+	// Land the samples in the middle of the rendered window so the assertions
+	// do not depend on where the wall clock sits inside the current bucket.
+	step := channelMonitoringStepSeconds(channelMonitoringWindows["24h"].stepSeconds)
+	seriesEnd := channelMonitoringSeriesEnd(time.Now().Unix(), step)
+	sampleTs := seriesEnd - 4*step
+	require.NoError(t, model.UpsertChannelMetric(&model.ChannelMetric{ChannelId: 11, BucketTs: sampleTs, AttemptCount: 4, SuccessCount: 1, TotalLatencyMs: 800}))
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/channel-monitoring/summary?range=24h", nil)
+	GetChannelMonitoringSummary(c)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var payload channelMonitoringResponse
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
+	require.True(t, payload.Success, payload.Message)
+	assert.Equal(t, "24h", payload.Data.Range)
+	assert.Equal(t, 30, payload.Data.StepMinutes)
+	assert.EqualValues(t, 86400, payload.Data.WindowSeconds)
+	require.Len(t, payload.Data.Channels, 2)
+
+	flaky := channelSummaryById(t, payload.Data.Channels, 11)
+	assert.True(t, flaky.HasData)
+	assert.EqualValues(t, 25, flaky.AvailabilityRate)
+	assert.EqualValues(t, 4, flaky.AttemptCount)
+	assert.EqualValues(t, 200, flaky.AvgLatencyMs)
+	assert.Len(t, flaky.Buckets, 48)
+
+	idle := channelSummaryById(t, payload.Data.Channels, 33)
+	assert.False(t, idle.HasData)
+
+	assert.True(t, payload.Data.Overall.HasData)
+	assert.EqualValues(t, 25, payload.Data.Overall.AvailabilityRate)
+	assert.EqualValues(t, 75, payload.Data.Overall.ErrorRate)
+}

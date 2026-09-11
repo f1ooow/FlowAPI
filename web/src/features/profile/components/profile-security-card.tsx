@@ -19,8 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 import { Shield } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TitledCard } from '@/components/ui/titled-card'
 import { useDialogs } from '@/hooks/use-dialog'
@@ -92,7 +92,6 @@ export function ProfileSecurityCard({
         }
         username={profile.username}
       />
-
     </>
   )
 }

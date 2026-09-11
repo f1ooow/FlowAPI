@@ -16,15 +16,41 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Code, Plus, Table, Trash2 } from 'lucide-react'
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import {
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  Code,
+  Plus,
+  Search,
+  Table,
+  Trash2,
+} from 'lucide-react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { JsonCodeEditor } from '@/components/json-code-editor'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+
+import {
+  findFirstModelRedirect,
+  MODEL_REDIRECT_MATCH_TYPES,
+  parseModelRedirectRules,
+  stringifyModelRedirectRules,
+  type ModelRedirectMatchType,
+  type ModelRedirectRule,
+  validateModelRedirectRules,
+} from '../lib/model-redirect-rules'
 
 type ModelMappingEditorProps = {
   value: string
@@ -34,29 +60,14 @@ type ModelMappingEditorProps = {
   targetModelOptions?: string[]
 }
 
-type MappingRow = {
-  id: string
-  from: string
-  to: string
-}
+type RuleRow = ModelRedirectRule & { id: string }
 
-const DUPLICATE_MAPPING_SENTINEL = '{ "duplicate_source_models": '
-
-function getDuplicateSources(rows: MappingRow[]): string[] {
-  const seen = new Set<string>()
-  const duplicates = new Set<string>()
-
-  for (const row of rows) {
-    const source = row.from.trim()
-    if (!source) continue
-    if (seen.has(source)) {
-      duplicates.add(source)
-    } else {
-      seen.add(source)
-    }
-  }
-
-  return Array.from(duplicates)
+const MATCH_TYPE_LABELS: Record<ModelRedirectMatchType, string> = {
+  exact: 'Exact match',
+  prefix: 'Prefix match',
+  suffix: 'Suffix match',
+  contains: 'Contains',
+  regex: 'Regular expression',
 }
 
 export function ModelMappingEditor(props: ModelMappingEditorProps) {
@@ -64,164 +75,145 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
   const sourceListId = useId()
   const targetListId = useId()
   const [mode, setMode] = useState<'visual' | 'json'>('visual')
-  const [rows, setRows] = useState<MappingRow[]>([])
+  const [rows, setRows] = useState<RuleRow[]>([])
   const [jsonValue, setJsonValue] = useState(props.value)
   const [jsonError, setJsonError] = useState<string | null>(null)
+  const [testModel, setTestModel] = useState('')
+  const [testRequested, setTestRequested] = useState(false)
   const nextRowIdRef = useRef(0)
-  const duplicateSources = useMemo(() => getDuplicateSources(rows), [rows])
+  const lastAppliedValueRef = useRef<string | undefined>(undefined)
 
-  const createRowId = () => {
+  const createRowId = useCallback(() => {
     nextRowIdRef.current += 1
-    return `mapping-${nextRowIdRef.current}`
-  }
+    return `redirect-rule-${nextRowIdRef.current}`
+  }, [])
 
-  const parseJsonToRows = (json: string): boolean => {
-    try {
-      if (!json.trim()) {
-        setRows([])
+  const rules = useMemo<ModelRedirectRule[]>(
+    () =>
+      rows.map((row) => ({
+        match_type: row.match_type,
+        source: row.source,
+        target: row.target,
+      })),
+    [rows]
+  )
+  const testMatch = useMemo(
+    () => findFirstModelRedirect(testModel, rules),
+    [rules, testModel]
+  )
+
+  const applyParsedRules = useCallback(
+    (value: string): boolean => {
+      const validation = validateModelRedirectRules(value)
+      if (!validation.valid) {
+        setJsonError(t(validation.error || 'Invalid model redirect rules'))
+        return false
+      }
+
+      try {
+        const parsedRules = parseModelRedirectRules(value)
+        setRows((previousRows) =>
+          parsedRules.map((rule, index) => ({
+            id: previousRows[index]?.id || createRowId(),
+            ...rule,
+          }))
+        )
         setJsonError(null)
         return true
-      }
-      const parsed = JSON.parse(json)
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        setJsonError(t('Model mapping must be a valid JSON object'))
+      } catch {
+        setJsonError(t('Model redirect rules must be valid JSON'))
         return false
       }
-      const entries = Object.entries(parsed)
-      const invalidValue = entries.find(([, to]) => typeof to !== 'string')
-      if (invalidValue) {
-        setJsonError(t('Model mapping values must be strings'))
-        return false
-      }
-      setRows((previousRows) => {
-        const remainingRows = [...previousRows]
-        return entries.map(([from, to], index) => {
-          const toString = String(to)
-          const existingIndex = remainingRows.findIndex(
-            (row) =>
-              row.from === from ||
-              (row.from === from && row.to === toString) ||
-              previousRows[index]?.id === row.id
-          )
-          if (existingIndex >= 0) {
-            const [existing] = remainingRows.splice(existingIndex, 1)
-            return {
-              id: existing.id,
-              from,
-              to: toString,
-            }
-          }
-          return {
-            id: createRowId(),
-            from,
-            to: toString,
-          }
-        })
-      })
-      setJsonError(null)
-      return true
-    } catch (_error) {
-      setJsonError(t('Model mapping must be valid JSON format'))
-      return false
-    }
-  }
+    },
+    [createRowId, t]
+  )
 
-  // Parse JSON to rows when value changes externally
   useEffect(() => {
+    if (lastAppliedValueRef.current === props.value) return
+    lastAppliedValueRef.current = props.value
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setJsonValue(props.value)
-    parseJsonToRows(props.value)
-  }, [props.value])
+    applyParsedRules(props.value)
+  }, [applyParsedRules, props.value])
 
-  const convertRowsToJson = (updatedRows: MappingRow[]): string => {
-    if (updatedRows.length === 0) {
-      return ''
-    }
-    const obj: Record<string, string> = {}
-    updatedRows.forEach((row) => {
-      if (row.from.trim()) {
-        obj[row.from.trim()] = row.to.trim()
-      }
-    })
-    return JSON.stringify(obj, null, 2)
-  }
-
-  const syncRows = (updatedRows: MappingRow[]) => {
+  const syncRows = (updatedRows: RuleRow[]): void => {
+    const updatedRules = updatedRows.map((row) => ({
+      match_type: row.match_type,
+      source: row.source,
+      target: row.target,
+    }))
+    const json = stringifyModelRedirectRules(updatedRules)
+    const validation = validateModelRedirectRules(json)
     setRows(updatedRows)
-    const duplicates = getDuplicateSources(updatedRows)
-    if (duplicates.length > 0) {
-      setJsonError(t('Duplicate source model mappings are not allowed'))
-      setJsonValue(DUPLICATE_MAPPING_SENTINEL)
-      props.onChange(DUPLICATE_MAPPING_SENTINEL)
-      return
-    }
-
-    const json = convertRowsToJson(updatedRows)
-    setJsonError(null)
     setJsonValue(json)
+    setJsonError(
+      validation.valid ||
+        updatedRows.some((row) => !row.source.trim() || !row.target.trim())
+        ? null
+        : t(validation.error || 'Invalid model redirect rules')
+    )
     props.onChange(json)
   }
 
-  const handleAddRow = () => {
-    const newRow: MappingRow = {
-      id: createRowId(),
-      from: '',
-      to: '',
-    }
-    syncRows([...rows, newRow])
+  const handleAddRule = (): void => {
+    syncRows([
+      ...rows,
+      { id: createRowId(), match_type: 'exact', source: '', target: '' },
+    ])
   }
 
-  const handleDeleteRow = (id: string) => {
-    syncRows(rows.filter((row) => row.id !== id))
+  const updateRule = (id: string, patch: Partial<ModelRedirectRule>): void => {
+    syncRows(rows.map((row) => (row.id === id ? { ...row, ...patch } : row)))
   }
 
-  const handleRowChange = (
-    id: string,
-    field: 'from' | 'to',
-    newValue: string
-  ) => {
-    const updatedRows = rows.map((row) =>
-      row.id === id ? { ...row, [field]: newValue } : row
-    )
+  const moveRule = (index: number, direction: -1 | 1): void => {
+    const targetIndex = index + direction
+    if (targetIndex < 0 || targetIndex >= rows.length) return
+    const updatedRows = [...rows]
+    const [moved] = updatedRows.splice(index, 1)
+    updatedRows.splice(targetIndex, 0, moved)
     syncRows(updatedRows)
   }
 
-  const handleJsonChange = (newJson: string) => {
-    setJsonValue(newJson)
-    props.onChange(newJson)
-    parseJsonToRows(newJson)
+  const handleJsonChange = (value: string): void => {
+    setJsonValue(value)
+    props.onChange(value)
+    applyParsedRules(value)
   }
 
-  const handleFillTemplate = () => {
-    const template = JSON.stringify(
-      { 'gpt-3.5-turbo': 'gpt-3.5-turbo-0125' },
-      null,
-      2
-    )
-    setJsonValue(template)
-    props.onChange(template)
-    parseJsonToRows(template)
+  const handleFillTemplate = (): void => {
+    const value = stringifyModelRedirectRules([
+      {
+        match_type: 'contains',
+        source: 'opus',
+        target: 'claude-opus-4-6',
+      },
+      {
+        match_type: 'contains',
+        source: 'sonnet',
+        target: 'claude-sonnet-4-6',
+      },
+    ])
+    setJsonValue(value)
+    props.onChange(value)
+    applyParsedRules(value)
   }
 
-  const handleModeChange = (nextMode: string) => {
+  const handleModeChange = (nextMode: string): void => {
     if (nextMode !== 'visual' && nextMode !== 'json') return
     if (nextMode === 'json') {
-      const duplicates = getDuplicateSources(rows)
-      if (duplicates.length === 0) {
-        const json = convertRowsToJson(rows)
-        setJsonValue(json)
-        props.onChange(json)
-      }
-      setMode('json')
-      return
+      const normalized = stringifyModelRedirectRules(rules)
+      setJsonValue(normalized)
+      props.onChange(normalized)
+    } else {
+      applyParsedRules(jsonValue)
     }
-    parseJsonToRows(jsonValue)
-    setMode('visual')
+    setMode(nextMode)
   }
 
   return (
-    <div className='space-y-2'>
-      <Tabs value={mode} onValueChange={handleModeChange} className='space-y-2'>
+    <div className='space-y-4'>
+      <Tabs value={mode} onValueChange={handleModeChange} className='space-y-3'>
         <div className='flex items-center justify-between gap-3'>
           <TabsList>
             <TabsTrigger value='visual'>
@@ -251,92 +243,168 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
           </Alert>
         )}
 
-        {duplicateSources.length > 0 && (
-          <Alert>
-            <AlertDescription>
-              {t('Duplicate source model(s): {{models}}', {
-                models: duplicateSources.join(', '),
-              })}
-            </AlertDescription>
-          </Alert>
-        )}
-
-        <TabsContent value='visual' className='space-y-2'>
+        <TabsContent value='visual' className='space-y-3'>
           {rows.length > 0 ? (
             <div className='space-y-2'>
-              <div className='grid grid-cols-[1fr_1fr_auto] gap-2 text-sm font-medium'>
-                <div>{t('Original Model')}</div>
-                <div>{t('Replacement Model')}</div>
-                <div className='w-10'></div>
-              </div>
-              {rows.map((row) => (
+              {rows.map((row, index) => (
                 <div
                   key={row.id}
-                  className='grid grid-cols-[1fr_1fr_auto] gap-2'
+                  className='border-border/60 grid gap-2 rounded-md border p-3 lg:grid-cols-[9rem_minmax(10rem,1fr)_auto_minmax(10rem,1fr)_auto] lg:items-center'
                 >
-                  <Input
-                    value={row.from}
-                    onChange={(e) =>
-                      handleRowChange(row.id, 'from', e.target.value)
+                  <Select
+                    value={row.match_type}
+                    onValueChange={(value) =>
+                      updateRule(row.id, {
+                        match_type: value as ModelRedirectMatchType,
+                      })
                     }
-                    placeholder='gpt-3.5-turbo'
+                    disabled={props.disabled}
+                  >
+                    <SelectTrigger
+                      className='h-10 w-full'
+                      aria-label={t('Match type')}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MODEL_REDIRECT_MATCH_TYPES.map((matchType) => (
+                        <SelectItem key={matchType} value={matchType}>
+                          {t(MATCH_TYPE_LABELS[matchType])}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={row.source}
+                    onChange={(event) =>
+                      updateRule(row.id, { source: event.target.value })
+                    }
+                    placeholder={t('User-requested model or pattern')}
+                    aria-label={t('User-requested model or pattern')}
                     disabled={props.disabled}
                     list={sourceListId}
                   />
+                  <ArrowRight
+                    className='text-muted-foreground hidden h-4 w-4 lg:block'
+                    aria-hidden='true'
+                  />
                   <Input
-                    value={row.to}
-                    onChange={(e) =>
-                      handleRowChange(row.id, 'to', e.target.value)
+                    value={row.target}
+                    onChange={(event) =>
+                      updateRule(row.id, { target: event.target.value })
                     }
-                    placeholder='gpt-3.5-turbo-0125'
+                    placeholder={t('Actual upstream model')}
+                    aria-label={t('Actual upstream model')}
                     disabled={props.disabled}
                     list={targetListId}
                   />
-                  <Button
-                    type='button'
-                    variant='ghost'
-                    size='icon'
-                    onClick={() => handleDeleteRow(row.id)}
-                    disabled={props.disabled}
-                    className='h-10 w-10'
-                    aria-label={t('Delete mapping')}
-                  >
-                    <Trash2 className='h-4 w-4' aria-hidden='true' />
-                  </Button>
+                  <div className='flex justify-end gap-1'>
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='icon-sm'
+                      onClick={() => moveRule(index, -1)}
+                      disabled={props.disabled || index === 0}
+                      aria-label={t('Move rule up')}
+                    >
+                      <ArrowUp aria-hidden='true' />
+                    </Button>
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='icon-sm'
+                      onClick={() => moveRule(index, 1)}
+                      disabled={props.disabled || index === rows.length - 1}
+                      aria-label={t('Move rule down')}
+                    >
+                      <ArrowDown aria-hidden='true' />
+                    </Button>
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='icon-sm'
+                      onClick={() =>
+                        syncRows(rows.filter((item) => item.id !== row.id))
+                      }
+                      disabled={props.disabled}
+                      aria-label={t('Delete rule')}
+                    >
+                      <Trash2 aria-hidden='true' />
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className='text-muted-foreground flex h-24 items-center justify-center rounded-md border border-dashed text-sm'>
-              {t(
-                'No model mappings configured. Click "Add Mapping" to get started.'
-              )}
+            <div className='text-muted-foreground flex h-24 items-center justify-center rounded-md border border-dashed px-4 text-center text-sm'>
+              {t('No model redirect rules configured.')}
             </div>
           )}
           <Button
             type='button'
             variant='outline'
             size='sm'
-            onClick={handleAddRow}
+            onClick={handleAddRule}
             disabled={props.disabled}
             className='w-full'
           >
-            <Plus className='mr-2 h-4 w-4' />
-            {t('Add Mapping')}
+            <Plus aria-hidden='true' />
+            {t('Add redirect rule')}
           </Button>
         </TabsContent>
+
         <TabsContent value='json'>
           <JsonCodeEditor
             value={jsonValue}
             onChange={handleJsonChange}
-            placeholder={t('{"original-model": "replacement-model"}')}
+            placeholder='[{"match_type":"contains","source":"opus","target":"claude-opus-4-6"}]'
             disabled={props.disabled}
             className={jsonError ? 'border-destructive' : undefined}
             aria-invalid={Boolean(jsonError)}
-            ariaLabel={t('Model Mapping')}
+            ariaLabel={t('Model redirect rules')}
           />
         </TabsContent>
       </Tabs>
+
+      <div className='border-border/60 space-y-2 border-t pt-4'>
+        <div className='flex flex-col gap-2 sm:flex-row'>
+          <Input
+            value={testModel}
+            onChange={(event) => {
+              setTestModel(event.target.value)
+              setTestRequested(false)
+            }}
+            placeholder={t('Enter a model name to test')}
+            aria-label={t('Model name to test')}
+            disabled={props.disabled}
+          />
+          <Button
+            type='button'
+            variant='outline'
+            onClick={() => setTestRequested(true)}
+            disabled={props.disabled || !testModel.trim()}
+          >
+            <Search aria-hidden='true' />
+            {t('Test rules')}
+          </Button>
+        </div>
+        {testRequested && (
+          <Alert>
+            <AlertDescription>
+              {testMatch ? (
+                <span>
+                  {t('Rule {{number}} matched', {
+                    number: testMatch.index + 1,
+                  })}
+                  : <strong>{testMatch.rule.target}</strong>
+                </span>
+              ) : (
+                t('No rule matched. The original model will be forwarded.')
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+      </div>
 
       {props.sourceModelOptions && props.sourceModelOptions.length > 0 && (
         <datalist id={sourceListId}>

@@ -11,12 +11,13 @@ import (
 )
 
 type RetryParam struct {
-	Ctx          *gin.Context
-	TokenGroup   string
-	ModelName    string
-	RequestPath  string
-	Retry        *int
-	resetNextTry bool
+	Ctx                *gin.Context
+	TokenGroup         string
+	ModelName          string
+	RequestPath        string
+	Retry              *int
+	ExcludedChannelIDs map[int]struct{}
+	resetNextTry       bool
 }
 
 func (p *RetryParam) GetRetry() int {
@@ -81,6 +82,9 @@ func (p *RetryParam) ResetRetryNextTry() {
 //	Retry=3: GroupB, priority1 (startRetryIndex=2, priorityRetry=1)
 //	         分组B, 优先级1
 func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, error) {
+	if param.ExcludedChannelIDs != nil {
+		return cacheGetResilientChannel(param)
+	}
 	var channel *model.Channel
 	var err error
 	selectGroup := param.TokenGroup
@@ -159,4 +163,40 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 		}
 	}
 	return channel, selectGroup, nil
+}
+
+func cacheGetResilientChannel(param *RetryParam) (*model.Channel, string, error) {
+	selectGroup := param.TokenGroup
+	groups := []string{param.TokenGroup}
+	if param.TokenGroup == "auto" {
+		userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)
+		groups = GetRequestAutoGroups(param.Ctx, userGroup)
+		if len(groups) == 0 {
+			return nil, selectGroup, errors.New("auto groups is not enabled")
+		}
+	}
+
+	locallyExcluded := make(map[int]struct{}, len(param.ExcludedChannelIDs))
+	for id := range param.ExcludedChannelIDs {
+		locallyExcluded[id] = struct{}{}
+	}
+	for _, group := range groups {
+		for {
+			channel, err := model.GetRandomSatisfiedChannelWithOptions(group, param.ModelName, param.RequestPath, model.ChannelSelectionOptions{
+				ExcludedChannelIDs: locallyExcluded,
+				CandidateAllowed:   func(channel *model.Channel) bool { return channel.Status == common.ChannelStatusEnabled },
+			})
+			if err != nil {
+				return nil, group, err
+			}
+			if channel == nil {
+				break
+			}
+			if param.TokenGroup == "auto" {
+				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroup, group)
+			}
+			return channel, group, nil
+		}
+	}
+	return nil, selectGroup, nil
 }

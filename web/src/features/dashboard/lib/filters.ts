@@ -31,7 +31,11 @@ import type {
   DashboardFilters,
   ModelAnalyticsChartTab,
 } from '@/features/dashboard/types'
-import { getRollingDateRange, type TimeGranularity } from '@/lib/time'
+import {
+  getChinaTodayTimestampRange,
+  getRollingDateRange,
+  type TimeGranularity,
+} from '@/lib/time'
 
 function isTimeGranularity(value: unknown): value is TimeGranularity {
   return value === 'hour' || value === 'day' || value === 'week'
@@ -143,7 +147,21 @@ export function getDefaultDays(granularity?: TimeGranularity): number {
 export function buildDefaultDashboardFilters(
   preferences: DashboardChartPreferences = getSavedChartPreferences()
 ): DashboardFilters {
-  const { start, end } = getRollingDateRange(preferences.defaultTimeRangeDays)
+  let start: Date
+  let end: Date
+
+  // The built-in one-day default is a calendar day in China. Keep longer
+  // ranges rolling so an explicit saved preference is not changed.
+  if (preferences.defaultTimeRangeDays === 1) {
+    const today = getChinaTodayTimestampRange()
+    start = new Date(today.start_timestamp * 1000)
+    end = new Date(today.end_timestamp * 1000)
+  } else {
+    const rolling = getRollingDateRange(preferences.defaultTimeRangeDays)
+    start = rolling.start
+    end = rolling.end
+  }
+
   return {
     ...EMPTY_DASHBOARD_FILTERS,
     start_timestamp: start,

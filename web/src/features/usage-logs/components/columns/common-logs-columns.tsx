@@ -60,6 +60,7 @@ import type { LogOtherData } from '../../types'
 import { DetailsDialog } from '../dialogs/details-dialog'
 import { LogCostDisplay } from '../log-cost-display'
 import { ModelBadge } from '../model-badge'
+import { RouteHistoryTimeline } from '../route-history-timeline'
 import { TimingMetricsCell, StreamTpsCell } from '../timing-metrics-cell'
 import { useUsageLogsContext } from '../usage-logs-provider'
 
@@ -320,15 +321,26 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           const useChannel = Array.isArray(rawUseChannel)
             ? rawUseChannel.map(String).filter(Boolean)
             : []
-          const hasRetryChain = useChannel.length > 1
-          const channelChain = hasRetryChain
-            ? useChannel.join(' → ')
-            : undefined
+          const routeHistory = Array.isArray(other?.admin_info?.route_history)
+            ? other.admin_info.route_history
+            : []
+          const hasRouteDecisionChain =
+            routeHistory.length > 1 ||
+            routeHistory.some((attempt) => attempt.outcome !== 'succeeded')
+          const hasRetryChain = hasRouteDecisionChain || useChannel.length > 1
+          const legacyChannelChain =
+            !hasRouteDecisionChain && useChannel.length > 1
+              ? useChannel.join(' → ')
+              : undefined
           const channelDisplay = log.channel_name
             ? `${log.channel_name} #${log.channel}`
             : `#${log.channel}`
           const channelIdDisplay = `#${log.channel}`
           const channelName = sensitiveVisible ? log.channel_name : '••••'
+          const channelLabel =
+            sensitiveVisible && log.channel_name
+              ? log.channel_name
+              : channelIdDisplay
           const multiKeyIndex = other?.admin_info?.multi_key_index
           const showMultiKeyIndex =
             other?.admin_info?.is_multi_key === true &&
@@ -345,13 +357,22 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                 >
                   <div className='relative inline-flex w-fit items-center gap-1'>
                     <StatusBadge
-                      label={channelIdDisplay}
+                      label={channelLabel}
                       autoColor={String(log.channel)}
-                      copyText={String(log.channel)}
+                      copyText={
+                        sensitiveVisible
+                          ? (log.channel_name ?? undefined)
+                          : undefined
+                      }
                       size='sm'
                       showDot={false}
-                      className='font-mono'
+                      className='max-w-[150px] truncate [font-family:var(--font-body)]'
                     />
+                    {sensitiveVisible && log.channel_name && (
+                      <span className='text-muted-foreground/70 font-mono text-[10px]'>
+                        {channelIdDisplay}
+                      </span>
+                    )}
                     {showMultiKeyIndex && (
                       <StatusBadge
                         label={String(multiKeyIndex)}
@@ -383,13 +404,24 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                         <PopoverContent
                           side='top'
                           align='start'
-                          className='w-64 text-xs'
+                          className='w-[360px] max-w-[calc(100vw-2rem)] text-xs'
                         >
-                          <div className='flex flex-col gap-1'>
+                          <div className='space-y-2'>
                             <p className='font-medium'>{t('Retry Chain')}</p>
-                            <p className='text-muted-foreground font-mono break-all'>
-                              {channelChain}
-                            </p>
+                            {hasRouteDecisionChain ? (
+                              <RouteHistoryTimeline
+                                attempts={routeHistory}
+                                fallbackChannelName={
+                                  log.channel_name ?? undefined
+                                }
+                                showChannelNames={sensitiveVisible}
+                                compact
+                              />
+                            ) : (
+                              <p className='text-muted-foreground font-mono break-all'>
+                                {legacyChannelChain}
+                              </p>
+                            )}
                           </div>
                         </PopoverContent>
                       </Popover>
@@ -427,9 +459,9 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                     <p>
                       {sensitiveVisible ? channelDisplay : channelIdDisplay}
                     </p>
-                    {channelChain && (
+                    {legacyChannelChain && (
                       <p className='text-muted-foreground text-xs'>
-                        {t('Chain')}: {channelChain}
+                        {t('Chain')}: {legacyChannelChain}
                       </p>
                     )}
                     {showMultiKeyIndex && (

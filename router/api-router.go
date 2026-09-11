@@ -21,6 +21,24 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/status", controller.GetStatus)
 		apiRouter.GET("/uptime/status", controller.GetUptimeKumaStatus)
 		apiRouter.GET("/models", middleware.UserAuth(), controller.DashboardListModels)
+		groupMonitoringRoute := apiRouter.Group("/group-monitoring")
+		groupMonitoringRoute.Use(middleware.UserAuth())
+		{
+			groupMonitoringRoute.GET("/summary", controller.GetGroupMonitoringSummary)
+			groupMonitoringAdminRoute := groupMonitoringRoute.Group("/admin")
+			groupMonitoringAdminRoute.Use(middleware.RootAuth())
+			{
+				groupMonitoringAdminRoute.GET("", controller.GetGroupMonitoringAdmin)
+				groupMonitoringAdminRoute.PUT("", controller.UpdateGroupMonitoringAdmin)
+			}
+		}
+		// Channel availability is admin-only, matching /api/channel (see
+		// channel-router.go). No public or anonymous entry point.
+		channelMonitoringRoute := apiRouter.Group("/channel-monitoring")
+		channelMonitoringRoute.Use(middleware.AdminAuth())
+		{
+			channelMonitoringRoute.GET("/summary", controller.GetChannelMonitoringSummary)
+		}
 		apiRouter.GET("/status/test", middleware.AdminAuth(), controller.TestStatus)
 		apiRouter.GET("/notice", controller.GetNotice)
 		apiRouter.GET("/user-agreement", controller.GetUserAgreement)
@@ -123,6 +141,12 @@ func SetApiRouter(router *gin.Engine) {
 			performanceRoute.POST("/gc", controller.ForceGC)
 			performanceRoute.GET("/logs", controller.GetLogFiles)
 			performanceRoute.DELETE("/logs", controller.CleanupLogFiles)
+		}
+		ratioSyncRoute := apiRouter.Group("/ratio_sync")
+		ratioSyncRoute.Use(middleware.RootAuth())
+		{
+			ratioSyncRoute.GET("/channels", controller.GetSyncableChannels)
+			ratioSyncRoute.POST("/fetch", controller.FetchUpstreamRatios)
 		}
 		registerChannelRoutes(apiRouter)
 		registerAuthzRoutes(apiRouter)

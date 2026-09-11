@@ -60,8 +60,7 @@ export function OverviewDashboard() {
             <div
               className={cn(
                 'grid min-w-0 grid-cols-1 gap-4',
-                (showApiInfoPanel || showAnnouncementsPanel) &&
-                  'lg:grid-cols-2'
+                (showApiInfoPanel || showAnnouncementsPanel) && 'lg:grid-cols-2'
               )}
             >
               {isAdmin && (

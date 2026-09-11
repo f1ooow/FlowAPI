@@ -157,18 +157,27 @@ func normalizeChannelModelMapping(channel *model.Channel) map[string]string {
 	if rawMapping == "" || rawMapping == "{}" {
 		return nil
 	}
-	parsed := make(map[string]string)
-	if err := common.UnmarshalJsonStr(rawMapping, &parsed); err != nil {
-		return nil
-	}
-	normalized := make(map[string]string, len(parsed))
-	for source, target := range parsed {
-		normalizedSource := strings.TrimSpace(source)
-		normalizedTarget := strings.TrimSpace(target)
-		if normalizedSource == "" || normalizedTarget == "" {
-			continue
+	rules, err := dto.ParseModelRedirectRules(rawMapping)
+	if err != nil {
+		legacy := make(map[string]string)
+		if !strings.HasPrefix(rawMapping, "{") || common.UnmarshalJsonStr(rawMapping, &legacy) != nil {
+			return nil
 		}
-		normalized[normalizedSource] = normalizedTarget
+		for source, target := range legacy {
+			source = strings.TrimSpace(source)
+			target = strings.TrimSpace(target)
+			if source != "" && target != "" {
+				rules = append(rules, dto.ModelRedirectRule{MatchType: dto.ModelRedirectMatchExact, Source: source, Target: target})
+			}
+		}
+	}
+	normalized := make(map[string]string, len(rules))
+	for _, rule := range rules {
+		source := rule.Source
+		if rule.MatchType != dto.ModelRedirectMatchExact {
+			source = string(rule.MatchType) + ":" + source
+		}
+		normalized[source] = rule.Target
 	}
 	if len(normalized) == 0 {
 		return nil

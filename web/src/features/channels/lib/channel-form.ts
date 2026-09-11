@@ -36,6 +36,10 @@ import {
   stringifyAdvancedCustomConfig,
   validateAdvancedCustomConfig,
 } from './advanced-custom'
+import {
+  normalizeModelRedirectJson,
+  validateModelRedirectRules,
+} from './model-redirect-rules'
 
 // ============================================================================
 // Form Validation Schema
@@ -126,14 +130,7 @@ function isOptionalJsonObject(value: string | undefined): boolean {
 }
 
 function isOptionalModelMapping(value: string | undefined): boolean {
-  try {
-    const parsed = parseOptionalJson(value)
-    if (parsed === undefined) return true
-    if (!isJsonObjectValue(parsed)) return false
-    return Object.values(parsed).every((item) => typeof item === 'string')
-  } catch {
-    return false
-  }
+  return validateModelRedirectRules(value || '').valid
 }
 
 function isOptionalStatusCodeMapping(value: string | undefined): boolean {
@@ -211,10 +208,7 @@ export const channelFormSchema = z
     model_mapping: z
       .string()
       .optional()
-      .refine(
-        isOptionalModelMapping,
-        'Model mapping must be a JSON object with string values'
-      ),
+      .refine(isOptionalModelMapping, 'Model redirect rules are invalid'),
     priority: z.number().optional(),
     weight: z.number().optional(),
     cost_ratio: z
@@ -293,6 +287,9 @@ export const channelFormSchema = z
     upstream_model_update_check_enabled: z.boolean().optional(),
     upstream_model_update_auto_sync_enabled: z.boolean().optional(),
     upstream_model_update_ignored_models: z.string().optional(),
+    channel_max_attempts: z.number().int().min(1).max(10),
+    auto_ban_threshold: z.number().int().min(1).max(100),
+    auto_ban_duration_minutes: z.number().int().min(1).max(1440),
   })
   .superRefine((data, ctx) => {
     if (
@@ -465,6 +462,9 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   upstream_model_update_check_enabled: false,
   upstream_model_update_auto_sync_enabled: false,
   upstream_model_update_ignored_models: '',
+  channel_max_attempts: 2,
+  auto_ban_threshold: 5,
+  auto_ban_duration_minutes: 30,
   advanced_custom: '',
 }
 
@@ -530,6 +530,9 @@ export function transformChannelToFormDefaults(
   let upstreamModelUpdateAutoSyncEnabled = false
   let upstreamModelUpdateIgnoredModels = ''
   let advancedCustom = ''
+  let channelMaxAttempts = 2
+  let autoBanThreshold = 5
+  let autoBanDurationMinutes = 30
 
   if (channel.settings) {
     try {
@@ -558,6 +561,21 @@ export function transformChannelToFormDefaults(
       if (parsed.advanced_custom) {
         advancedCustom = stringifyAdvancedCustomConfig(parsed.advanced_custom)
       }
+      if (parsed.reliability && typeof parsed.reliability === 'object') {
+        channelMaxAttempts = parsed.reliability.max_attempts ?? 2
+        autoBanThreshold =
+          parsed.reliability.auto_ban_threshold ??
+          parsed.reliability.failure_threshold ??
+          5
+        autoBanDurationMinutes = Math.max(
+          1,
+          Math.round(
+            (parsed.reliability.auto_ban_duration_seconds ??
+              parsed.reliability.open_duration_seconds ??
+              1800) / 60
+          )
+        )
+      }
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('Failed to parse channel settings:', error)
@@ -572,7 +590,7 @@ export function transformChannelToFormDefaults(
     openai_organization: channel.openai_organization || '',
     models: channel.models || '',
     group: parseGroups(channel.group || 'default'),
-    model_mapping: channel.model_mapping || '',
+    model_mapping: normalizeModelRedirectJson(channel.model_mapping),
     priority: channel.priority || 0,
     weight: channel.weight || 0,
     cost_ratio: channel.cost_ratio ?? 1,
@@ -609,6 +627,9 @@ export function transformChannelToFormDefaults(
     upstream_model_update_check_enabled: upstreamModelUpdateCheckEnabled,
     upstream_model_update_auto_sync_enabled: upstreamModelUpdateAutoSyncEnabled,
     upstream_model_update_ignored_models: upstreamModelUpdateIgnoredModels,
+    channel_max_attempts: channelMaxAttempts,
+    auto_ban_threshold: autoBanThreshold,
+    auto_ban_duration_minutes: autoBanDurationMinutes,
     advanced_custom: advancedCustom,
   }
 }
@@ -776,6 +797,12 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     delete settingsObj.advanced_custom
   }
 
+  settingsObj.reliability = {
+    max_attempts: formData.channel_max_attempts,
+    auto_ban_threshold: formData.auto_ban_threshold,
+    auto_ban_duration_seconds: formData.auto_ban_duration_minutes * 60,
+  }
+
   return JSON.stringify(settingsObj)
 }
 
@@ -804,7 +831,7 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
     openai_organization: formData.openai_organization || null,
     models: formData.models,
     group: formatGroups(formData.group),
-    model_mapping: formData.model_mapping || null,
+    model_mapping: normalizeModelRedirectJson(formData.model_mapping) || null,
     priority: formData.priority || null,
     weight: formData.weight || null,
     cost_ratio: formData.cost_ratio,
@@ -853,7 +880,7 @@ export function transformFormDataToUpdatePayload(
     openai_organization: formData.openai_organization || null,
     models: formData.models,
     group: formatGroups(formData.group),
-    model_mapping: formData.model_mapping || null,
+    model_mapping: normalizeModelRedirectJson(formData.model_mapping) || null,
     priority: formData.priority ?? 0,
     weight: formData.weight ?? 0,
     cost_ratio: formData.cost_ratio,
@@ -887,7 +914,7 @@ export function transformFormDataToUpdatePayload(
   payload.test_model = formData.test_model || ''
   payload.tag = formData.tag || ''
   payload.remark = formData.remark || ''
-  payload.model_mapping = formData.model_mapping || ''
+  payload.model_mapping = normalizeModelRedirectJson(formData.model_mapping)
   payload.status_code_mapping = formData.status_code_mapping || ''
   payload.param_override = formData.param_override || ''
   payload.header_override = formData.header_override || ''

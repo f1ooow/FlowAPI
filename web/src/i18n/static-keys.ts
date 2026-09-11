@@ -33,6 +33,10 @@ export const STATIC_I18N_KEYS = [
   'Auto-disable rules',
   'Channel health checks',
   'Request retry',
+  'Async task retry',
+  'Number of times to retry failed asynchronous tasks (0-10)',
+  'Async task retries',
+  'Async task retry settings',
 
   // System settings sidebar
   'System Administration',
@@ -47,7 +51,31 @@ export const STATIC_I18N_KEYS = [
   'Group Pricing',
   'Channel cost ratio must have no more than 2 decimal places',
   'Routing Reliability',
+  'Group availability monitoring',
+  'Attempt {{number}}',
+  'Route attempts',
+  'Channel error',
+  'Invalid upstream response',
+  'Network error',
+  'Upstream timeout',
+  'Retryable upstream status',
+  'Non-retryable status',
+  'Client cancelled',
+  'Request deadline',
+  'Local or client error',
+  'Response already started',
+  'Explicit retry disabled',
+  'Configured retry disabled',
+  'Successful status',
+  'Attempts exhausted',
+  'Stopped',
   'Maintenance',
+
+  // Group and channel monitoring health states (mapped from the API `state` field)
+  'Operational',
+  'Degraded',
+  'Outage',
+  'No data',
 
   // System info
   'online',
@@ -119,6 +147,9 @@ export const STATIC_I18N_KEYS = [
   'PNG',
   'JPEG',
   'WebP',
+  'Mask dimensions do not match the edited image',
+  'Mask target image is no longer available',
+  'Mask target image is not available as a file',
 
   // Users
   'Root',
@@ -552,6 +583,36 @@ export const STATIC_I18N_KEYS = [
   'OpenAI Models route must use native forwarding',
   'OpenAI Models upstream path must not contain {model}',
   'OpenAI Models route is required to enable upstream model checks',
+
+  // Channel reliability fields
+  'Maximum attempts per channel',
+  'Includes the first request before switching channels.',
+  'Automatic ban threshold',
+  'Qualifying failures before this channel is automatically banned.',
+  'Automatic ban duration (minutes)',
+  'How long an automatic ban lasts before the channel is restored.',
+  'Channel ban policy',
+  'Retry this channel before switching, then automatically ban it after repeated qualifying failures.',
+
+  // Model redirect rule match types (MATCH_TYPE_LABELS constant)
+  'Exact match',
+  'Prefix match',
+  'Suffix match',
+  'Contains',
+  'Regular expression',
+
+  // Model redirect rule validation errors (returned as plain strings, then t()'d)
+  'Invalid model redirect rules',
+  'Model redirect rules must be valid JSON',
+  'Model redirect rules must be a JSON array',
+  'Legacy model mapping values must be strings',
+  'Too many model redirect rules',
+  'Each model redirect rule must be an object',
+  'Invalid model redirect match type',
+  'Model redirect source and target are required',
+  'Model redirect rule is too long',
+  'Model redirect regex is invalid',
+  'Duplicate model redirect rules are not allowed',
 
   // Dashboard flow stages (labels/descriptions passed to t at runtime)
   'User',

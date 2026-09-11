@@ -106,9 +106,7 @@ export const DEFAULT_GROUP = 'default' as const
 // Third-party Binding Fields
 // ============================================================================
 
-export const BINDING_FIELDS = [
-  { key: 'email', label: 'Email' },
-] as const
+export const BINDING_FIELDS = [{ key: 'email', label: 'Email' }] as const
 
 // ============================================================================
 // Error Messages (i18n keys: use t(ERROR_MESSAGES.xxx) when displaying)

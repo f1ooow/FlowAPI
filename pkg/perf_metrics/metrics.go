@@ -187,7 +187,7 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 			AvgLatencyMs:       avgLatency,
 			SuccessRate:        math.Round(successRate*100) / 100,
 			AvgTps:             math.Round(avgTps*100) / 100,
-			RecentSuccessRates: recentSuccessRates(modelBuckets[name], 3),
+			RecentSuccessRates: recentSuccessRates(modelBuckets[name], recentSuccessRateWindows),
 			RequestCount:       total.requestCount,
 		})
 	}
@@ -231,23 +231,41 @@ func mergeModelBucket(modelBuckets map[string]map[int64]counters, modelName stri
 	modelBuckets[modelName][bucketTs] = current
 }
 
-func recentSuccessRates(buckets map[int64]counters, limit int) []float64 {
-	if len(buckets) == 0 || limit <= 0 {
+// The model square renders recent_success_rates as a fixed row of status bars.
+// Each bar must cover a fixed wall-clock duration, otherwise lowering the
+// configured bucket width silently shrinks the sampled window (with an hourly
+// bucket the last 3 buckets were 3 hours, with a 5min bucket they would be
+// 15 minutes) and the badge starts flickering red on tiny samples.
+const (
+	recentSuccessRateWindowSeconds = 3600
+	recentSuccessRateWindows       = 3
+)
+
+func recentSuccessRates(buckets map[int64]counters, windows int) []float64 {
+	if len(buckets) == 0 || windows <= 0 {
 		return nil
 	}
-	timestamps := make([]int64, 0, len(buckets))
-	for ts := range buckets {
+	// Roll the storage buckets up into fixed-duration windows first, so each rate
+	// is computed from summed counters instead of an average of per-bucket rates.
+	rolled := make(map[int64]counters, windows)
+	for ts, value := range buckets {
+		windowTs := ts - ts%recentSuccessRateWindowSeconds
+		rolled[windowTs] = rolled[windowTs].plus(value)
+	}
+
+	timestamps := make([]int64, 0, len(rolled))
+	for ts := range rolled {
 		timestamps = append(timestamps, ts)
 	}
 	sort.Slice(timestamps, func(i, j int) bool {
 		return timestamps[i] < timestamps[j]
 	})
-	if len(timestamps) > limit {
-		timestamps = timestamps[len(timestamps)-limit:]
+	if len(timestamps) > windows {
+		timestamps = timestamps[len(timestamps)-windows:]
 	}
 	rates := make([]float64, 0, len(timestamps))
 	for _, ts := range timestamps {
-		rates = append(rates, math.Round(successRate(buckets[ts])*100)/100)
+		rates = append(rates, math.Round(successRate(rolled[ts])*100)/100)
 	}
 	return rates
 }

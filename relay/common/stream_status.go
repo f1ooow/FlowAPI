@@ -33,13 +33,36 @@ type StreamStatus struct {
 	EndError  error
 	endOnce   sync.Once
 
+	// gateEnabled is immutable after construction: only a stream reader that
+	// buffers upstream events until the first valid content event can report a
+	// meaningful commit point. Readers that write straight through never call
+	// MarkCommitted, so their IsCommitted() would lie about failover safety.
+	gateEnabled bool
+
 	mu         sync.Mutex
+	committed  bool
 	Errors     []StreamErrorEntry
 	ErrorCount int
 }
 
 func NewStreamStatus() *StreamStatus {
 	return &StreamStatus{}
+}
+
+// NewGatedStreamStatus marks the stream as read through the pre-commit gate,
+// which is the only reader that maintains the committed flag.
+func NewGatedStreamStatus() *StreamStatus {
+	return &StreamStatus{gateEnabled: true}
+}
+
+// GateEnabled reports whether IsCommitted() is authoritative for this stream.
+// When false, callers must fall back to whether bytes reached the client
+// (gin's ResponseWriter.Written) to decide if the response is committed.
+func (s *StreamStatus) GateEnabled() bool {
+	if s == nil {
+		return false
+	}
+	return s.gateEnabled
 }
 
 func (s *StreamStatus) SetEndReason(reason StreamEndReason, err error) {
@@ -65,6 +88,27 @@ func (s *StreamStatus) RecordError(msg string) {
 			Timestamp: time.Now(),
 		})
 	}
+}
+
+// MarkCommitted records that this attempt owns the downstream response. Once
+// committed, a routing layer must never transparently replay the request on a
+// different channel.
+func (s *StreamStatus) MarkCommitted() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.committed = true
+	s.mu.Unlock()
+}
+
+func (s *StreamStatus) IsCommitted() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.committed
 }
 
 func (s *StreamStatus) HasErrors() bool {
@@ -104,6 +148,9 @@ func (s *StreamStatus) Summary() string {
 		fmt.Fprintf(b, " end_error=%q", s.EndError.Error())
 	}
 	s.mu.Lock()
+	if s.committed {
+		fmt.Fprint(b, " committed=true")
+	}
 	if s.ErrorCount > 0 {
 		fmt.Fprintf(b, " soft_errors=%d", s.ErrorCount)
 	}

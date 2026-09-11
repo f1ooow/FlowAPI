@@ -25,9 +25,11 @@ import {
   Key,
   LayoutDashboard,
   ListTodo,
+  HeartPulse,
   Radio,
   ServerCog,
   Settings,
+  SquareActivity,
   Ticket,
   User,
   Users,
@@ -85,6 +87,11 @@ export function useSidebarData(): SidebarData {
             configUrls: ['/usage-logs/drawing', '/usage-logs/task'],
             icon: ListTodo,
           },
+          {
+            title: t('Group Monitoring'),
+            url: '/group-monitoring',
+            icon: HeartPulse,
+          },
         ],
       },
       {
@@ -111,6 +118,11 @@ export function useSidebarData(): SidebarData {
             title: t('Channels'),
             url: '/channels',
             icon: Radio,
+          },
+          {
+            title: t('Channel Availability'),
+            url: '/channel-monitoring',
+            icon: SquareActivity,
           },
           {
             title: t('Models'),

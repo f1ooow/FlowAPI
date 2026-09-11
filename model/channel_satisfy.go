@@ -10,7 +10,8 @@ func IsChannelEnabledForGroupModel(group string, modelName string, channelID int
 		return false
 	}
 	if !common.MemoryCacheEnabled {
-		return isChannelEnabledForGroupModelDB(group, modelName, channelID)
+		channel, err := GetChannelById(channelID, true)
+		return err == nil && channel.Status == common.ChannelStatusEnabled && channelInGroup(channel, group) && channel.SupportsModel(modelName)
 	}
 
 	channelSyncLock.RLock()
@@ -25,9 +26,12 @@ func IsChannelEnabledForGroupModel(group string, modelName string, channelID int
 	}
 	normalized := ratio_setting.FormatMatchingModelName(modelName)
 	if normalized != "" && normalized != modelName {
-		return isChannelIDInList(group2model2channels[group][normalized], channelID)
+		if isChannelIDInList(group2model2channels[group][normalized], channelID) {
+			return true
+		}
 	}
-	return false
+	channel, ok := channelsIDM[channelID]
+	return ok && channel.Status == common.ChannelStatusEnabled && channelInGroup(channel, group) && channel.SupportsModel(modelName)
 }
 
 func IsChannelEnabledForAnyGroupModel(groups []string, modelName string, channelID int) bool {

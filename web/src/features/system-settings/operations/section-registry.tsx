@@ -51,9 +51,9 @@ const OPERATIONS_SECTIONS = [
           'perf_metrics_setting.flush_interval':
             settings['perf_metrics_setting.flush_interval'] ?? 5,
           'perf_metrics_setting.bucket_time':
-            settings['perf_metrics_setting.bucket_time'] ?? 'hour',
+            settings['perf_metrics_setting.bucket_time'] ?? '5min',
           'perf_metrics_setting.retention_days':
-            settings['perf_metrics_setting.retention_days'] ?? 0,
+            settings['perf_metrics_setting.retention_days'] ?? 7,
         }}
       />
     ),

@@ -115,6 +115,42 @@ func GetPerfMetricsSummaryBucketsAll(startTs int64, endTs int64, groups []string
 	return summaries, err
 }
 
+// PerfMetricGroupBucket keeps the group dimension that
+// GetPerfMetricsSummaryBucketsAll collapses, and carries the two TTFT counters
+// so a caller can tell "0 ms" apart from "no TTFT sample" (non-streaming
+// requests never accumulate TTFT).
+type PerfMetricGroupBucket struct {
+	Group          string `json:"group" gorm:"column:group"`
+	ModelName      string `json:"model_name"`
+	BucketTs       int64  `json:"bucket_ts"`
+	RequestCount   int64  `json:"request_count"`
+	SuccessCount   int64  `json:"success_count"`
+	TotalLatencyMs int64  `json:"total_latency_ms"`
+	TtftSumMs      int64  `json:"ttft_sum_ms"`
+	TtftCount      int64  `json:"ttft_count"`
+}
+
+// GetPerfMetricGroupBuckets returns storage-width buckets for the given groups
+// and models. Rolling the storage buckets up into wider display buckets is done
+// by the caller in Go: SQL time-bucket functions differ across SQLite, MySQL and
+// PostgreSQL, so the whole codebase keeps bucketing out of SQL.
+func GetPerfMetricGroupBuckets(groups []string, models []string, startTs int64, endTs int64) ([]PerfMetricGroupBucket, error) {
+	buckets := make([]PerfMetricGroupBucket, 0)
+	if len(groups) == 0 || len(models) == 0 {
+		return buckets, nil
+	}
+	err := DB.Model(&PerfMetric{}).
+		Select(commonGroupCol+", model_name, bucket_ts, SUM(request_count) as request_count, SUM(success_count) as success_count, SUM(total_latency_ms) as total_latency_ms, SUM(ttft_sum_ms) as ttft_sum_ms, SUM(ttft_count) as ttft_count").
+		Where("bucket_ts >= ? AND bucket_ts <= ?", startTs, endTs).
+		Where(commonGroupCol+" IN ?", groups).
+		Where("model_name IN ?", models).
+		Group(commonGroupCol + ", model_name, bucket_ts").
+		Having("SUM(request_count) > 0").
+		Order("bucket_ts ASC").
+		Find(&buckets).Error
+	return buckets, err
+}
+
 func DeletePerfMetricsBefore(cutoffTs int64) error {
 	if cutoffTs <= 0 {
 		return nil

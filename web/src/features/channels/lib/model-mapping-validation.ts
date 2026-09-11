@@ -16,6 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import {
+  parseModelRedirectRules,
+  validateModelRedirectRules,
+} from './model-redirect-rules'
+
 // ============================================================================
 // Model Mapping Validation Utilities
 // ============================================================================
@@ -36,7 +41,7 @@ export function parseModelsString(modelsStr: string): string[] {
  * Format models array to string
  */
 export function formatModelsArray(models: string[]): string {
-  return Array.from(new Set(models)).join(',')
+  return [...new Set(models)].join(',')
 }
 
 /**
@@ -47,8 +52,7 @@ export function normalizeModelName(model: string): string {
 }
 
 /**
- * Extract source keys from model_mapping JSON
- * (the keys of the mapping object — models being remapped FROM)
+ * Extract exact source models from model redirect rules.
  */
 export function extractMappingSourceModels(modelMapping: string): string[] {
   if (typeof modelMapping !== 'string') return []
@@ -56,16 +60,12 @@ export function extractMappingSourceModels(modelMapping: string): string[] {
   if (!trimmed) return []
 
   try {
-    const parsed = JSON.parse(trimmed)
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return []
-    }
-
-    const keys = Object.keys(parsed)
-      .map((key) => key.trim())
+    const keys = parseModelRedirectRules(trimmed)
+      .filter((rule) => rule.match_type === 'exact')
+      .map((rule) => rule.source.trim())
       .filter(Boolean)
 
-    return Array.from(new Set(keys))
+    return [...new Set(keys)]
   } catch {
     return []
   }
@@ -81,83 +81,14 @@ export function extractRedirectModels(modelMapping: string): string[] {
   if (!trimmed) return []
 
   try {
-    const parsed = JSON.parse(trimmed)
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return []
-    }
+    const values = parseModelRedirectRules(trimmed)
+      .map((rule) => rule.target.trim())
+      .filter(Boolean)
 
-    const values = Object.values(parsed)
-      .map((value) => (typeof value === 'string' ? value.trim() : undefined))
-      .filter((value): value is string => Boolean(value))
-
-    return Array.from(new Set(values))
+    return [...new Set(values)]
   } catch {
     return []
   }
-}
-
-/**
- * Check if model configuration has changed
- */
-export function hasModelConfigChanged(
-  currentModels: string[],
-  currentModelMapping: string,
-  initialModels: string[],
-  initialModelMapping: string
-): boolean {
-  // Always return true if not editing (new channel)
-  if (initialModels.length === 0 && !initialModelMapping) {
-    return true
-  }
-
-  // Check if models array changed
-  if (currentModels.length !== initialModels.length) {
-    return true
-  }
-  for (let i = 0; i < currentModels.length; i++) {
-    if (currentModels[i] !== initialModels[i]) {
-      return true
-    }
-  }
-
-  // Check if model_mapping changed
-  const normalizedCurrent = (currentModelMapping || '').trim()
-  const normalizedInitial = (initialModelMapping || '').trim()
-
-  return normalizedCurrent !== normalizedInitial
-}
-
-/**
- * Find models in model_mapping that are missing from the models list
- */
-export function findMissingModelsInMapping(
-  modelMapping: string,
-  currentModels: string[]
-): string[] {
-  if (!modelMapping || modelMapping.trim() === '') {
-    return []
-  }
-
-  let parsedMapping: Record<string, unknown>
-  try {
-    parsedMapping = JSON.parse(modelMapping)
-    if (
-      !parsedMapping ||
-      typeof parsedMapping !== 'object' ||
-      Array.isArray(parsedMapping)
-    ) {
-      return []
-    }
-  } catch {
-    return []
-  }
-
-  const modelSet = new Set(currentModels.map((m) => normalizeModelName(m)))
-  const missingModels = Object.keys(parsedMapping)
-    .map((key) => normalizeModelName(key))
-    .filter((key) => key && !modelSet.has(key))
-
-  return Array.from(new Set(missingModels))
 }
 
 /**
@@ -171,27 +102,7 @@ export function validateModelMappingJson(modelMapping: string): {
     return { valid: true }
   }
 
-  try {
-    const parsed = JSON.parse(modelMapping)
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return {
-        valid: false,
-        error: 'Model mapping must be a valid JSON object',
-      }
-    }
-    if (Object.values(parsed).some((value) => typeof value !== 'string')) {
-      return {
-        valid: false,
-        error: 'Model mapping values must be strings',
-      }
-    }
-    return { valid: true }
-  } catch {
-    return {
-      valid: false,
-      error: 'Model mapping must be valid JSON format',
-    }
-  }
+  return validateModelRedirectRules(modelMapping)
 }
 
 /**
@@ -239,9 +150,7 @@ export function categorizeModelsWithRedirect(
   ])
 
   const redirectOnlySet = new Set(
-    Array.from(normalizedRedirectModels).filter(
-      (m) => !normalizedCurrentModels.has(m)
-    )
+    [...normalizedRedirectModels].filter((m) => !normalizedCurrentModels.has(m))
   )
 
   return {

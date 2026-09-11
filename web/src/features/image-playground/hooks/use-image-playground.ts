@@ -28,6 +28,7 @@ import {
   callImageGeneration,
   resolvePlaygroundToken,
 } from '../lib/api'
+import { validateMaskMatchesImage } from '../lib/mask-preprocess'
 import {
   deleteTaskBundle,
   getStoredImage,
@@ -66,6 +67,12 @@ function localizedError(
     'Select an API key before generating':
       'Select an API key before generating',
     'Add an image before editing': 'Add an image before editing',
+    'Mask target image is no longer available':
+      'Mask target image is no longer available',
+    'Mask target image is not available as a file':
+      'Mask target image is not available as a file',
+    'Mask dimensions do not match the edited image':
+      'Mask dimensions do not match the edited image',
     'Unable to load the selected API key':
       'Unable to load the selected API key',
     'The image service returned no images':
@@ -79,6 +86,9 @@ function localizedError(
     'Generation stopped': 'Generation stopped',
   }
   if (known[message]) return t(known[message])
+  if (message.startsWith('Mask dimensions ')) {
+    return t('Mask dimensions do not match the edited image')
+  }
   if (message.startsWith('Image request failed (')) {
     return t('Image request failed')
   }
@@ -105,6 +115,29 @@ function cloneMask(mask: PlaygroundMask, urls: Set<string>): PlaygroundMask {
   const src = URL.createObjectURL(mask.blob)
   urls.add(src)
   return { ...mask, src }
+}
+
+function cloneInputImages(
+  images: PlaygroundImage[],
+  mask: PlaygroundMask | undefined,
+  urls: Set<string>
+): { images: PlaygroundImage[]; mask?: PlaygroundMask } {
+  const idMap = new Map<string, string>()
+  const clonedImages = images.map((image) => {
+    const cloned = cloneImage(image, urls)
+    idMap.set(image.id, cloned.id)
+    return cloned
+  })
+  if (!mask) return { images: clonedImages }
+
+  const clonedMask = cloneMask(mask, urls)
+  return {
+    images: clonedImages,
+    mask: {
+      ...clonedMask,
+      targetImageId: idMap.get(mask.targetImageId) ?? mask.targetImageId,
+    },
+  }
 }
 
 function storedImageToDisplay(
@@ -241,6 +274,38 @@ function outputToDisplay(image: NormalizedImage): PlaygroundImage {
   }
 }
 
+function orderEditImages(
+  images: PlaygroundImage[],
+  mask?: PlaygroundMask
+): PlaygroundImage[] {
+  if (!mask) return images
+  const target = images.find((image) => image.id === mask.targetImageId)
+  if (!target) throw new Error('Mask target image is no longer available')
+  return [target, ...images.filter((image) => image.id !== target.id)]
+}
+
+async function validateEditMask(
+  images: PlaygroundImage[],
+  mask?: PlaygroundMask
+): Promise<void> {
+  if (!mask) return
+  const target = images.find((image) => image.id === mask.targetImageId)
+  if (!target) throw new Error('Mask target image is no longer available')
+  if (!target.blob) {
+    throw new Error('Mask target image is not available as a file')
+  }
+  await validateMaskMatchesImage(mask.blob, target.blob)
+}
+
+type InputImageReplacement = {
+  src: string
+  blob: Blob
+  mimeType: string
+  sourceUrl?: string
+  width?: number
+  height?: number
+}
+
 export function useImagePlayground() {
   const { t } = useTranslation()
   const [prompt, setPrompt] = useState('')
@@ -323,6 +388,31 @@ export function useImagePlayground() {
       return [...current, ...next]
     })
   }, [])
+
+  const replaceInputImage = useCallback(
+    (id: string, replacement: InputImageReplacement) => {
+      setInputImages((current) => {
+        const index = current.findIndex((image) => image.id === id)
+        if (index < 0) return current
+
+        const currentImage = current[index]
+        if (currentImage.src !== replacement.src) {
+          releaseImage(currentImage, objectUrlsRef.current)
+        }
+
+        const next = [...current]
+        next[index] = {
+          ...currentImage,
+          ...replacement,
+          sourceUrl: replacement.sourceUrl,
+          id: currentImage.id,
+          role: 'input',
+        }
+        return next
+      })
+    },
+    []
+  )
 
   const removeInputImage = useCallback((id: string) => {
     setInputImages((current) => {
@@ -409,6 +499,20 @@ export function useImagePlayground() {
       const operation: PlaygroundOperation = inputImages.length
         ? 'edit'
         : 'generation'
+      if (mask) {
+        try {
+          orderEditImages(inputImages, mask)
+          await validateEditMask(inputImages, mask)
+        } catch (validationError) {
+          setError(localizedError(validationError, t))
+          return null
+        }
+      }
+      const clonedInputs = cloneInputImages(
+        inputImages,
+        mask,
+        objectUrlsRef.current
+      )
       const task: PlaygroundTask = {
         id: createId(),
         operation,
@@ -423,10 +527,8 @@ export function useImagePlayground() {
         completedAt: null,
         elapsed: null,
         error: null,
-        inputImages: inputImages.map((image) =>
-          cloneImage(image, objectUrlsRef.current)
-        ),
-        mask: mask ? cloneMask(mask, objectUrlsRef.current) : undefined,
+        inputImages: clonedInputs.images,
+        mask: clonedInputs.mask,
         outputImages: [],
       }
       setTasks((current) => [task, ...current])
@@ -456,6 +558,10 @@ export function useImagePlayground() {
       const controller = new AbortController()
       controllersRef.current.set(task.id, controller)
       try {
+        const orderedImages =
+          operation === 'edit'
+            ? orderEditImages(task.inputImages, task.mask)
+            : []
         const apiKey = await resolvePlaygroundToken(tokenId)
         const result =
           operation === 'edit'
@@ -463,7 +569,7 @@ export function useImagePlayground() {
                 apiKey,
                 prompt: text,
                 params: task.params,
-                images: task.inputImages.flatMap((image) =>
+                images: orderedImages.flatMap((image) =>
                   image.blob ? [image.blob] : []
                 ),
                 mask: task.mask?.blob,
@@ -528,12 +634,15 @@ export function useImagePlayground() {
   )
 
   const reuseTask = useCallback((task: PlaygroundTask) => {
+    const clonedInputs = cloneInputImages(
+      task.inputImages,
+      task.mask,
+      objectUrlsRef.current
+    )
     setPrompt(task.prompt)
     setParams({ ...task.params })
-    setInputImages(
-      task.inputImages.map((image) => cloneImage(image, objectUrlsRef.current))
-    )
-    setMask(task.mask ? cloneMask(task.mask, objectUrlsRef.current) : undefined)
+    setInputImages(clonedInputs.images)
+    setMask(clonedInputs.mask)
     setError(null)
   }, [])
 
@@ -610,6 +719,7 @@ export function useImagePlayground() {
     mask,
     setMask,
     addInputFiles,
+    replaceInputImage,
     removeInputImage,
     clearInputImages,
     tasks,

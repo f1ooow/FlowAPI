@@ -35,6 +35,7 @@ import { positiveIntegerSchema } from '../utils/numeric-field'
 import { GroupRatioForm } from './group-ratio-form'
 import { ModelRatioForm } from './model-ratio-form'
 import { ToolPriceSettings } from './tool-price-settings'
+import { UpstreamRatioSync } from './upstream-ratio-sync'
 import {
   formatJsonForTextarea,
   type JsonValidationError,
@@ -139,7 +140,12 @@ const createGroupSchema = (t: Translate) =>
 
 type ModelFormValues = z.infer<ReturnType<typeof createModelSchema>>
 type GroupFormValues = z.infer<ReturnType<typeof createGroupSchema>>
-type RatioTabId = 'models' | 'unset-models' | 'groups' | 'tool-prices'
+type RatioTabId =
+  | 'models'
+  | 'unset-models'
+  | 'groups'
+  | 'tool-prices'
+  | 'upstream-sync'
 
 type RatioSettingsCardProps = {
   modelDefaults: ModelFormValues
@@ -154,7 +160,7 @@ export function RatioSettingsCard({
   groupDefaults,
   toolPricesDefault,
   titleKey = 'Pricing Ratios',
-  visibleTabs = ['models', 'groups', 'tool-prices'],
+  visibleTabs = ['models', 'groups', 'tool-prices', 'upstream-sync'],
 }: RatioSettingsCardProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
@@ -416,6 +422,7 @@ export function RatioSettingsCard({
     'unset-models': 'Unset price models',
     groups: 'Group ratios',
     'tool-prices': 'Tool prices',
+    'upstream-sync': 'Upstream price sync',
   }
   const tabsGridClass =
     {
@@ -423,6 +430,7 @@ export function RatioSettingsCard({
       2: 'grid-cols-2',
       3: 'grid-cols-3',
       4: 'grid-cols-4',
+      5: 'grid-cols-5',
     }[visibleTabs.length] ?? 'grid-cols-4'
   const defaultTab = visibleTabs[0] ?? 'models'
 
@@ -449,7 +457,25 @@ export function RatioSettingsCard({
         />
       )
     }
-    return <ToolPriceSettings defaultValue={toolPricesDefault} />
+    if (tab === 'tool-prices') {
+      return <ToolPriceSettings defaultValue={toolPricesDefault} />
+    }
+    return (
+      <UpstreamRatioSync
+        modelRatios={{
+          ModelPrice: modelDefaults.ModelPrice,
+          ModelRatio: modelDefaults.ModelRatio,
+          CompletionRatio: modelDefaults.CompletionRatio,
+          CacheRatio: modelDefaults.CacheRatio,
+          CreateCacheRatio: modelDefaults.CreateCacheRatio,
+          ImageRatio: modelDefaults.ImageRatio,
+          AudioRatio: modelDefaults.AudioRatio,
+          AudioCompletionRatio: modelDefaults.AudioCompletionRatio,
+          'billing_setting.billing_mode': modelDefaults.BillingMode,
+          'billing_setting.billing_expr': modelDefaults.BillingExpr,
+        }}
+      />
+    )
   }
 
   const renderTabSwitcher = () => (

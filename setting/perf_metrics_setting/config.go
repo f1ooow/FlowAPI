@@ -9,11 +9,15 @@ type PerfMetricsSetting struct {
 	RetentionDays int    `json:"retention_days"`
 }
 
+// BucketTime defaults to 5min so consumers (group monitoring, model square) can
+// offer sub-hour timelines; RetentionDays must stay > 0 because
+// perfmetrics.cleanupExpiredMetrics skips cleanup entirely at 0, which would let
+// the finer buckets grow unbounded.
 var perfMetricsSetting = PerfMetricsSetting{
 	Enabled:       true,
 	FlushInterval: 5,
-	BucketTime:    "hour",
-	RetentionDays: 0,
+	BucketTime:    "5min",
+	RetentionDays: 7,
 }
 
 func init() {

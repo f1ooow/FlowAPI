@@ -128,6 +128,30 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	AppendChannelAffinityAdminInfo(ctx, adminInfo)
 
 	other["admin_info"] = adminInfo
+	// route_history exposes the full routing chain (channel ids, names,
+	// priorities, weights, upstream status codes). It lives under admin_info so
+	// model.formatUserLogs strips it for non-admin viewers along with the rest
+	// of the admin-only payload.
+	if routeStateValue, exists := ctx.Get("route_state"); exists {
+		if routeState, ok := routeStateValue.(*RouteState); ok {
+			history := append([]RouteAttempt(nil), routeState.History...)
+			lastAttemptSucceeded := len(history) > 0 && history[len(history)-1].Outcome == RouteAttemptSucceeded
+			if !lastAttemptSucceeded {
+				history = append(history, RouteAttempt{
+					ChannelID:   ctx.GetInt("route_attempt_channel_id"),
+					ChannelName: ctx.GetString("route_attempt_channel_name"),
+					Attempt:     ctx.GetInt("route_attempt_number"),
+					Outcome:     RouteAttemptSucceeded,
+					StatusCode:  200,
+					Priority:    ctx.GetInt64("route_attempt_priority"),
+					Weight:      ctx.GetInt("route_attempt_weight"),
+				})
+			}
+			adminInfo["route_history"] = history
+		}
+	} else if routeHistory, exists := ctx.Get("route_history"); exists {
+		adminInfo["route_history"] = routeHistory
+	}
 	attachBillingRatioInfo(relayInfo, other)
 	appendRequestPath(ctx, relayInfo, other)
 	appendRequestConversionChain(relayInfo, other)

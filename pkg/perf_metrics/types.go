@@ -76,6 +76,17 @@ type counters struct {
 	generationMs   int64
 }
 
+func (c counters) plus(other counters) counters {
+	c.requestCount += other.requestCount
+	c.successCount += other.successCount
+	c.totalLatencyMs += other.totalLatencyMs
+	c.ttftSumMs += other.ttftSumMs
+	c.ttftCount += other.ttftCount
+	c.outputTokens += other.outputTokens
+	c.generationMs += other.generationMs
+	return c
+}
+
 type atomicBucket struct {
 	requestCount   atomic.Int64
 	successCount   atomic.Int64

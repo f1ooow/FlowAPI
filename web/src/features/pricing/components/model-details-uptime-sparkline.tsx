@@ -64,11 +64,45 @@ function heightFor(uptime: number): string {
   return 'h-[40%]'
 }
 
+// The series is one point per perf_metrics bucket. A 24h window at the 5min
+// bucket width is 288 points, which at ~4-6px per bar would overflow its
+// container by an order of magnitude, so collapse consecutive points into a
+// bounded number of bars before rendering.
+const MAX_BARS: Record<SparklineSize, number> = { sm: 32, md: 48 }
+
+function downsample(
+  series: UptimeDayPoint[],
+  maxBars: number
+): UptimeDayPoint[] {
+  if (series.length <= maxBars) return series
+
+  const chunkSize = Math.ceil(series.length / maxBars)
+  const bars: UptimeDayPoint[] = []
+  for (let start = 0; start < series.length; start += chunkSize) {
+    const chunk = series.slice(start, start + chunkSize)
+    bars.push({
+      date: chunk[0].date,
+      uptime_pct:
+        chunk.reduce((sum, point) => sum + point.uptime_pct, 0) / chunk.length,
+      incidents: chunk.reduce((sum, point) => sum + point.incidents, 0),
+      outage_minutes: chunk.reduce(
+        (sum, point) => sum + point.outage_minutes,
+        0
+      ),
+    })
+  }
+  return bars
+}
+
 export function UptimeSparkline(props: UptimeSparklineProps) {
   const size = props.size ?? 'md'
   const showOverall = props.showOverall ?? true
+  const bars = useMemo(
+    () => downsample(props.series, MAX_BARS[size]),
+    [props.series, size]
+  )
 
-  if (props.series.length === 0) {
+  if (bars.length === 0) {
     return (
       <span className={cn('text-muted-foreground text-xs', props.className)}>
         {props.emptyLabel ?? '—'}
@@ -90,7 +124,7 @@ export function UptimeSparkline(props: UptimeSparklineProps) {
         role='img'
         aria-label={`30 day uptime ${overall.toFixed(2)}%`}
       >
-        {props.series.map((day) => (
+        {bars.map((day) => (
           <Tooltip key={day.date}>
             <TooltipTrigger
               render={

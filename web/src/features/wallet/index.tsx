@@ -315,7 +315,6 @@ export function Wallet(props: WalletProps) {
                   }
                 />
               </div>
-
             </div>
 
             <AffiliateRewardsCard

@@ -134,11 +134,11 @@ func Distribute() func(c *gin.Context) {
 
 				if channel == nil {
 					channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
-						Ctx:         c,
-						ModelName:   modelRequest.Model,
-						TokenGroup:  usingGroup,
-						RequestPath: c.Request.URL.Path,
-						Retry:       common.GetPointer(0),
+						Ctx:                c,
+						ModelName:          modelRequest.Model,
+						TokenGroup:         usingGroup,
+						RequestPath:        c.Request.URL.Path,
+						ExcludedChannelIDs: make(map[int]struct{}),
 					})
 					if err != nil {
 						showGroup := usingGroup
@@ -177,11 +177,7 @@ func channelSupportsRequestPath(channel *model.Channel, requestPath string, requ
 	if channel == nil {
 		return false
 	}
-	if channel.Type != constant.ChannelTypeAdvancedCustom {
-		return true
-	}
-	config := channel.GetOtherSettings().AdvancedCustom
-	return config != nil && config.SupportsPathForModel(requestPath, requestModel)
+	return channel.SupportsRequestPath(requestPath, requestModel)
 }
 
 // getModelFromRequest 从请求中读取模型信息

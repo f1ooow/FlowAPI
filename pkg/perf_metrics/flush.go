@@ -19,7 +19,9 @@ func flushLoop() {
 			continue
 		}
 		flushCompletedBuckets()
+		flushCompletedChannelBuckets()
 		cleanupExpiredMetrics(setting.RetentionDays)
+		cleanupExpiredChannelMetrics(setting.RetentionDays)
 	}
 }
 

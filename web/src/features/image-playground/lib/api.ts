@@ -29,6 +29,7 @@ import type {
   ImageResponseItem,
   NormalizedImage,
 } from '../types'
+import { validateMaskMatchesImage } from './mask-preprocess'
 
 function createImageId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -196,6 +197,9 @@ export async function callImageEdit(options: {
   signal?: AbortSignal
 }): Promise<ImageApiResult> {
   if (!options.images.length) throw new Error('Add an image before editing')
+  if (options.mask) {
+    await validateMaskMatchesImage(options.mask, options.images[0])
+  }
 
   const body = new FormData()
   body.append('model', IMAGE_PLAYGROUND_MODEL)

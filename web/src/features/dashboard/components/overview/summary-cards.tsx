@@ -30,13 +30,14 @@ import type { QuotaDataItem } from '@/features/dashboard/types'
 import { useStatus } from '@/hooks/use-status'
 import { getCurrencyLabel, isCurrencyDisplayEnabled } from '@/lib/currency'
 import { formatNumber, formatQuota } from '@/lib/format'
-import { computeTimeRange } from '@/lib/time'
+import { getChinaTodayTimestampRange } from '@/lib/time'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { StatCard } from '../ui/stat-card'
 
 const SUMMARY_SPARKLINE_BUCKETS = 12
+const SUMMARY_REFRESH_INTERVAL_MS = 5 * 60 * 1000
 
 type SummarySparklineKey = 'balance' | 'usage' | 'requests'
 
@@ -141,27 +142,30 @@ export function SummaryCards() {
   const user = useAuthStore((state) => state.auth.user)
   const { status, loading } = useStatus()
 
-  const summaryTimeRange = useMemo(() => computeTimeRange(1), [])
+  const summaryTimeRange = getChinaTodayTimestampRange()
   const remainQuota = Number(user?.quota ?? 0)
   const unlimitedQuota = Boolean(user?.unlimited_quota)
   const usedQuota = Number(user?.used_quota ?? 0)
   const requestCount = Number(user?.request_count ?? 0)
 
   const usageTrendQuery = useQuery({
+    // Cache by the day boundary; the query function refreshes the end time so
+    // polling does not create a new cache entry for every refresh.
     queryKey: [
       'dashboard',
       'overview',
       'summary-sparklines',
       summaryTimeRange.start_timestamp,
-      summaryTimeRange.end_timestamp,
     ],
-    queryFn: async () =>
-      getUserQuotaDates({
-        start_timestamp: summaryTimeRange.start_timestamp,
-        end_timestamp: summaryTimeRange.end_timestamp,
+    queryFn: async () => {
+      const currentTimeRange = getChinaTodayTimestampRange()
+      return getUserQuotaDates({
+        ...currentTimeRange,
         default_time: 'hour',
-      }),
+      })
+    },
     staleTime: 60 * 1000,
+    refetchInterval: SUMMARY_REFRESH_INTERVAL_MS,
   })
 
   const summaryValues = useMemo(() => {
@@ -315,7 +319,7 @@ export function SummaryCards() {
               <div className='bg-background/60 rounded-lg px-2.5 py-2'>
                 <div className='text-muted-foreground flex items-center gap-1 text-[11px] leading-none font-medium'>
                   <Flame className='size-3 shrink-0' aria-hidden='true' />
-                  <span className='truncate'>{t('Last 24h usage')}</span>
+                  <span className='truncate'>{t("Today's usage")}</span>
                 </div>
                 <div className='text-foreground mt-1.5 truncate text-xs font-semibold tabular-nums'>
                   {formatQuota(recentUsage)}

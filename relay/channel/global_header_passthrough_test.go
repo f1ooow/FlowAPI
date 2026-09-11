@@ -56,6 +56,19 @@ func TestGlobalHeaderPassthrough(t *testing.T) {
 			want:    map[string]string{},
 		},
 		{
+			// The skip list only suppresses automatic wildcard/regex forwarding.
+			// An administrator configuring an upstream account scope explicitly
+			// must still win.
+			name:    "explicit admin override still sets a blocked header",
+			enabled: true,
+			info: relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{
+				HeadersOverride: map[string]any{"OpenAI-Organization": "org-admin"},
+			}},
+			want: map[string]string{
+				"session_id": "session-1", "x-feature": "client", "openai-organization": "org-admin",
+			},
+		},
+		{
 			name:    "runtime final map is not repopulated",
 			enabled: true,
 			info: relaycommon.RelayInfo{
@@ -77,6 +90,16 @@ func TestGlobalHeaderPassthrough(t *testing.T) {
 				"Connection", "Host", "Content-Length", "Accept-Encoding",
 				"Content-Type", "Chatgpt-Account-Id",
 				"Sec-WebSocket-Key", "Sec-WebSocket-Protocol",
+				// Client IP / proxy chain must never reach upstream providers.
+				"X-Forwarded-For", "X-Real-Ip", "X-Forwarded-Host", "X-Forwarded-Proto",
+				"X-Forwarded-Port", "CF-Connecting-IP", "True-Client-IP", "Forwarded", "Via",
+				// Caller-site disclosure.
+				"Referer", "Origin",
+				// Upstream account scope is channel config; a client value here would
+				// silently override the adapter-selected organization/project.
+				"OpenAI-Organization", "OpenAI-Project", "X-Goog-User-Project",
+				// Gateway's own user token.
+				"Mj-Api-Secret",
 			} {
 				ctx.Request.Header.Set(name, "must-not-forward")
 			}

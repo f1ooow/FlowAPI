@@ -212,7 +212,6 @@ export function UserAuthForm({
           onCheckedChange={setAgreedToLegal}
           className='mt-1'
         />
-
       </form>
     </Form>
   )

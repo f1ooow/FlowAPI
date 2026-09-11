@@ -211,6 +211,348 @@ func TestStreamScannerHandler_DataWithExtraSpaces(t *testing.T) {
 	assert.Equal(t, "{\"trimmed\":true}", got)
 }
 
+func TestStreamScannerHandlerWithGate_PrecommitErrorWritesNothing(t *testing.T) {
+	t.Parallel()
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	resp := &http.Response{Body: io.NopCloser(strings.NewReader("data: {\"error\":{\"message\":\"provider failed\"}}\n\n"))}
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
+	err := StreamScannerHandlerWithGate(c, resp, info, StreamProtocolOpenAIChat, func(data string, sr *StreamResult) {
+		require.NoError(t, StringData(c, data))
+	})
+
+	require.NotNil(t, err)
+	assert.Equal(t, http.StatusBadGateway, err.StatusCode)
+	assert.False(t, info.StreamStatus.IsCommitted())
+	assert.Empty(t, c.Writer.Header().Get("Content-Type"))
+	assert.False(t, c.Writer.Written())
+	assert.Empty(t, recorder.Body.String())
+}
+
+func TestStreamScannerHandlerWithGate_BuffersNeutralPrefixUntilContent(t *testing.T) {
+	t.Parallel()
+
+	body := strings.Join([]string{
+		`data: {"id":"chat_1","choices":[{"delta":{"role":"assistant"}}]}`,
+		`data: {"id":"chat_1","choices":[{"delta":{"content":"hello"}}]}`,
+		`data: [DONE]`,
+	}, "\n\n")
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	resp := &http.Response{Body: io.NopCloser(strings.NewReader(body))}
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
+	err := StreamScannerHandlerWithGate(c, resp, info, StreamProtocolOpenAIChat, func(data string, sr *StreamResult) {
+		require.NoError(t, StringData(c, data))
+	})
+
+	require.Nil(t, err)
+	assert.True(t, info.StreamStatus.IsCommitted())
+	assert.Contains(t, c.Writer.Header().Get("Content-Type"), "text/event-stream")
+	assert.True(t, c.Writer.Written())
+	output := recorder.Body.String()
+	assert.Contains(t, output, `"role":"assistant"`)
+	assert.Contains(t, output, `"content":"hello"`)
+	assert.Less(t, strings.Index(output, `"role":"assistant"`), strings.Index(output, `"content":"hello"`))
+}
+
+func TestStreamScannerHandlerWithGate_PostcommitErrorDoesNotRequestReplay(t *testing.T) {
+	t.Parallel()
+
+	body := strings.Join([]string{
+		`data: {"choices":[{"delta":{"content":"hello"}}]}`,
+		`data: {"error":{"message":"late failure"}}`,
+	}, "\n\n")
+	c, resp, info := setupStreamTest(t, strings.NewReader(body))
+	err := StreamScannerHandlerWithGate(c, resp, info, StreamProtocolOpenAIChat, func(data string, sr *StreamResult) {
+		require.NoError(t, StringData(c, data))
+	})
+
+	require.Nil(t, err)
+	assert.True(t, info.StreamStatus.IsCommitted())
+}
+
+func TestStreamScannerHandlerWithGate_ProtocolFailuresStayPrecommit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		protocol StreamProtocol
+		body     string
+	}{
+		{"anthropic error", StreamProtocolAnthropic, `data: {"type":"error","error":{"message":"unavailable"}}`},
+		{"responses failure", StreamProtocolOpenAIResponses, `data: {"type":"response.failed","response":{"error":{"message":"unavailable"}}}`},
+		{"gemini blocked", StreamProtocolGemini, `data: {"promptFeedback":{"blockReason":"SAFETY"}}`},
+		{"image error", StreamProtocolOpenAIImage, `data: {"type":"upstream_error","error":{"message":"unavailable"}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/test", nil)
+			resp := &http.Response{Body: io.NopCloser(strings.NewReader(tt.body + "\n\n"))}
+			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
+
+			err := StreamScannerHandlerWithGate(c, resp, info, tt.protocol, func(data string, sr *StreamResult) {
+				require.NoError(t, StringData(c, data))
+			})
+
+			require.NotNil(t, err)
+			assert.Equal(t, http.StatusBadGateway, err.StatusCode)
+			assert.False(t, info.StreamStatus.IsCommitted())
+			assert.Empty(t, recorder.Body.String())
+		})
+	}
+}
+
+// TestStreamScannerHandlerWithGate_ContentFreeCompletionIsReleased pins the
+// boundary between "upstream produced nothing" and "upstream legitimately
+// finished without content". Treating the latter as a pre-commit failure made
+// the router replay content-filtered / immediately-stopped completions across
+// every eligible channel and auto-ban each of them.
+func TestStreamScannerHandlerWithGate_ContentFreeCompletionIsReleased(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		protocol StreamProtocol
+		frames   []string
+		expect   []string
+	}{
+		{
+			name:     "openai content filter",
+			protocol: StreamProtocolOpenAIChat,
+			frames: []string{
+				`{"choices":[{"delta":{},"finish_reason":"content_filter"}]}`,
+				`[DONE]`,
+			},
+			expect: []string{`"finish_reason":"content_filter"`},
+		},
+		{
+			name:     "openai usage only tail",
+			protocol: StreamProtocolOpenAIChat,
+			frames: []string{
+				`{"choices":[],"usage":{"total_tokens":7}}`,
+				`[DONE]`,
+			},
+			expect: []string{`"total_tokens":7`},
+		},
+		{
+			name:     "proxy heartbeat then finish",
+			protocol: StreamProtocolOpenAIChat,
+			frames: []string{
+				`ping`,
+				`{"choices":[{"delta":{},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			},
+			expect: []string{`"finish_reason":"stop"`},
+		},
+		{
+			name:     "anthropic stop sequence",
+			protocol: StreamProtocolAnthropic,
+			frames: []string{
+				`{"type":"message_start","message":{"id":"m"}}`,
+				`{"type":"message_delta","delta":{"stop_reason":"stop_sequence"}}`,
+				`{"type":"message_stop"}`,
+			},
+			expect: []string{`"type":"message_start"`, `"stop_reason":"stop_sequence"`},
+		},
+		{
+			name:     "gemini finish reason without parts",
+			protocol: StreamProtocolGemini,
+			frames: []string{
+				`{"candidates":[{"finishReason":"MAX_TOKENS","content":{"parts":[]}}]}`,
+			},
+			expect: []string{`"finishReason":"MAX_TOKENS"`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := "data: " + strings.Join(tt.frames, "\n\ndata: ") + "\n\n"
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/test", nil)
+			resp := &http.Response{Body: io.NopCloser(strings.NewReader(body))}
+			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
+
+			err := StreamScannerHandlerWithGate(c, resp, info, tt.protocol, func(data string, sr *StreamResult) {
+				require.NoError(t, StringData(c, data))
+			})
+
+			require.Nil(t, err)
+			assert.True(t, info.StreamStatus.IsCommitted())
+			output := recorder.Body.String()
+			for _, want := range tt.expect {
+				assert.Contains(t, output, want)
+			}
+		})
+	}
+}
+
+// TestStreamScannerHandlerWithGate_ImmediateTerminationStaysPrecommit keeps the
+// genuinely empty stream retryable: no upstream event at all before the
+// termination marker.
+func TestStreamScannerHandlerWithGate_ImmediateTerminationStaysPrecommit(t *testing.T) {
+	t.Parallel()
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	resp := &http.Response{Body: io.NopCloser(strings.NewReader("data: [DONE]\n\n"))}
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
+
+	err := StreamScannerHandlerWithGate(c, resp, info, StreamProtocolOpenAIChat, func(data string, sr *StreamResult) {
+		require.NoError(t, StringData(c, data))
+	})
+
+	require.NotNil(t, err)
+	assert.Equal(t, http.StatusBadGateway, err.StatusCode)
+	assert.False(t, info.StreamStatus.IsCommitted())
+	assert.Empty(t, recorder.Body.String())
+}
+
+// TestStreamScannerHandlerGateFlagMatchesReader guards the failover decision in
+// controller.Relay: IsCommitted() is only meaningful for the gated reader, so a
+// straight-through reader must report GateEnabled() == false and let written
+// bytes decide, otherwise a half-written SSE response gets replayed.
+func TestStreamScannerHandlerGateFlagMatchesReader(t *testing.T) {
+	t.Parallel()
+
+	var nilStatus *relaycommon.StreamStatus
+	assert.False(t, nilStatus.GateEnabled())
+
+	body := "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: [DONE]\n\n"
+
+	c, resp, info := setupStreamTest(t, strings.NewReader(body))
+	StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
+		require.NoError(t, StringData(c, data))
+	})
+	assert.False(t, info.StreamStatus.GateEnabled())
+	assert.False(t, info.StreamStatus.IsCommitted())
+	assert.True(t, c.Writer.Written())
+
+	gatedC, gatedResp, gatedInfo := setupStreamTest(t, strings.NewReader(body))
+	require.Nil(t, StreamScannerHandlerWithGate(gatedC, gatedResp, gatedInfo, StreamProtocolOpenAIChat, func(data string, sr *StreamResult) {
+		require.NoError(t, StringData(gatedC, data))
+	}))
+	assert.True(t, gatedInfo.StreamStatus.GateEnabled())
+	assert.True(t, gatedInfo.StreamStatus.IsCommitted())
+}
+
+// TestStreamScannerHandlerWithGate_BufferedFramesAreCounted keeps TTFT
+// comparable between gated and non-gated channels: events held back by the gate
+// must still count as received upstream output, otherwise perf_metrics mixes
+// "first upstream event" and "first content event" latencies in one table.
+func TestStreamScannerHandlerWithGate_BufferedFramesAreCounted(t *testing.T) {
+	t.Parallel()
+
+	body := strings.Join([]string{
+		`data: {"choices":[{"delta":{"role":"assistant"}}]}`,
+		`data: {"choices":[{"delta":{"content":"hi"}}]}`,
+		`data: [DONE]`,
+	}, "\n\n")
+	c, resp, info := setupStreamTest(t, strings.NewReader(body))
+
+	require.Nil(t, StreamScannerHandlerWithGate(c, resp, info, StreamProtocolOpenAIChat, func(data string, sr *StreamResult) {
+		require.NoError(t, StringData(c, data))
+	}))
+	assert.Equal(t, 2, info.ReceivedResponseCount)
+}
+
+// Keepalive heartbeats arrive on a wall-clock cadence, so counting them against
+// the event cap would fail every request whose first token takes longer than
+// cap*ping_interval — a real pattern for reasoning models behind proxies that
+// ping every ~10s. JSON events still consume the budget.
+func TestStreamScannerHandlerWithGate_HeartbeatsDoNotConsumeEventBudget(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name         string
+		neutral      string
+		wantOverflow bool
+	}{
+		{name: "non-json heartbeat", neutral: `data: ping`},
+		{
+			name:         "json neutral frame",
+			neutral:      `data: {"choices":[{"delta":{"role":"assistant"}}]}`,
+			wantOverflow: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			frames := make([]string, 0, streamGateEventCap+3)
+			for i := 0; i < streamGateEventCap+1; i++ {
+				frames = append(frames, tc.neutral)
+			}
+			frames = append(frames, `data: {"choices":[{"delta":{"content":"hi"}}]}`, `data: [DONE]`)
+
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			resp := &http.Response{Body: io.NopCloser(strings.NewReader(strings.Join(frames, "\n\n")))}
+			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
+
+			err := StreamScannerHandlerWithGate(c, resp, info, StreamProtocolOpenAIChat, func(data string, sr *StreamResult) {
+				require.NoError(t, StringData(c, data))
+			})
+
+			if tc.wantOverflow {
+				require.NotNil(t, err)
+				assert.Equal(t, http.StatusBadGateway, err.StatusCode)
+				assert.False(t, info.StreamStatus.IsCommitted())
+				assert.Empty(t, recorder.Body.String())
+				return
+			}
+			require.Nil(t, err)
+			assert.True(t, info.StreamStatus.IsCommitted())
+			assert.Contains(t, recorder.Body.String(), `"content":"hi"`)
+		})
+	}
+}
+
+func TestClassifyStreamFrameProtocols(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		protocol StreamProtocol
+		data     string
+		want     streamFrameVerdict
+	}{
+		{"anthropic metadata", StreamProtocolAnthropic, `{"type":"message_start","message":{"id":"m"}}`, streamFrameNeutral},
+		{"anthropic text", StreamProtocolAnthropic, `{"type":"content_block_delta","delta":{"text":"hello"}}`, streamFrameContent},
+		{"openai role", StreamProtocolOpenAIChat, `{"choices":[{"delta":{"role":"assistant"}}]}`, streamFrameNeutral},
+		{"openai tool arguments", StreamProtocolOpenAIChat, `{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"{}"}}]}}]}`, streamFrameContent},
+		{"responses lifecycle", StreamProtocolOpenAIResponses, `{"type":"response.created","response":{"id":"r"}}`, streamFrameNeutral},
+		{"responses delta", StreamProtocolOpenAIResponses, `{"type":"response.output_text.delta","delta":"hello"}`, streamFrameContent},
+		{"responses completed content", StreamProtocolOpenAIResponses, `{"type":"response.completed","response":{"output":[{"content":[{"text":"hello"}]}]}}`, streamFrameContent},
+		{"gemini text", StreamProtocolGemini, `{"candidates":[{"content":{"parts":[{"text":"hello"}]}}]}`, streamFrameContent},
+		{"gemini blocked", StreamProtocolGemini, `{"promptFeedback":{"blockReason":"SAFETY"}}`, streamFrameError},
+		{"image content", StreamProtocolOpenAIImage, `{"type":"image_generation.completed","b64_json":"abc"}`, streamFrameContent},
+		{"corrupt json", StreamProtocolOpenAIChat, `{"choices":[`, streamFrameMalformed},
+		// Third-party proxies inject plain-text heartbeats into the SSE body;
+		// they are noise, not a broken upstream.
+		{"proxy heartbeat", StreamProtocolOpenAIChat, `ping`, streamFrameNeutral},
+		// Explicit completion signals: a generation may legitimately finish
+		// without ever emitting content (filtered, immediate stop sequence).
+		{"openai finish reason", StreamProtocolOpenAIChat, `{"choices":[{"delta":{},"finish_reason":"content_filter"}]}`, streamFrameCompleted},
+		{"openai null finish reason", StreamProtocolOpenAIChat, `{"choices":[{"delta":{},"finish_reason":null}]}`, streamFrameNeutral},
+		{"openai usage tail", StreamProtocolOpenAIChat, `{"choices":[],"usage":{"total_tokens":7}}`, streamFrameNeutral},
+		{"anthropic stop reason", StreamProtocolAnthropic, `{"type":"message_delta","delta":{"stop_reason":"stop_sequence"}}`, streamFrameCompleted},
+		{"responses completed empty", StreamProtocolOpenAIResponses, `{"type":"response.completed","response":{"output":[]}}`, streamFrameCompleted},
+		{"gemini finish reason", StreamProtocolGemini, `{"candidates":[{"finishReason":"SAFETY","content":{"parts":[]}}]}`, streamFrameCompleted},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, classifyStreamFrame(tt.protocol, tt.data))
+		})
+	}
+}
+
 // TestStreamScannerHandler_ClientCancelAbortsUpstreamAndReturns pins the
 // disconnect contract: when the client goes away, the handler must return
 // promptly (all goroutines joined, so the gin.Context can never leak into a

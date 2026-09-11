@@ -104,6 +104,41 @@ var passthroughSkipHeaderNamesLower = map[string]struct{}{
 	"sec-websocket-extensions": {},
 	// Realtime clients may carry their API key in a subprotocol value.
 	"sec-websocket-protocol": {},
+
+	// Client IP / proxy chain: never expose end-user IPs or internal ingress
+	// hostnames upstream. The global switch turns this into a fleet-wide leak
+	// to 40+ providers, including third-party aggregators.
+	"x-forwarded-for":   {},
+	"x-real-ip":         {},
+	"x-forwarded-host":  {},
+	"x-forwarded-proto": {},
+	"x-forwarded-port":  {},
+	"cf-connecting-ip":  {},
+	"true-client-ip":    {},
+	"forwarded":         {},
+	"via":               {},
+
+	// Caller-site disclosure.
+	"referer": {},
+	"origin":  {},
+
+	// Upstream account / billing scope is channel configuration, not client
+	// input. This group is a writable control plane, not just a leak:
+	// processHeaderOverride runs after SetupRequestHeader, so a client-sent
+	// header of the same name silently replaces the adapter-selected value
+	// (openai adaptor OpenAI-Organization, vertex adaptor x-goog-user-project).
+	// A caller sending `OpenAI-Organization: org-victim` could redirect the
+	// request to another organization, producing 403s that trip channel
+	// auto-disable, or misbilled usage when the key is valid across orgs.
+	"openai-organization": {},
+	"openai-project":      {},
+	"x-goog-user-project": {},
+
+	// The gateway's own user token: middleware/auth.go accepts a caller's
+	// new-api token in mj-api-secret. DoTaskApiRequest does not currently call
+	// processHeaderOverride, but any task adaptor moving onto the shared
+	// override path would otherwise forward our access token upstream.
+	"mj-api-secret": {},
 }
 
 var headerPassthroughRegexCache sync.Map // map[string]*regexp.Regexp
@@ -488,6 +523,16 @@ func DoRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	return doRequest(c, req, info)
 }
 
+// streamResponseCommitted reports whether this attempt already owns the client
+// response. Gated stream readers track it explicitly; every other path is
+// judged by whether bytes already reached the client.
+func streamResponseCommitted(c *gin.Context, info *common.RelayInfo) bool {
+	if info != nil && info.StreamStatus.IsCommitted() {
+		return true
+	}
+	return c != nil && c.Writer != nil && c.Writer.Written()
+}
+
 // keepUpstreamRedirectResponse stops net/http from following redirects while
 // returning the upstream 3xx response to the relay without an extra error.
 func keepUpstreamRedirectResponse(_ *http.Request, _ []*http.Request) error {
@@ -495,6 +540,12 @@ func keepUpstreamRedirectResponse(_ *http.Request, _ []*http.Request) error {
 }
 
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
+	// Preserve the caller's cancellation and deadline. Requests are assembled
+	// with http.NewRequest so they can be replayed across route attempts; attach
+	// the inbound context immediately before dispatching each attempt.
+	if c != nil && c.Request != nil && req != nil {
+		req = req.WithContext(c.Request.Context())
+	}
 	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
 	if err != nil {
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)
@@ -518,8 +569,14 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 
 	var stopPinger context.CancelFunc
 	var pingerDone <-chan struct{}
-	if info.IsStream {
-		helper.SetEventStreamHeaders(c)
+	// SSE headers and keepalive comments are client-visible output: flushing
+	// them here would send the 200 status line before any upstream event was
+	// validated. That both defeats stream pre-commit failover (the router
+	// treats written bytes as commitment) and makes the terminal JSON error
+	// body unwritable, leaving the client with a ": PING" stream and an EOF.
+	// The stream reader publishes the headers when it commits the response;
+	// this layer only keeps an already-committed response warm.
+	if info.IsStream && streamResponseCommitted(c, info) {
 		// 处理流式请求的 ping 保活
 		generalSettings := operation_setting.GetGeneralSetting()
 		if generalSettings.PingIntervalEnabled && !info.DisablePing {

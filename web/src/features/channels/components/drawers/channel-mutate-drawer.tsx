@@ -165,9 +165,8 @@ import {
   formatModelsArray,
   extractRedirectModels,
   extractMappingSourceModels,
-  hasModelConfigChanged,
-  findMissingModelsInMapping,
   validateModelMappingJson,
+  parseModelRedirectRules,
   hasAdvancedSettingsErrors,
 } from '../../lib'
 import {
@@ -178,10 +177,6 @@ import type { Channel } from '../../types'
 import { useChannels } from '../channels-provider'
 import { AdvancedCustomEditorDialog } from '../dialogs/advanced-custom-editor-dialog'
 import { FetchModelsDialog } from '../dialogs/fetch-models-dialog'
-import {
-  MissingModelsConfirmationDialog,
-  type MissingModelsAction,
-} from '../dialogs/missing-models-confirmation-dialog'
 import { ParamOverrideEditorDialog } from '../dialogs/param-override-editor-dialog'
 import { StatusCodeRiskDialog } from '../dialogs/status-code-risk-dialog'
 import { ModelMappingEditor } from '../model-mapping-editor'
@@ -192,6 +187,7 @@ import {
   ChannelBasicSection,
   ChannelEditorLoadingState,
   ChannelModelsSection,
+  ChannelReliabilityFields,
 } from './sections'
 
 type ChannelMutateDrawerProps = {
@@ -203,7 +199,6 @@ type ChannelMutateDrawerProps = {
 type ModelMappingGuardrail = {
   invalidJson: boolean
   entries: Array<{ source: string; target: string }>
-  missingSourceModels: string[]
   exposedTargetModels: string[]
 }
 
@@ -230,7 +225,6 @@ type ChannelEditorNavItem = {
 const createEmptyModelMappingGuardrail = (): ModelMappingGuardrail => ({
   invalidJson: false,
   entries: [],
-  missingSourceModels: [],
   exposedTargetModels: [],
 })
 
@@ -338,6 +332,9 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.remark?.trim() ||
     values.priority ||
     values.weight ||
+    values.channel_max_attempts !== 2 ||
+    values.auto_ban_threshold !== 5 ||
+    values.auto_ban_duration_minutes !== 30 ||
     values.proxy?.trim() ||
     values.system_prompt?.trim() ||
     values.force_format ||
@@ -631,8 +628,6 @@ export function ChannelMutateDrawer({
   const [isChannelKeyLoading, setIsChannelKeyLoading] = useState(false)
   const [isCodexCredentialRefreshing, setIsCodexCredentialRefreshing] =
     useState(false)
-  const initialModelsRef = useRef<string[]>([])
-  const initialModelMappingRef = useRef<string>('')
   const initialStatusCodeMappingRef = useRef<string>('')
   const [statusCodeRiskOpen, setStatusCodeRiskOpen] = useState(false)
   const [statusCodeRiskDetailItems, setStatusCodeRiskDetailItems] = useState<
@@ -640,11 +635,6 @@ export function ChannelMutateDrawer({
   >([])
   const statusCodeRiskResolveRef = useRef<
     ((confirmed: boolean) => void) | null
-  >(null)
-  const [missingModelsDialogOpen, setMissingModelsDialogOpen] = useState(false)
-  const [missingModelsList, setMissingModelsList] = useState<string[]>([])
-  const missingModelsResolveRef = useRef<
-    ((action: MissingModelsAction) => void) | null
   >(null)
   const channelFormRef = useRef<HTMLFormElement>(null)
   const advancedNavScrollPendingRef = useRef(false)
@@ -735,6 +725,9 @@ export function ChannelMutateDrawer({
   const currentWeight = form.watch('weight')
   const currentTestModel = form.watch('test_model')
   const currentAutoBan = form.watch('auto_ban')
+  const currentChannelMaxAttempts = form.watch('channel_max_attempts')
+  const currentAutoBanThreshold = form.watch('auto_ban_threshold')
+  const currentAutoBanDurationMinutes = form.watch('auto_ban_duration_minutes')
   const currentTag = form.watch('tag')
   const currentRemark = form.watch('remark')
   const currentStatusCodeMapping = form.watch('status_code_mapping')
@@ -997,11 +990,17 @@ export function ChannelMutateDrawer({
     ? 'error'
     : 'idle'
   const advancedSummary = advancedHaveErrors ? t('Error') : undefined
+  const reliabilityConfigured = Boolean(
+    currentChannelMaxAttempts !== 2 ||
+    currentAutoBanThreshold !== 5 ||
+    currentAutoBanDurationMinutes !== 30
+  )
   const routingStrategyConfigured = Boolean(
     currentPriority ||
     currentWeight ||
     currentTestModel?.trim() ||
-    (currentAutoBan ?? 1) !== 1
+    (currentAutoBan ?? 1) !== 1 ||
+    reliabilityConfigured
   )
   const internalNotesConfigured = Boolean(
     currentTag?.trim() || currentRemark?.trim()
@@ -1155,36 +1154,12 @@ export function ChannelMutateDrawer({
     }
 
     try {
-      const parsed = JSON.parse(currentModelMapping)
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        return { ...createEmptyModelMappingGuardrail(), invalidJson: true }
-      }
-
-      const entries = Object.entries(parsed).reduce<
-        Array<{ source: string; target: string }>
-      >((acc, [rawSource, rawTarget]) => {
-        const source = String(rawSource).trim()
-        const target = String(rawTarget ?? '').trim()
-
-        if (!source || !target) {
-          return acc
-        }
-
-        acc.push({ source, target })
-        return acc
-      }, [])
-
-      const missingSourceModels = [
-        ...new Set(
-          entries
-            .filter(
-              (entry) =>
-                Boolean(entry.source) &&
-                !currentModelsArray.includes(entry.source)
-            )
-            .map((entry) => entry.source)
-        ),
-      ]
+      const entries = parseModelRedirectRules(currentModelMapping)
+        .map((rule) => ({
+          source: rule.source.trim(),
+          target: rule.target.trim(),
+        }))
+        .filter((entry) => entry.source && entry.target)
 
       const exposedTargetModels = [
         ...new Set(
@@ -1201,7 +1176,6 @@ export function ChannelMutateDrawer({
       return {
         invalidJson: false,
         entries,
-        missingSourceModels,
         exposedTargetModels,
       }
     } catch {
@@ -1251,17 +1225,11 @@ export function ChannelMutateDrawer({
         readAdvancedSettingsPreference() || hasAdvancedSettingsValues(defaults)
       )
       // Store initial values for comparison
-      initialModelsRef.current = parseModelsString(
-        channelData.data.models || ''
-      )
-      initialModelMappingRef.current = channelData.data.model_mapping || ''
       initialStatusCodeMappingRef.current =
         channelData.data.status_code_mapping || ''
     } else if (!isEditing) {
       form.reset(CHANNEL_FORM_DEFAULT_VALUES)
       setAdvancedSettingsOpen(false)
-      initialModelsRef.current = []
-      initialModelMappingRef.current = ''
       initialStatusCodeMappingRef.current = ''
     }
   }, [isEditing, channelData, form])
@@ -1549,30 +1517,6 @@ export function ChannelMutateDrawer({
     setOpen(null)
   }, [channelId, queryClient, onOpenChange, setOpen])
 
-  // Show missing models confirmation dialog
-  const confirmMissingModelMappings = useCallback(
-    (missingModels: string[]): Promise<MissingModelsAction> => {
-      return new Promise((resolve) => {
-        setMissingModelsList(missingModels)
-        setMissingModelsDialogOpen(true)
-        missingModelsResolveRef.current = resolve
-      })
-    },
-    []
-  )
-
-  // Handle missing models dialog action
-  const handleMissingModelsAction = useCallback(
-    (action: MissingModelsAction) => {
-      setMissingModelsDialogOpen(false)
-      if (missingModelsResolveRef.current) {
-        missingModelsResolveRef.current(action)
-        missingModelsResolveRef.current = null
-      }
-    },
-    []
-  )
-
   const confirmStatusCodeRisk = useCallback(
     (detailItems: string[]): Promise<boolean> =>
       new Promise((resolve) => {
@@ -1675,47 +1619,12 @@ export function ChannelMutateDrawer({
         }
       }
 
-      // Normalize models array
-      const normalizedModels = parseModelsString(data.models || '')
-
-      // Check for missing models in model_mapping
-      if (hasModelMapping) {
-        const missingModels = findMissingModelsInMapping(
-          modelMappingValue,
-          normalizedModels
-        )
-
-        const shouldPromptMissing =
-          missingModels.length > 0 &&
-          hasModelConfigChanged(
-            normalizedModels,
-            data.model_mapping || '',
-            initialModelsRef.current,
-            initialModelMappingRef.current
-          )
-
-        if (shouldPromptMissing) {
-          const confirmAction = await confirmMissingModelMappings(missingModels)
-          if (confirmAction === 'cancel') {
-            return
-          }
-          if (confirmAction === 'add') {
-            const updatedModels = [
-              ...new Set([...normalizedModels, ...missingModels]),
-            ]
-            data.models = formatModelsArray(updatedModels)
-            form.setValue('models', data.models)
-          }
-        }
-      }
-
       await channelMutation.mutateAsync(data)
     },
     [
       isEditing,
       sensitiveLocked,
       form,
-      confirmMissingModelMappings,
       confirmStatusCodeRisk,
       channelMutation,
       t,
@@ -3427,7 +3336,7 @@ export function ChannelMutateDrawer({
                                     <div className='space-y-1'>
                                       <div className='flex items-center gap-2'>
                                         <FormLabel className='mb-0'>
-                                          {t('Model Mapping')}
+                                          {t('Model redirect rules')}
                                         </FormLabel>
                                         <Tooltip>
                                           <TooltipTrigger
@@ -3491,7 +3400,9 @@ export function ChannelMutateDrawer({
                                         </Tooltip>
                                       </div>
                                       <FormDescription>
-                                        {t(FIELD_DESCRIPTIONS.MODEL_MAPPING)}
+                                        {t(
+                                          'Match the user-requested model and forward the first matching rule to its upstream model.'
+                                        )}
                                       </FormDescription>
                                     </div>
                                   </div>
@@ -3501,52 +3412,23 @@ export function ChannelMutateDrawer({
                                       onChange={field.onChange}
                                       disabled={isSubmitting}
                                       sourceModelOptions={currentModelsArray}
-                                      targetModelOptions={modelOptions.map(
-                                        (option) => option.value
-                                      )}
+                                      targetModelOptions={currentModelsArray}
                                     />
                                   </FormControl>
                                   {modelMappingGuardrail.invalidJson && (
                                     <Alert variant='destructive'>
                                       <AlertDescription>
                                         {t(
-                                          'Model Mapping must be a JSON object like'
+                                          'Model redirect rules must be a JSON array'
                                         )}{' '}
                                         <code className='font-mono'>
-                                          {'{"gpt-4":"Azure-GPT4"}'}
+                                          {
+                                            '[{"match_type":"contains","source":"opus","target":"claude-opus-4-6"}]'
+                                          }
                                         </code>
                                         {t(
                                           '. Please fix the JSON before saving.'
                                         )}
-                                      </AlertDescription>
-                                    </Alert>
-                                  )}
-                                  {modelMappingGuardrail.missingSourceModels
-                                    .length > 0 && (
-                                    <Alert className='border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-50'>
-                                      <AlertDescription className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
-                                        <span>
-                                          {t('Add')}{' '}
-                                          {formatModelNames(
-                                            modelMappingGuardrail.missingSourceModels
-                                          )}{' '}
-                                          {t(
-                                            'to the Models list so users can use them before the mapping sends traffic upstream.'
-                                          )}
-                                        </span>
-                                        <Button
-                                          type='button'
-                                          variant='outline'
-                                          size='sm'
-                                          onClick={() => {
-                                            updateModels([
-                                              ...currentModelsArray,
-                                              ...modelMappingGuardrail.missingSourceModels,
-                                            ])
-                                          }}
-                                        >
-                                          {t('Add missing models')}
-                                        </Button>
                                       </AlertDescription>
                                     </Alert>
                                   )}
@@ -3749,6 +3631,10 @@ export function ChannelMutateDrawer({
                                 </FormItem>
                               )}
                             />
+
+                            <div className='border-border/60 border-t pt-4'>
+                              <ChannelReliabilityFields />
+                            </div>
                           </div>
 
                           <div
@@ -4861,14 +4747,6 @@ export function ChannelMutateDrawer({
           shouldPreviewUnsavedModels ? currentName?.trim() : undefined
         }
         existingModelsOverride={currentModelsArray}
-      />
-
-      {/* Missing Models Confirmation Dialog */}
-      <MissingModelsConfirmationDialog
-        open={missingModelsDialogOpen}
-        missingModels={missingModelsList}
-        onConfirm={handleMissingModelsAction}
-        onOpenChange={setMissingModelsDialogOpen}
       />
 
       <StatusCodeRiskDialog

@@ -340,7 +340,7 @@ export function RoutingReliabilitySection({
 
           <div className='flex min-w-0 flex-col gap-4'>
             <div className='flex flex-col gap-1'>
-              <h4 className='text-sm font-medium'>{t('Request retry')}</h4>
+              <h4 className='text-sm font-medium'>{t('Async task retry')}</h4>
             </div>
             <div className='grid min-w-0 gap-6 xl:grid-cols-[minmax(12rem,24rem)_minmax(0,1fr)]'>
               <FormField
@@ -358,7 +358,9 @@ export function RoutingReliabilitySection({
                       />
                     </FormControl>
                     <FormDescription>
-                      {t('Number of times to retry failed requests (0-10)')}
+                      {t(
+                        'Number of times to retry failed asynchronous tasks (0-10)'
+                      )}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

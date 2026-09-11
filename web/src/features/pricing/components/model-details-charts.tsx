@@ -29,19 +29,28 @@ import { VCHART_OPTION } from '@/lib/vchart'
 
 import type { LatencyTimePoint, UptimeDayPoint } from '../lib/mock-stats'
 
-function formatHourLabel(iso: string): string {
+// perf_metrics buckets can be an hour, 5 minutes or a minute wide. The latency
+// chart uses a *category* x-axis, so the label has to stay unique per bucket:
+// an `HH:00` label would collapse the 12 buckets of an hour onto one axis key.
+// `HH:mm` is unique at every supported bucket width and still renders as `HH:00`
+// for hour-aligned buckets.
+function formatBucketLabel(iso: string): string {
   const date = new Date(iso)
-  const hours = date.getHours()
-  return `${String(hours).padStart(2, '0')}:00`
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${hours}:${minutes}`
 }
 
 function formatDayLabel(date: string): string {
   const parsed = new Date(date)
   if (date.includes('T')) {
+    // Same category-axis uniqueness constraint as formatBucketLabel: sub-hour
+    // perf_metrics buckets need minute precision or they collide on one key.
     return parsed.toLocaleString(undefined, {
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
+      minute: '2-digit',
     })
   }
   return parsed.toLocaleDateString(undefined, {
@@ -104,7 +113,7 @@ export function LatencyTrendChart(props: {
   const spec = useMemo(() => {
     if (props.series.length === 0) return null
     const data = props.series.map((point) => ({
-      time: formatHourLabel(point.timestamp),
+      time: formatBucketLabel(point.timestamp),
       group: point.group,
       ttft: point.ttft_ms,
     }))
@@ -139,6 +148,10 @@ export function LatencyTrendChart(props: {
           orient: 'bottom',
           label: {
             style: { fill: textColor, fontSize: 10 },
+            // A 24h window holds up to 288 five-minute buckets; let VChart drop
+            // overlapping labels instead of rendering an unreadable axis.
+            autoHide: true,
+            autoLimit: true,
           },
           tick: { visible: false },
         },
@@ -264,6 +277,7 @@ export function UptimeTrendChart(props: {
             formatMethod: (val: number | string) =>
               stripUptimePointSuffix(String(val)),
             style: { fill: textColor, fontSize: 10 },
+            autoHide: true,
             autoLimit: true,
           },
           tick: { visible: false },

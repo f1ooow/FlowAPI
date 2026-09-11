@@ -83,6 +83,7 @@ import {
   isTimingLogType,
 } from '../../lib/utils'
 import { USAGE_BILLING_PATH, type LogOtherData } from '../../types'
+import { RouteHistoryTimeline } from '../route-history-timeline'
 
 // Maps a channel-update changed-field token (as recorded by the backend audit)
 // to its i18n label key for display in the audit details.
@@ -601,8 +602,16 @@ export function DetailsDialog(props: DetailsDialogProps) {
     (other?.request_path || conversionChain.length > 0)
 
   const useChannel = other?.admin_info?.use_channel
-  const channelChain =
-    useChannel && useChannel.length > 0 ? useChannel.join(' → ') : undefined
+  const routeHistory = Array.isArray(other?.admin_info?.route_history)
+    ? other.admin_info.route_history
+    : []
+  const hasRouteDecisionChain =
+    routeHistory.length > 1 ||
+    routeHistory.some((attempt) => attempt.outcome !== 'succeeded')
+  const legacyChannelChain =
+    !hasRouteDecisionChain && useChannel && useChannel.length > 1
+      ? useChannel.join(' → ')
+      : undefined
   const reasoningEffortVariant = getReasoningEffortVariant(
     other?.reasoning_effort
   )
@@ -657,12 +666,16 @@ export function DetailsDialog(props: DetailsDialogProps) {
               label={t('Channel')}
               value={
                 <span>
-                  {props.log.channel}
                   {props.log.channel_name && (
-                    <span className='text-muted-foreground'>
-                      {' '}
-                      ({props.log.channel_name})
+                    <span className='font-medium'>
+                      {props.log.channel_name}{' '}
+                      <span className='text-muted-foreground font-mono'>
+                        #{props.log.channel}
+                      </span>
                     </span>
+                  )}
+                  {!props.log.channel_name && (
+                    <span className='font-mono'>#{props.log.channel}</span>
                   )}
                 </span>
               }
@@ -670,8 +683,24 @@ export function DetailsDialog(props: DetailsDialogProps) {
             />
           )}
 
-          {channelChain && props.isAdmin && (
-            <DetailRow label={t('Retry Chain')} value={channelChain} mono />
+          {props.isAdmin && hasRouteDecisionChain && (
+            <DetailRow
+              label={t('Retry Chain')}
+              value={
+                <RouteHistoryTimeline
+                  attempts={routeHistory}
+                  fallbackChannelName={props.log.channel_name ?? undefined}
+                />
+              }
+            />
+          )}
+
+          {props.isAdmin && legacyChannelChain && (
+            <DetailRow
+              label={t('Retry Chain')}
+              value={legacyChannelChain}
+              mono
+            />
           )}
 
           {props.log.token_name && (
