@@ -2,11 +2,13 @@ package helper
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -22,10 +24,9 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// newMultipartImageEditContext builds a real /v1/images/edits multipart request
-// and runs it through the production validator, so callers get exactly the
-// context and DTO the relay path produces.
-func newMultipartImageEditContext(t *testing.T, fields [][2]string) (*gin.Context, *dto.ImageRequest) {
+// newMultipartImageEditRequest builds a real /v1/images/edits multipart request
+// with an uploaded file part, exactly as an image editing client sends it.
+func newMultipartImageEditRequest(t *testing.T, fields [][2]string) *gin.Context {
 	t.Helper()
 
 	var body bytes.Buffer
@@ -42,7 +43,15 @@ func newMultipartImageEditContext(t *testing.T, fields [][2]string) (*gin.Contex
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/edits", &body)
 	c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+	return c
+}
 
+// newMultipartImageEditContext runs that request through the production
+// validator, so callers get exactly the context and DTO the relay path produces.
+func newMultipartImageEditContext(t *testing.T, fields [][2]string) (*gin.Context, *dto.ImageRequest) {
+	t.Helper()
+
+	c := newMultipartImageEditRequest(t, fields)
 	request, err := GetAndValidOpenAIImageRequest(c, relayconstant.RelayModeImagesEdits)
 	require.NoError(t, err)
 	return c, request
@@ -160,6 +169,45 @@ func TestResolveIncomingBillingExprRequestInputProjectsMultipartImage(t *testing
 			assert.Contains(t, input.Headers["Content-Type"], "multipart/form-data")
 		})
 	}
+}
+
+// TestResolveIncomingBillingExprRequestInputProjectedCountStaysBounded guards the
+// billing-safety invariant the projection now depends on. Projecting the DTO
+// turns param("n") into a live billing multiplier for multipart edits, so the
+// validator is the only thing keeping a client-supplied count out of quota
+// arithmetic: an out-of-range n must be rejected before any DTO exists to
+// project, and an in-range n must reach the billing body unchanged.
+func TestResolveIncomingBillingExprRequestInputProjectedCountStaysBounded(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	editFields := func(n string) [][2]string {
+		return [][2]string{
+			{"model", "gpt-image-2.5-flare"},
+			{"prompt", "make it brighter"},
+			{"size", "2048x1152"},
+			{"n", n},
+		}
+	}
+
+	t.Run("n above the bound never reaches billing", func(t *testing.T) {
+		ctx := newMultipartImageEditRequest(t, editFields(strconv.Itoa(dto.MaxImageN+1)))
+
+		_, err := GetAndValidOpenAIImageRequest(ctx, relayconstant.RelayModeImagesEdits)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), fmt.Sprintf("n must be an integer between 1 and %d", dto.MaxImageN))
+	})
+
+	t.Run("n at the bound is projected verbatim", func(t *testing.T) {
+		ctx, request := newMultipartImageEditContext(t, editFields(strconv.Itoa(dto.MaxImageN)))
+		info := &relaycommon.RelayInfo{
+			Request:        request,
+			RequestHeaders: map[string]string{"Content-Type": ctx.Request.Header.Get("Content-Type")},
+		}
+
+		input, err := ResolveIncomingBillingExprRequestInput(ctx, info)
+		require.NoError(t, err)
+		assert.Equal(t, float64(dto.MaxImageN), gjson.GetBytes(input.Body, "n").Float())
+	})
 }
 
 // TestResolveIncomingBillingExprRequestInputKeepsJSONBodyVerbatim guards that the
