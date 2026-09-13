@@ -37,15 +37,15 @@
 
 > 部署 SOP 见 `keli-api-ops` skill 的 `references/deploy-sop.md`；DB 操作见 `references/db-ops.md`。**动手前先读**。
 
-- [ ] **2.1 记录 baseline**
+- [x] **2.1 记录 baseline**
   - 服务器 `docker ps` 取当前 image tag，`grep image: /opt/new-api/docker-compose.yml` 验证
   - `docker tag <当前> new-api:rollback-<ts>`
   - baseline 写进 task notes
-- [ ] **2.2 本地 build 后部署**（不在服务器 build）
+- [x] **2.2 本地 build 后部署**（不在服务器 build）
   - 前端未改动，但 `dist` 是 `go:embed`，仍需重 build 整个 Go binary
-- [ ] **2.3 健康检查**
+- [x] **2.3 健康检查**
   - `curl -fsS http://localhost:3000/api/status` 60s 内必须 200，失败立即回滚
-- [ ] **2.4 核实 `QuotaPerUnit`**（配表达式前必做）
+- [x] **2.4 核实 `QuotaPerUnit`**（配表达式前必做）
   - 基线调查只核实了代码，**未连生产库**。`QuotaPerUnit` 若不是默认 500000，6 条表达式的金额会整体偏移，需按比例调整常数
   - 一并确认这 6 个模型在 keli 上是否已配置、当前计费方式是什么
   - 确认方式：`docker exec` 查 options 表，或后台 UI 查看

@@ -226,3 +226,40 @@ FlowAPI：新增 323 行（2 个测试文件），`go build ./...` OK、
 `origin/main`）。两边生产部署进行中。表达式配置由用户自行完成，6 条定稿文本
 见桌面《图像模型分辨率阶梯计费-配置指南.md》与
 `research/final-expressions-verification.md` 第 6 版。
+
+### 部署结果（2026-09-14 00:13）
+
+| | FlowAPI (HK) | keli api (广州) |
+|---|---|---|
+| 新镜像 | `flowapi:hk-multipart-billing-20260914-001321` | `new-api:image-multipart-billing-20260914-001329` |
+| 回滚 tag | `flowapi:rollback-multipart-billing-20260914-001321` | `new-api:rollback-20260914-001329` |
+| 备份 | `/opt/flowapi/backups/pre-multipart-billing-20260914-001321/` | `/opt/new-api/docker-compose.yml.bak-20260914-001329` |
+| 健康检查 | 7s，外部 200 | 8s，连续 5 次 200，停服约 8s |
+| QuotaPerUnit | 500000（编译默认，无覆盖） | 500000（`/api/status` 直读确认） |
+
+### 部署带回的三处事实更正
+
+1. **两边都没有任何图像模型在跑 `tiered_expr`**。此前我据「日志里有『阶梯计费/命中档位』」判断
+   `gemini-3-pro-image-preview` 已在表达式路径上 —— 错了，那张截图是**上游 tuzi 后台**的日志，
+   不是我方的。实际两边的图像模型全走 ModelPrice/ModelRatio：FlowAPI 的 gemini-3-pro 是
+   ModelPrice 0.2；keli 的 gpt-image-2 / gemini-3-pro / flash-preview 是 0.1/0.1/0.08，
+   flare/sunburst 走 ModelRatio 0.05/0.06。
+   推论：配表达式是**从固定单价切到 tiered_expr**，回滚基线是 ModelPrice 的值；且
+   「multipart 落兜底档导致亏损」目前并未实际发生 —— 压根没走表达式路径，那是切换后的敞口。
+2. **`gemini-3.1-flash-image` 在 keli 上无任何价格配置**（ModelPrice / ModelRatio 均无条目），
+   配表达式时须一并处理，否则会掉进按 token 计费。
+3. **keli 的分组倍率记录过时**。生产实际 `default=1.5, image=1.2, video=1.2, Gemini=1.5,
+   国产模型=6.8, Codex=0.5`，skill 里记的 `default=1.2 / video=1.1` 已失效，已更正
+   `keli-api-ops/SKILL.md`。这 6 个模型在 `image` 分组，倍率 1.2。
+
+另：keli 的 6 个图像模型全挂 channel 73「FLOW API 图片」(type=60)，即 keli → FlowAPI → tuzi
+三层链路，各自独立计费。在 keli 上验证时 FlowAPI 侧也会记账。
+
+server skill 的野草云-HK 台账此前滞后 4 次发布（记 `hk-monitoring-cards-20260911-135223`，
+实际运行 `hk-all-fixes-20260911-204312`），已由部署 agent 更正并加「查当前镜像一律以
+`docker ps` 为准」的告警。
+
+### 剩余
+
+表达式配置与验证由用户执行。核心验证点：图生图（multipart）传 `size=2048x1152`
+应命中 `2k` 档（改动前只能落 `1k`）。

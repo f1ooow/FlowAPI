@@ -23,6 +23,6 @@
   "relatedFiles": [],
   "notes": "",
   "meta": {
-    "notes": "阶段1(keli代码)+阶段4.1/4.2(FlowAPI代码)完成。keli 570aba948（6文件 +387/-1，含 MaxImageN=128 补齐）；FlowAPI bc3e2edae（3文件 +344）。两边 go build/go test/gofmt/go vet 全绿，keli test 3.632s、FlowAPI 2.633s；反向验证 multipart 2048x1152 n=4 预扣 60000/1k→320000/2k。均已推送各自 fork。阶段2(部署)进行中；阶段3(用户验证表达式)、阶段2.4(QuotaPerUnit核实)待办。表达式第6版定稿未配置。"
+    "notes": "阶段1+2(部署)+4.1/4.2 完成。代码：keli 570aba948、FlowAPI bc3e2edae/47b42f8be，均已推 fork，两边 check 通过零阻断。部署：FlowAPI flowapi:hk-multipart-billing-20260914-001321（回滚 tag 同名 rollback-，备份 /opt/flowapi/backups/pre-multipart-billing-20260914-001321/）；keli new-api:image-multipart-billing-20260914-001329（回滚 new-api:rollback-20260914-001329）。两边 QuotaPerUnit=500000、健康检查通过。更正：两边图像模型均未跑 tiered_expr（此前误判，源头是把 tuzi 后台截图当成我方日志），配置是从 ModelPrice 固定价切过去；gemini-3.1-flash-image 在 keli 无任何价格配置；keli image 分组倍率实际 1.2。待办：阶段2.5 表达式配置 + 阶段3 用户验证（核心：multipart 传 size=2048x1152 应命中 2k）。"
   }
 }
