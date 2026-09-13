@@ -148,3 +148,81 @@ and format checks clean; lint holds at the pre-existing 268 baseline.
 ### Status
 
 [OK] **Code committed** — deployment to HK pending in this session.
+
+---
+
+## 2026-09-14 — 图像模型按分辨率阶梯计费（09-13-image-resolution-pricing）
+
+### 需求
+
+6 个图像模型从一刀切单价改为按 1K/2K/4K 分辨率分档：`gpt-image-2`、
+`gpt-image-2.5-flare`、`gpt-image-2.5-sunburst`、`gemini-3-pro-image-preview`、
+`gemini-3.1-flash-image-preview`、`gemini-3.1-flash-image`。
+
+原始约束是「纯配置、不得二开」，因为下游 keli api 网关也要配同一套规则。后因
+multipart 判档缺口影响 88% 的编辑流量、且所有 workaround 方案都不干净，用户
+确认下游同为己方部署，改为「以配置为主 + 最小代码改动」。
+
+### 调查结论（57 次生产实测 + 上游账单 160 行）
+
+- **判档只能按请求参数**。`img_o`（输出图 token）路线实测否决：`gpt-image-2`
+  请求 1024x1024 得 img_o=1056、请求 4096x4096 得 659，值与分辨率反向；主力
+  渠道 55 对 flare 的 usage 覆盖率仅 6.3%、对 gemini-3.1-flash 为 0%；上游
+  自标 `"source": "estimated"`。
+- **面积阈值**从两个独立来源交叉验证：上游账单每尺寸单价零方差反推，以及
+  tuzi 后台日志审计字段暴露的上游表达式原文
+  （`imagePixels(param("size")) > 3686400 → 4K`、`> 1048576 → 2K`）。
+  不能用「最长边」——`2048x2048` 是最高档而 `2560x1440` 是中档，会判反。
+- **gemini 走 OpenAI 兼容路径拿不到高分辨率**。11/11 实测：传
+  `size=4096x4096`/`2048x2048`/不传，交付恒为 1024×1024。真正生效的是原生
+  `generationConfig.imageConfig.imageSize`。用户拍板按客户端声明计费，接受
+  这条路径「收 4K 价交 1K 图」。
+- **multipart 是最大的缺口**。`/v1/images/edits` 占 `gpt-image-2` 请求的 75%
+  （305/405）、flare 的 45%。`param()` 全为 nil 导致一律落兜底档，而 size
+  照样转发给上游并被计费 —— 账单 61 条编辑请求中 flare 的 31 条每张亏 ¥0.04。
+
+### 改动
+
+两个仓库同一处修复：`ResolveIncomingBillingExprRequestInput` 在入站 body 为空
+且 `info.Request` 为 `*dto.ImageRequest` 时投影已解析的 DTO，投影前剥掉
+`Prompt/Image/Images/Mask/Extra`（实测 200KB → 117 字节）。
+
+keli 额外补齐 `n` 上界（`MaxImageN = 128`）——该仓库 multipart 与 JSON 两个
+分支都缺，而 JSON 分支的 `param("n")` 在投影落地前就已经是活的。FlowAPI 两条
+分支本就有，无需改动。
+
+### 踩到的坑
+
+- **前后端是两套表达式解析器**。后端 Go 引擎认 `let`，前端「Token 估算器」是
+  纯 JS `new Function` 沙箱、环境里没有 `param`，任何读请求参数的表达式都必然
+  报错（`Unexpected keyword 'let'` / `param is not defined`）。不阻断保存。
+- **`??` 只对 nil 生效，遇空串会卡住链条**。gemini 的 `imageSize` 五段探测链
+  必须用显式 `!= ""`，否则 `imageSize:""` + 下划线路径有值时会漏判。
+- **`n=0` 会免费放行**。校验层把 `n=0` 归一成 1 正常出图，但 `param("n")` 读到
+  的原始值仍是 0，乘下去 quota 为 0 且不报错。表达式必须套 `max(…, 1.0)`。
+- **单位写错静默失败**。`tier("1k", 0.12)` 算出 0 quota，图照出、钱不收、日志
+  无异常。必须写「人民币售价 × 100 万」。
+
+### 测试
+
+keli：新增 353 行（3 个测试文件），`go build ./...` OK、
+`go test ./relay/helper/...` ok 3.632s、`gofmt`/`go vet` 干净。
+反向验证：stash 掉投影后 multipart `2048x1152 n=4` 预扣 60000/tier 1k，
+恢复后 320000/tier 2k。
+
+FlowAPI：新增 323 行（2 个测试文件），`go build ./...` OK、
+`go test ./relay/helper/...` ok 2.633s、`gofmt`/`go vet` 干净、未触及 relaykit。
+
+### Git Commits
+
+| 仓库 | Hash | Message |
+|------|------|---------|
+| keli api | `570aba948` | fix(billing): 让 multipart 图像请求能进入阶梯计费表达式 |
+| FlowAPI | `bc3e2edae` | fix(billing): 让 multipart 图像请求能进入阶梯计费表达式 |
+
+### Status
+
+[OK] **代码已提交并推送**（keli → `fork/feature/fulladaptor`，FlowAPI →
+`origin/main`）。两边生产部署进行中。表达式配置由用户自行完成，6 条定稿文本
+见桌面《图像模型分辨率阶梯计费-配置指南.md》与
+`research/final-expressions-verification.md` 第 6 版。

@@ -1,0 +1,28 @@
+{
+  "id": "image-resolution-pricing",
+  "name": "image-resolution-pricing",
+  "title": "图像模型按分辨率阶梯计费",
+  "description": "gpt-image-2 / gpt-image-2.5(flare,sunburst) / gemini-3.1-flash-image-preview / gemini-3-pro-image-preview 五个模型按 1K/2K/4K 分辨率分档计价，替换当前一刀切单价",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "zhuyu",
+  "assignee": "zhuyu",
+  "createdAt": "2026-09-13",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "notes": "阶段1(keli代码)+阶段4.1/4.2(FlowAPI代码)完成。keli 570aba948（6文件 +387/-1，含 MaxImageN=128 补齐）；FlowAPI bc3e2edae（3文件 +344）。两边 go build/go test/gofmt/go vet 全绿，keli test 3.632s、FlowAPI 2.633s；反向验证 multipart 2048x1152 n=4 预扣 60000/1k→320000/2k。均已推送各自 fork。阶段2(部署)进行中；阶段3(用户验证表达式)、阶段2.4(QuotaPerUnit核实)待办。表达式第6版定稿未配置。"
+  }
+}
