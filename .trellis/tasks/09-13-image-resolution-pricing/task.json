@@ -23,6 +23,6 @@
   "relatedFiles": [],
   "notes": "",
   "meta": {
-    "notes": "阶段1+2(部署)+4.1/4.2 完成。代码：keli 570aba948、FlowAPI bc3e2edae/47b42f8be，均已推 fork，两边 check 通过零阻断。部署：FlowAPI flowapi:hk-multipart-billing-20260914-001321（回滚 tag 同名 rollback-，备份 /opt/flowapi/backups/pre-multipart-billing-20260914-001321/）；keli new-api:image-multipart-billing-20260914-001329（回滚 new-api:rollback-20260914-001329）。两边 QuotaPerUnit=500000、健康检查通过。更正：两边图像模型均未跑 tiered_expr（此前误判，源头是把 tuzi 后台截图当成我方日志），配置是从 ModelPrice 固定价切过去；gemini-3.1-flash-image 在 keli 无任何价格配置；keli image 分组倍率实际 1.2。待办：阶段2.5 表达式配置 + 阶段3 用户验证（核心：multipart 传 size=2048x1152 应命中 2k）。"
+    "notes": "全部完成。代码 keli 570aba948 / FlowAPI bc3e2edae+47b42f8be，已推 fork；两边 check 零阻断。部署 FlowAPI flowapi:hk-multipart-billing-20260914-001321、keli new-api:image-multipart-billing-20260914-001329，健康检查通过，QuotaPerUnit 均 500000。表达式 8 条已配置，与第6版定稿逐字节相同。验收：22 条真实请求两侧日志核对 22/22 零偏差 —— multipart 2048x1152 命中 2k(quota 120000)、n=2 收 2 张(240000)、1536x1024 命中 2k(阈值 1048576 正确)、size=auto 命中 1k(按请求参数判档)、零扣费未发生(上游无 usage 仍正确计费)、两批一致无配置漂移。遗留：size=auto 的上游账单口径待下期账单核对(价差约0.04/张)；keli n 超界返 500 非 400(既有)；投影为 denylist。"
   }
 }
