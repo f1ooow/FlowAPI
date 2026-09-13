@@ -30,6 +30,27 @@ func ResolveIncomingBillingExprRequestInput(c *gin.Context, info *relaycommon.Re
 	if err != nil {
 		return billingexpr.RequestInput{}, err
 	}
+	if len(bodyBytes) == 0 && info != nil {
+		// multipart/form image requests carry no JSON body, so param() would see
+		// nothing and every edit request would fall into the default tier. Project
+		// the already parsed and validated DTO back to JSON instead; its json tags
+		// match the ones a JSON client sends, so one expression fits both paths.
+		if imageRequest, ok := info.Request.(*dto.ImageRequest); ok {
+			projected := *imageRequest
+			// The multipart text "image" field can hold a base64 data URI; keeping
+			// it (or the prompt) would freeze hundreds of KB into the relay info.
+			projected.Prompt = ""
+			projected.Image = nil
+			projected.Images = nil
+			projected.Mask = nil
+			projected.Extra = nil
+			built, buildErr := BuildBillingExprRequestInputFromRequest(&projected, nil)
+			if buildErr != nil {
+				return billingexpr.RequestInput{}, buildErr
+			}
+			bodyBytes = built.Body
+		}
+	}
 	input.Body = bodyBytes
 	return input, nil
 }

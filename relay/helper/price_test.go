@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -8,12 +9,16 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestModelPriceHelperTieredUsesPreloadedRequestInput(t *testing.T) {
@@ -62,6 +67,114 @@ func TestModelPriceHelperTieredUsesPreloadedRequestInput(t *testing.T) {
 	require.Equal(t, "stream", info.TieredBillingSnapshot.EstimatedTier)
 	require.Equal(t, billing_setting.BillingModeTieredExpr, info.TieredBillingSnapshot.BillingMode)
 	require.Equal(t, common.QuotaPerUnit, info.TieredBillingSnapshot.QuotaPerUnit)
+}
+
+// TestModelPriceHelperTieredBillsImageEditsBySizeAndCount pins the multipart
+// /v1/images/edits path to the same tier and quota as the equivalent JSON
+// request. Without the billing body projection, param("size") and param("n")
+// were unreadable for multipart, so every edit fell into the cheapest tier at a
+// single image no matter what the client asked for and paid upstream for.
+func TestModelPriceHelperTieredBillsImageEditsBySizeAndCount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		saved[key] = value
+		return nil
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
+	})
+
+	// Production tiering for the gpt-image family: coefficients are $/1M units,
+	// so tier 2k at 160000 becomes 160000/1e6 * 500000 = 80000 quota per image.
+	const imageTierExpr = `let s = string(param("size") ?? "");
+let px = s matches "^[0-9]+x[0-9]+$" ? float(int(split(s, "x")[0])) * float(int(split(s, "x")[1])) : 0.0;
+(px > 3686400 ? tier("4k", 210000) : (px > 1048576 ? tier("2k", 160000) : tier("1k", 120000))) * max(float(param("n") ?? 1), 1.0)`
+
+	billingExpr, err := common.Marshal(map[string]string{"tiered-image-model": imageTierExpr})
+	require.NoError(t, err)
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode":    `{"tiered-image-model":"tiered_expr"}`,
+		"billing_setting.billing_expr":    string(billingExpr),
+		"group_ratio_setting.group_ratio": `{"default":1}`,
+	}))
+
+	newJSONImageContext := func(t *testing.T, body string) (*gin.Context, *dto.ImageRequest) {
+		t.Helper()
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader([]byte(body)))
+		c.Request.Header.Set("Content-Type", "application/json")
+		request, err := GetAndValidOpenAIImageRequest(c, relayconstant.RelayModeImagesGenerations)
+		require.NoError(t, err)
+		return c, request
+	}
+
+	tests := []struct {
+		name       string
+		newRequest func(t *testing.T) (*gin.Context, *dto.ImageRequest)
+		wantQuota  int
+		wantTier   string
+	}{
+		{
+			name: "multipart edit tiers by requested size and count",
+			newRequest: func(t *testing.T) (*gin.Context, *dto.ImageRequest) {
+				return newMultipartImageEditContext(t, [][2]string{
+					{"model", "tiered-image-model"},
+					{"prompt", "make it brighter"},
+					{"size", "2048x1152"},
+					{"n", "4"},
+				})
+			},
+			wantQuota: 4 * 80000,
+			wantTier:  "2k",
+		},
+		{
+			name: "json generation with the same parameters costs the same",
+			newRequest: func(t *testing.T) (*gin.Context, *dto.ImageRequest) {
+				return newJSONImageContext(t, `{"model":"tiered-image-model","prompt":"make it brighter","size":"2048x1152","n":4}`)
+			},
+			wantQuota: 4 * 80000,
+			wantTier:  "2k",
+		},
+		{
+			name: "multipart edit without size falls back to the cheapest tier",
+			newRequest: func(t *testing.T) (*gin.Context, *dto.ImageRequest) {
+				return newMultipartImageEditContext(t, [][2]string{
+					{"model", "tiered-image-model"},
+					{"prompt", "make it brighter"},
+				})
+			},
+			wantQuota: 60000,
+			wantTier:  "1k",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, request := tt.newRequest(t)
+			ctx.Set("group", "default")
+
+			info := &relaycommon.RelayInfo{
+				OriginModelName: "tiered-image-model",
+				UserGroup:       "default",
+				UsingGroup:      "default",
+				Request:         request,
+				RequestHeaders:  map[string]string{"Content-Type": ctx.Request.Header.Get("Content-Type")},
+			}
+
+			priceData, err := ModelPriceHelper(ctx, info, 0, request.GetTokenCountMeta())
+			require.NoError(t, err)
+			require.Equal(t, tt.wantQuota, priceData.QuotaToPreConsume)
+			require.NotNil(t, info.TieredBillingSnapshot)
+			assert.Equal(t, tt.wantTier, info.TieredBillingSnapshot.EstimatedTier)
+
+			// Settlement reuses this frozen body, so it must already carry the
+			// parameters the tier was decided from.
+			require.NotNil(t, info.BillingRequestInput)
+			assert.Equal(t, request.Size, gjson.GetBytes(info.BillingRequestInput.Body, "size").String())
+		})
+	}
 }
 
 func TestModelPriceHelperTieredPreConsumeMaxTokensFallback(t *testing.T) {
