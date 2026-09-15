@@ -1,0 +1,10 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "frontend 层入口：组件/hooks/状态/样式规范与质量清单"}
+{"file": ".trellis/spec/frontend/components.md", "reason": "组件拆分与复用规范"}
+{"file": ".trellis/spec/frontend/css-design.md", "reason": "Tailwind v4 与样式约定，本任务样式层适配依据"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "zustand store 规范"}
+{"file": ".trellis/spec/frontend/react-pitfalls.md", "reason": "React 19 常见坑"}
+{"file": ".trellis/spec/shared/typescript.md", "reason": "TS 约定"}
+{"file": ".trellis/spec/shared/code-quality.md", "reason": "通用代码质量要求"}
+{"file": ".trellis/spec/backend/billing-ratio-routing.md", "reason": "计费倍率与路由：参数上界与倍率收敛依据"}
+{"file": ".trellis/tasks/09-11-image-playground-migration/research/gpt-image-playground-digest.md", "reason": "参照项目全量调研：组件清单、可删/被依赖判定、依赖差集、迁移障碍"}
+{"file": ".trellis/tasks/09-11-image-playground-migration/research/flowapi-image-workbench-and-token-groups.md", "reason": "站内现状：现有工作台、令牌分组机制、relay 不读 group 的结论"}

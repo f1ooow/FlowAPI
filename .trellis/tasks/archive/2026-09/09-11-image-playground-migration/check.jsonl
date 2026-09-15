@@ -1,0 +1,11 @@
+{"file": ".trellis/spec/frontend/quality.md", "reason": "前端质量检查清单"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "frontend 层规范入口"}
+{"file": ".trellis/spec/frontend/css-design.md", "reason": "样式层是否合规（Tailwind v4）"}
+{"file": ".trellis/spec/frontend/react-pitfalls.md", "reason": "React 19 陷阱复查"}
+{"file": ".trellis/spec/shared/code-quality.md", "reason": "代码质量复查"}
+{"file": ".trellis/spec/shared/git-conventions.md", "reason": "提交规范"}
+{"file": ".trellis/spec/backend/billing-ratio-routing.md", "reason": "计费参数上界与倍率收敛复查"}
+{"file": ".trellis/spec/guides/pre-implementation-checklist.md", "reason": "实现前检查清单"}
+{"file": ".trellis/tasks/09-11-image-playground-migration/prd.md", "reason": "需求与验收标准对照"}
+{"file": ".trellis/tasks/09-11-image-playground-migration/design.md", "reason": "技术设计与删除清单对照"}
+{"file": ".trellis/tasks/09-11-image-playground-migration/implement.md", "reason": "执行计划与验收项对照"}

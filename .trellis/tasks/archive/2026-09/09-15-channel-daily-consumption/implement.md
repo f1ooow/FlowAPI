@@ -62,18 +62,24 @@ cd web && bun run typecheck && bun run lint && bun run build
 ```
 
 - [x] 使用 `trellis-check` 进行规范、数据流、测试和一致性检查
-- [x] 确认未连接或修改生产环境
+- [x] 部署前完成本地验证，生产部署按用户授权单独执行
 - [x] 仅显式处理本任务文件，保留其他未提交变更
 
-最终验证：后端聚焦测试、`go build ./...`、`go vet ./model ./controller`、前端 5 个相关测试文件 26 项、`bun run typecheck`、定向 lint / format、`bun run build` 与 `git diff --check` 均通过。全仓前端 lint 仍受本任务外既有错误阻塞。界面在 1920、1440、900 和 390 像素宽度完成本地验收；未访问生产环境。
+最终验证：后端聚焦测试、`go build ./...`、`go vet ./model ./controller`、前端 5 个相关测试文件 26 项、`bun run typecheck`、定向 lint / format、`bun run build` 与 `git diff --check` 均通过。全仓前端 lint 仍受本任务外既有错误阻塞。界面在 1920、1440、900 和 390 像素宽度完成本地验收；部署前未访问生产业务数据。
 
 ## 6. 回滚形状
 
 本功能无迁移。回滚时移除 API item 的临时字段、聚合查询与前端列即可，不需要恢复数据。
 
-## 7. 待部署
+## 7. 部署记录（2026-09-15）
 
-- [ ] 等待用户明确下令后再部署到 HK，当前阶段不连接或修改生产环境
-- [ ] 部署前备份并核对 `/opt/flowapi/.env` 与 Compose 配置
-- [ ] 在生产 `.env` 设置 `MAX_REQUEST_BODY_MB=256`
-- [ ] 随本次发布重建应用容器，并验证环境变量生效、容器健康及公网接口正常
+- [x] 用户明确授权后部署到 HK；未查询生产业务数据
+- [x] 备份并核对 `/opt/flowapi/.env` 与 Compose 配置
+- [x] 在生产 `.env` 设置 `MAX_REQUEST_BODY_MB=256`，并在 Compose `app.environment` 映射该变量
+- [x] 仅重建应用容器，验证环境变量生效、容器健康及公网接口正常
+
+发布镜像：`flowapi:hk-channel-insights-831f93204-20260915-185036`，摘要 `sha256:7b7675dbc1f087a985a44f4ea93e125d0d47440cf3fcafe22b91c066398c7e05`。
+
+切换前备份：`/opt/flowapi/backups/pre-channel-insights-20260915-124026/`，包含 PostgreSQL dump、原始 `.env`、原始 Compose、容器/镜像元数据和 `SHA256SUMS`，校验全部通过。回滚镜像：`flowapi:rollback-channel-insights-20260915-124026`。
+
+发布后：app healthy、重启次数 0，实际环境变量为 `MAX_REQUEST_BODY_MB=256`；PostgreSQL 与 Redis 未重建且重启次数为 0；本机与公网 `/api/status`、`/pricing`、`/playground` 返回 200，未授权渠道接口返回 401，启动日志无 panic/fatal/error。
