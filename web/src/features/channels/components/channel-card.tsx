@@ -61,6 +61,7 @@ function ChannelCardComponent({
 
   const fieldLabels: Record<string, string> = {
     balance: t('Used / Remaining'),
+    today_used_quota: t('Consumed today'),
     response_time: t('Response'),
     test_time: t('Last Tested'),
     cost_ratio: t('Channel cost ratio'),
@@ -77,6 +78,7 @@ function ChannelCardComponent({
   const weightCell = renderCell('weight')
   const costRatioCell = renderCell('cost_ratio')
   const balanceCell = renderCell('balance')
+  const todayUsedQuotaCell = renderCell('today_used_quota')
   const responseCell = renderCell('response_time')
   const testCell = renderCell('test_time')
 
@@ -110,7 +112,7 @@ function ChannelCardComponent({
           </div>
         </div>
 
-        {/* Body: left column (id/name + balance) paired with a right-aligned
+        {/* Body: left column (id/name + usage) paired with a right-aligned
           column (priority/weight + response/test time). */}
         <div className='flex items-start justify-between gap-3'>
           {/* Left column */}
@@ -130,6 +132,16 @@ function ChannelCardComponent({
               <div className='min-w-0 overflow-hidden text-sm'>
                 {balanceCell ?? (
                   <span className='text-muted-foreground'>-</span>
+                )}
+              </div>
+            </div>
+            <div className='min-w-0'>
+              <div className={cn('mb-1', labelClass)}>
+                {fieldLabels.today_used_quota}
+              </div>
+              <div className='min-w-0 overflow-hidden text-sm'>
+                {todayUsedQuotaCell ?? (
+                  <span className='text-muted-foreground'>--</span>
                 )}
               </div>
             </div>

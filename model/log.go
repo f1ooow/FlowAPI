@@ -92,6 +92,48 @@ const (
 	LogTypeLogin   = 7
 )
 
+const channelQuotaAggregationBatchSize = 900
+
+func SumUsedQuotaByChannelIds(ctx context.Context, channelIds []int, startTimestamp int64, endTimestamp int64) (map[int]int64, error) {
+	uniqueIds := make([]int, 0, len(channelIds))
+	seen := make(map[int]struct{}, len(channelIds))
+	for _, channelId := range channelIds {
+		if channelId <= 0 {
+			continue
+		}
+		if _, ok := seen[channelId]; ok {
+			continue
+		}
+		seen[channelId] = struct{}{}
+		uniqueIds = append(uniqueIds, channelId)
+	}
+
+	quotaByChannel := make(map[int]int64, len(uniqueIds))
+	for start := 0; start < len(uniqueIds); start += channelQuotaAggregationBatchSize {
+		end := min(start+channelQuotaAggregationBatchSize, len(uniqueIds))
+		var rows []struct {
+			ChannelId int   `gorm:"column:channel_id"`
+			Quota     int64 `gorm:"column:quota"`
+		}
+		err := LOG_DB.WithContext(ctx).
+			Table("logs").
+			Select("channel_id, SUM(quota) AS quota").
+			Where("channel_id IN ?", uniqueIds[start:end]).
+			Where("created_at >= ? AND created_at <= ?", startTimestamp, endTimestamp).
+			Where("type = ?", LogTypeConsume).
+			Group("channel_id").
+			Scan(&rows).Error
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			quotaByChannel[row.ChannelId] += row.Quota
+		}
+	}
+
+	return quotaByChannel, nil
+}
+
 func ensureLogRequestId(log *Log) {
 	if log != nil && log.RequestId == "" {
 		log.RequestId = common.NewRequestId()

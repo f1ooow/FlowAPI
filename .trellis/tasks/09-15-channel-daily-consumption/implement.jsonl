@@ -1,0 +1,4 @@
+{"file":".trellis/spec/backend/index.md","reason":"渠道列表 API 与日志聚合需要遵循后端接口、错误降级和质量规范"}
+{"file":".trellis/spec/frontend/index.md","reason":"渠道表格、移动卡片、响应式布局与行为测试需要遵循前端规范"}
+{"file":".trellis/spec/shared/code-quality.md","reason":"跨层字段接线与实现范围需要遵循共享代码质量约束"}
+{"file":".trellis/spec/shared/typescript.md","reason":"新增可空字段和标签聚合三态语义需要遵循 TypeScript 约束"}

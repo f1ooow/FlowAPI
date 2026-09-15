@@ -11,6 +11,7 @@
 | [quality.md](./quality.md) | 后端代码质量标准 | 参考模板 |
 | [billing-ratio-routing.md](./billing-ratio-routing.md) | 渠道选择相关倍率、预扣和异步快照合同 | 项目合同 |
 | [global-passthrough.md](./global-passthrough.md) | 全局请求体/请求头透传、覆盖优先级与渠道继承 | 项目合同 |
+| [channel-list-derived-metrics.md](./channel-list-derived-metrics.md) | 渠道列表从独立日志库补充派生指标的合同 | 项目合同 |
 
 ## 如何填写
 

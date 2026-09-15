@@ -80,6 +80,7 @@ import { parseUpstreamUpdateMeta } from '../lib/upstream-update-utils'
 import type { Channel } from '../types'
 import { ChannelCostRatioCell } from './channel-cost-ratio-cell'
 import { ChannelRowActionsLayoutContext } from './channel-row-actions-context'
+import { ChannelTodayConsumptionCell } from './channel-today-consumption-cell'
 import { useChannels } from './channels-provider'
 import { DataTableRowActions } from './data-table-row-actions'
 import { DataTableTagRowActions } from './data-table-tag-row-actions'
@@ -1167,6 +1168,17 @@ export function useChannelsColumns(
         header: t('Used / Remaining'),
         cell: ({ row }) => <BalanceCell channel={row.original} />,
         size: 180,
+      },
+
+      // Today's consumption column
+      {
+        accessorKey: 'today_used_quota',
+        header: t('Consumed today'),
+        cell: ({ row }) => (
+          <ChannelTodayConsumptionCell channel={row.original} />
+        ),
+        size: 140,
+        enableSorting: false,
       },
 
       // Response Time column

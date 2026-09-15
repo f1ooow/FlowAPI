@@ -72,6 +72,40 @@ func clearChannelInfo(channel *model.Channel) {
 	}
 }
 
+func channelTodayTimeRange(now time.Time) (int64, int64) {
+	chinaStandardTime := time.FixedZone("UTC+8", 8*60*60)
+	localNow := now.In(chinaStandardTime)
+	start := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, chinaStandardTime)
+	return start.Unix(), now.Unix()
+}
+
+func enrichChannelsWithTodayUsedQuota(ctx context.Context, channels []*model.Channel, now time.Time) {
+	channelIds := make([]int, 0, len(channels))
+	for _, channel := range channels {
+		if channel == nil {
+			continue
+		}
+		channel.TodayUsedQuota = nil
+		channelIds = append(channelIds, channel.Id)
+	}
+	if len(channelIds) == 0 || !common.LogConsumeEnabled {
+		return
+	}
+
+	startTimestamp, endTimestamp := channelTodayTimeRange(now)
+	quotaByChannel, err := model.SumUsedQuotaByChannelIds(ctx, channelIds, startTimestamp, endTimestamp)
+	if err != nil {
+		common.SysError("failed to query today's channel consumption: " + err.Error())
+		return
+	}
+	for _, channel := range channels {
+		if channel == nil {
+			continue
+		}
+		channel.TodayUsedQuota = common.GetPointer(quotaByChannel[channel.Id])
+	}
+}
+
 func applyChannelStatusFilter(query *gorm.DB, statusFilter int) *gorm.DB {
 	if statusFilter == common.ChannelStatusEnabled {
 		return query.Where("status = ?", common.ChannelStatusEnabled)
@@ -184,6 +218,7 @@ func GetAllChannels(c *gin.Context) {
 	for _, r := range results {
 		typeCounts[r.Type] = r.Count
 	}
+	enrichChannelsWithTodayUsedQuota(c.Request.Context(), channelData, time.Now())
 	common.ApiSuccess(c, gin.H{
 		"items":       channelData,
 		"total":       total,
@@ -382,6 +417,7 @@ func SearchChannels(c *gin.Context) {
 	for _, datum := range pagedData {
 		clearChannelInfo(datum)
 	}
+	enrichChannelsWithTodayUsedQuota(c.Request.Context(), pagedData, time.Now())
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
