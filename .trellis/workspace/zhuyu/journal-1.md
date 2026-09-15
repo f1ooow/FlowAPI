@@ -345,3 +345,37 @@ gpt-image-2 的 `1572864` 就会判成 `1k`。实际填对了。
 
 另一处：曾把三个可见金额外推到截图外的两条，把未验证的判据标成「通过」。计费相关
 的结论没拿到数据不能标通过 —— 标了就没人会再去查。
+
+
+## Session 4: 渠道统计与可用性页面发布
+
+**Date**: 2026-09-15
+**Task**: 渠道统计与可用性页面发布
+**Branch**: `main`
+
+### Summary
+
+完成渠道今日消耗统计与可用性卡片可读性改版，构建 linux/amd64 镜像并按授权发布到 HK；仅重建 app，生产 MAX_REQUEST_BODY_MB 设置为 256。
+
+### Main Changes
+
+- 渠道列表增加按 UTC+8 自然日统计的今日消耗，覆盖表格、移动卡片和标签聚合。
+- 渠道可用性页面改为响应式卡片并隐藏无流量渠道，移除低价值说明和脚注。
+- HK 仅重建 FlowAPI app，保留 PostgreSQL/Redis，建立可校验备份和回滚镜像。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1995addc7` | (see git log) |
+| `831f93204` | (see git log) |
+| `1ddc9a65b` | (see git log) |
+
+### Testing
+
+- [OK] 本地后端/前端聚焦测试、构建、类型检查和多尺寸视觉验收通过。
+- [OK] HK app healthy、重启 0；MAX_REQUEST_BODY_MB=256；公网 /api/status、/pricing、/playground 均 200；备份 SHA-256 全部通过。
+
+### Status
+
+[OK] **Completed**
