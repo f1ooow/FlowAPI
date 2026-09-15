@@ -95,7 +95,7 @@
 - [x] 更新页面、卡片和汇总卡的行为 / 布局测试
 - [x] 按 `i18n-translate` 技能确认当前语言包无需新增静态键
 - [x] 本地启动前端，用桌面、平板、手机视口截图检查密度、截断、重叠和溢出
-- [x] 不访问、部署或修改生产环境
+- [x] 实现阶段未访问生产环境；部署在用户授权后单独完成
 
 验证：
 ```bash
@@ -117,9 +117,13 @@ cd web && bun run typecheck && bun run build
 
 第二轮最终验证：前端 5 个相关测试文件 26 项、`bun run typecheck`、定向 lint / format、`bun run build` 与 `git diff --check` 均通过。页面在 1440、900 和 390 像素宽度完成本地截图验收；900 像素下发现并修复了四项指标并排导致的数值截断。全仓前端 lint 仍受本任务外既有错误阻塞。
 
+## 部署记录（2026-09-15）
+
+按用户授权将本任务的可用性卡片改版随渠道今日消耗功能一起部署到 HK。应用镜像为 `flowapi:hk-channel-insights-831f93204-20260915-185036`（摘要 `sha256:7b7675dbc1f087a985a44f4ea93e125d0d47440cf3fcafe22b91c066398c7e05`），仅重建 `app`；PostgreSQL 与 Redis 未重建。切换前备份 `/opt/flowapi/backups/pre-channel-insights-20260915-124026/`，回滚镜像为 `flowapi:rollback-channel-insights-20260915-124026`。发布后 app healthy、重启 0，公网 `/api/status`、`/pricing`、`/playground` 返回 200，启动日志无 panic/fatal/error；未查询生产业务数据。
+
 ## 阶段 7 — 收口
 
-- [ ] 更新 `task.json.notes`、写 journal
+- [x] 更新 `task.json.notes`、写 journal
 - [ ] 更新父任务 `09-10-group-monitor-log-aggregation` 的集成验收清单
 
 ## Commit 纪律
