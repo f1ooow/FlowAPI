@@ -72,6 +72,8 @@ export type ChannelMonitoringChannelSummary = ChannelMonitoringCacheStats & {
   channel_id: number
   /** Empty once the channel is deleted; the UI falls back to `#<id>`. */
   channel_name: string
+  /** UTC+8 calendar-day consumption; null when consume logs are unavailable. */
+  today_used_quota: number | null
   has_data: boolean
   state: ChannelMonitoringState
   /** Percentage in [0, 100]. Only meaningful when `has_data` is true. */

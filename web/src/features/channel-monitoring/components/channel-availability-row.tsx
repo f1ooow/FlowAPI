@@ -20,6 +20,8 @@ import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { toIntlLocale } from '@/i18n/languages'
+import { formatQuotaWithCurrency, getCurrencyLabel } from '@/lib/currency'
 import { cn } from '@/lib/utils'
 
 import { formatBucketTime, formatMilliseconds } from '../lib/format'
@@ -35,6 +37,7 @@ import type {
 } from '../types'
 
 const NO_VALUE = '--'
+const MAX_DAILY_QUOTA_CHARS = 14
 
 function bucketTitle(
   bucket: ChannelMonitoringBucket,
@@ -59,7 +62,7 @@ function bucketTitle(
 export function ChannelAvailabilityRow(props: {
   channel: ChannelMonitoringChannelSummary
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const hasData = props.channel.has_data
   // A separate flag on purpose: a channel can serve plenty of attempts and
   // still have no cache sample at all, and 0% would read as "caching broken"
@@ -71,6 +74,32 @@ export function ChannelAvailabilityRow(props: {
   const displayName = isDeleted
     ? `#${props.channel.channel_id}`
     : props.channel.channel_name
+  let todayUsedQuota = NO_VALUE
+  let todayUsedQuotaTitle = NO_VALUE
+  if (props.channel.today_used_quota != null) {
+    const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+    const tokenSuffix = getCurrencyLabel() === 'Tokens' ? ' Tokens' : ''
+    const fullValue = `${formatQuotaWithCurrency(
+      props.channel.today_used_quota,
+      {
+        digitsLarge: 2,
+        digitsSmall: 4,
+        abbreviate: false,
+        locale,
+      }
+    )}${tokenSuffix}`
+    todayUsedQuota = fullValue
+    todayUsedQuotaTitle = fullValue
+    if (fullValue.length > MAX_DAILY_QUOTA_CHARS) {
+      todayUsedQuota = `${formatQuotaWithCurrency(
+        props.channel.today_used_quota,
+        {
+          compact: true,
+          locale,
+        }
+      )}${tokenSuffix}`
+    }
+  }
 
   return (
     <Card size='sm' className='rounded-lg' role='listitem'>
@@ -157,6 +186,17 @@ export function ChannelAvailabilityRow(props: {
               {hasCacheData
                 ? `${props.channel.cache_hit_rate.toFixed(2)}%`
                 : NO_VALUE}
+            </dd>
+          </div>
+          <div className='col-span-2 flex min-w-0 items-baseline justify-between gap-3 border-t pt-3'>
+            <dt className='text-muted-foreground shrink-0 text-[11px] leading-4'>
+              {t('Consumed today')}
+            </dt>
+            <dd
+              className='min-w-0 truncate font-mono text-base leading-none font-semibold tabular-nums'
+              title={todayUsedQuotaTitle}
+            >
+              {todayUsedQuota}
             </dd>
           </div>
         </dl>

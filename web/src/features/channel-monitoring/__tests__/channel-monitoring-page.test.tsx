@@ -35,6 +35,7 @@ function channel(
   return {
     channel_id: 1,
     channel_name: 'Primary',
+    today_used_quota: 500_000,
     has_data: true,
     state: 'healthy',
     availability_rate: 100,

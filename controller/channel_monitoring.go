@@ -92,6 +92,7 @@ type channelMonitoringCacheStats struct {
 type channelMonitoringChannelSummary struct {
 	ChannelId        int     `json:"channel_id"`
 	ChannelName      string  `json:"channel_name"`
+	TodayUsedQuota   *int64  `json:"today_used_quota"`
 	HasData          bool    `json:"has_data"`
 	State            string  `json:"state"`
 	AvailabilityRate float64 `json:"availability_rate"`
@@ -345,7 +346,8 @@ func GetChannelMonitoringSummary(c *gin.Context) {
 	if bucketCount < 1 {
 		bucketCount = 1
 	}
-	seriesEnd := channelMonitoringSeriesEnd(time.Now().Unix(), stepSeconds)
+	now := time.Now()
+	seriesEnd := channelMonitoringSeriesEnd(now.Unix(), stepSeconds)
 	seriesStart := seriesEnd - int64(bucketCount)*stepSeconds
 
 	rows, err := model.GetChannelMetricBuckets(seriesStart, seriesEnd-1, stepSeconds)
@@ -360,6 +362,16 @@ func GetChannelMonitoringSummary(c *gin.Context) {
 	}
 
 	channels, overall := buildChannelMonitoringChannels(rows, identities, seriesStart, bucketCount, stepSeconds)
+	channelIds := make([]int, len(channels))
+	for index := range channels {
+		channelIds[index] = channels[index].ChannelId
+	}
+	quotaByChannel := channelTodayUsedQuotaById(c.Request.Context(), channelIds, now)
+	if quotaByChannel != nil {
+		for index := range channels {
+			channels[index].TodayUsedQuota = common.GetPointer(quotaByChannel[channels[index].ChannelId])
+		}
+	}
 	response := channelMonitoringSummaryResponse{
 		Range:         rangeKey,
 		Ranges:        channelMonitoringRangeKeys,

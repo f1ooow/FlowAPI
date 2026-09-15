@@ -43,6 +43,7 @@ function buckets(count: number): ChannelMonitoringBucket[] {
 const healthyChannel: ChannelMonitoringChannelSummary = {
   channel_id: 12,
   channel_name: 'FAST CODEX',
+  today_used_quota: 1_250_000,
   has_data: true,
   state: 'healthy',
   availability_rate: 99.53,
@@ -86,6 +87,25 @@ describe('ChannelAvailabilityRow', () => {
     expect(metrics).toHaveClass('grid-cols-2')
     expect(screen.getByText('99.53%')).not.toHaveClass('truncate')
     expect(screen.getByText('1840 ms')).not.toHaveClass('truncate')
+  })
+
+  test('shows today consumption as a full-width formatted metric', () => {
+    render(<ChannelAvailabilityRow channel={healthyChannel} />)
+
+    const label = screen.getByText('Consumed today')
+    expect(label.parentElement).toHaveClass('col-span-2', 'border-t')
+    expect(screen.getByText('$2.5')).toHaveAttribute('title', '$2.5')
+  })
+
+  test('shows a placeholder when today consumption is unavailable', () => {
+    render(
+      <ChannelAvailabilityRow
+        channel={{ ...healthyChannel, today_used_quota: null }}
+      />
+    )
+
+    const label = screen.getByText('Consumed today')
+    expect(label.parentElement).toHaveTextContent('--')
   })
 
   test('follows the bucket count when the range uses a finer step', () => {

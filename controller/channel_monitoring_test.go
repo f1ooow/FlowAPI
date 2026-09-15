@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 type channelMonitoringResponse struct {
@@ -238,10 +239,16 @@ func TestChannelMonitoringStepSecondsClampsToStorageWidth(t *testing.T) {
 	}
 }
 
-func setupChannelMonitoringTestDB(t *testing.T) {
+func setupChannelMonitoringTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := setupModelListControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.ChannelMetric{}))
+	previousLogConsumeEnabled := common.LogConsumeEnabled
+	common.LogConsumeEnabled = true
+	t.Cleanup(func() {
+		common.LogConsumeEnabled = previousLogConsumeEnabled
+	})
+	require.NoError(t, db.AutoMigrate(&model.ChannelMetric{}, &model.Log{}))
+	return db
 }
 
 func TestGetChannelMonitoringSummaryRejectsUnknownRange(t *testing.T) {
@@ -260,7 +267,7 @@ func TestGetChannelMonitoringSummaryRejectsUnknownRange(t *testing.T) {
 }
 
 func TestGetChannelMonitoringSummaryReadsChannelMetrics(t *testing.T) {
-	setupChannelMonitoringTestDB(t)
+	db := setupChannelMonitoringTestDB(t)
 	overridePerfMetricsSetting(t, "5min", 5)
 
 	require.NoError(t, model.DB.Create(&model.Channel{Id: 11, Name: "flaky"}).Error)
@@ -275,6 +282,13 @@ func TestGetChannelMonitoringSummaryReadsChannelMetrics(t *testing.T) {
 		ChannelId: 11, BucketTs: sampleTs, AttemptCount: 4, SuccessCount: 1, TotalLatencyMs: 800,
 		CacheRequestCount: 4, CacheSignalCount: 2, CacheReadTokens: 600, CacheWriteTokens: 120, CacheInputTokens: 2000,
 	}))
+	todayStart, _ := channelTodayTimeRange(time.Now())
+	require.NoError(t, db.Create(&[]model.Log{
+		{ChannelId: 11, CreatedAt: todayStart, Type: model.LogTypeConsume, Quota: 9},
+		{ChannelId: 11, CreatedAt: todayStart + 1, Type: model.LogTypeConsume, Quota: 6},
+		{ChannelId: 11, CreatedAt: todayStart - 1, Type: model.LogTypeConsume, Quota: 100},
+		{ChannelId: 11, CreatedAt: todayStart + 1, Type: model.LogTypeRefund, Quota: 50},
+	}).Error)
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -296,6 +310,8 @@ func TestGetChannelMonitoringSummaryReadsChannelMetrics(t *testing.T) {
 	assert.EqualValues(t, 4, flaky.AttemptCount)
 	assert.EqualValues(t, 200, flaky.AvgLatencyMs)
 	assert.Len(t, flaky.Buckets, 48)
+	require.NotNil(t, flaky.TodayUsedQuota)
+	assert.EqualValues(t, 15, *flaky.TodayUsedQuota)
 
 	// The cache metrics travel flat in the same JSON object and keep their own
 	// caliber: 600 / 2000 read, 2 of 4 settled requests with a signal.
@@ -310,9 +326,29 @@ func TestGetChannelMonitoringSummaryReadsChannelMetrics(t *testing.T) {
 	idle := channelSummaryById(t, payload.Data.Channels, 33)
 	assert.False(t, idle.HasData)
 	assert.False(t, idle.CacheHasData)
+	require.NotNil(t, idle.TodayUsedQuota)
+	assert.Zero(t, *idle.TodayUsedQuota)
 
 	assert.True(t, payload.Data.Overall.HasData)
 	assert.EqualValues(t, 25, payload.Data.Overall.AvailabilityRate)
 	assert.EqualValues(t, 75, payload.Data.Overall.ErrorRate)
 	assert.EqualValues(t, 30, payload.Data.Overall.CacheHitRate)
+}
+
+func TestGetChannelMonitoringSummaryLeavesTodayQuotaNullWhenConsumeLoggingIsDisabled(t *testing.T) {
+	setupChannelMonitoringTestDB(t)
+	require.NoError(t, model.DB.Create(&model.Channel{Id: 11, Name: "primary"}).Error)
+	common.LogConsumeEnabled = false
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/channel-monitoring/summary?range=24h", nil)
+	GetChannelMonitoringSummary(c)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var payload channelMonitoringResponse
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
+	require.True(t, payload.Success, payload.Message)
+	require.Len(t, payload.Data.Channels, 1)
+	assert.Nil(t, payload.Data.Channels[0].TodayUsedQuota)
 }

@@ -79,6 +79,20 @@ func channelTodayTimeRange(now time.Time) (int64, int64) {
 	return start.Unix(), now.Unix()
 }
 
+func channelTodayUsedQuotaById(ctx context.Context, channelIds []int, now time.Time) map[int]int64 {
+	if len(channelIds) == 0 || !common.LogConsumeEnabled {
+		return nil
+	}
+
+	startTimestamp, endTimestamp := channelTodayTimeRange(now)
+	quotaByChannel, err := model.SumUsedQuotaByChannelIds(ctx, channelIds, startTimestamp, endTimestamp)
+	if err != nil {
+		common.SysError("failed to query today's channel consumption: " + err.Error())
+		return nil
+	}
+	return quotaByChannel
+}
+
 func enrichChannelsWithTodayUsedQuota(ctx context.Context, channels []*model.Channel, now time.Time) {
 	channelIds := make([]int, 0, len(channels))
 	for _, channel := range channels {
@@ -88,14 +102,8 @@ func enrichChannelsWithTodayUsedQuota(ctx context.Context, channels []*model.Cha
 		channel.TodayUsedQuota = nil
 		channelIds = append(channelIds, channel.Id)
 	}
-	if len(channelIds) == 0 || !common.LogConsumeEnabled {
-		return
-	}
-
-	startTimestamp, endTimestamp := channelTodayTimeRange(now)
-	quotaByChannel, err := model.SumUsedQuotaByChannelIds(ctx, channelIds, startTimestamp, endTimestamp)
-	if err != nil {
-		common.SysError("failed to query today's channel consumption: " + err.Error())
+	quotaByChannel := channelTodayUsedQuotaById(ctx, channelIds, now)
+	if quotaByChannel == nil {
 		return
 	}
 	for _, channel := range channels {

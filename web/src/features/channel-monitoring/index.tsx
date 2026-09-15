@@ -88,7 +88,7 @@ export function ChannelMonitoring() {
     monitoringContent = (
       <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
         {[0, 1, 2, 3, 4, 5].map((item) => (
-          <Skeleton key={item} className='h-44 rounded-lg' />
+          <Skeleton key={item} className='h-52 rounded-lg' />
         ))}
       </div>
     )
