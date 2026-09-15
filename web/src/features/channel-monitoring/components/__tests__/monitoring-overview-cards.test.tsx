@@ -67,9 +67,7 @@ describe('MonitoringOverviewCards', () => {
 
     expect(screen.getAllByText('--')).toHaveLength(4)
     expect(screen.queryByText('0.00%')).toBeNull()
-    expect(
-      screen.getAllByText('No attempts in this window').length
-    ).toBeGreaterThan(0)
+    expect(screen.queryByText('No attempts in this window')).toBeNull()
   })
 
   // Cache emptiness is independent of attempt emptiness: this window is full of
@@ -80,11 +78,11 @@ describe('MonitoringOverviewCards', () => {
     expect(screen.getByText('97.46%')).toBeInTheDocument()
     expect(screen.getAllByText('--')).toHaveLength(1)
     expect(
-      screen.getByText('No request reported cache usage in this window')
-    ).toBeInTheDocument()
+      screen.queryByText('No request reported cache usage in this window')
+    ).toBeNull()
   })
 
-  test('labels the cache hit rate as not comparable between providers', () => {
+  test('shows a reported cache hit rate without an explanatory hint', () => {
     render(
       <MonitoringOverviewCards
         overall={{
@@ -100,10 +98,6 @@ describe('MonitoringOverviewCards', () => {
     )
 
     expect(screen.getByText('61.25%')).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        'Cache reads over input tokens across the 812 settled requests that reported cache usage. Not comparable between providers.'
-      )
-    ).toBeInTheDocument()
+    expect(screen.queryByText(/Not comparable between providers/)).toBeNull()
   })
 })

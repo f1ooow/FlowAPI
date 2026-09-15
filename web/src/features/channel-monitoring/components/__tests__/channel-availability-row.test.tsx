@@ -74,16 +74,24 @@ function timelineOf(name: string) {
 
 describe('ChannelAvailabilityRow', () => {
   test('renders one timeline slot per returned bucket', () => {
-    render(<ChannelAvailabilityRow channel={healthyChannel} stepMinutes={30} />)
+    render(<ChannelAvailabilityRow channel={healthyChannel} />)
 
     expect(timelineOf('FAST CODEX').childElementCount).toBe(4)
+  })
+
+  test('keeps metrics in two columns so compact cards do not truncate values', () => {
+    render(<ChannelAvailabilityRow channel={healthyChannel} />)
+
+    const metrics = screen.getByText('Availability').closest('dl')
+    expect(metrics).toHaveClass('grid-cols-2')
+    expect(screen.getByText('99.53%')).not.toHaveClass('truncate')
+    expect(screen.getByText('1840 ms')).not.toHaveClass('truncate')
   })
 
   test('follows the bucket count when the range uses a finer step', () => {
     render(
       <ChannelAvailabilityRow
         channel={{ ...healthyChannel, buckets: buckets(48) }}
-        stepMinutes={5}
       />
     )
 
@@ -91,12 +99,22 @@ describe('ChannelAvailabilityRow', () => {
   })
 
   test('colours each slot from the state the backend assigned', () => {
-    render(<ChannelAvailabilityRow channel={healthyChannel} stepMinutes={30} />)
+    render(<ChannelAvailabilityRow channel={healthyChannel} />)
 
     const states = [...timelineOf('FAST CODEX').children].map((slot) =>
       slot.getAttribute('data-state')
     )
     expect(states).toEqual(['no-data', 'healthy', 'degraded', 'down'])
+  })
+
+  test('keeps exact bucket results in the timeline tooltip', () => {
+    render(<ChannelAvailabilityRow channel={healthyChannel} />)
+
+    const healthySlot = timelineOf('FAST CODEX').children.item(1)
+    expect(healthySlot).toHaveAttribute(
+      'title',
+      expect.stringContaining('100% (10/10)')
+    )
   })
 
   test('shows placeholders instead of 0% when the channel had no attempts', () => {
@@ -117,11 +135,9 @@ describe('ChannelAvailabilityRow', () => {
           cache_signal_count: 0,
           buckets: [bucket(0, 0, 0, 'no-data')],
         }}
-        stepMinutes={30}
       />
     )
 
-    expect(screen.getByText('No attempts in this window')).toBeInTheDocument()
     expect(screen.queryByText('0.00%')).toBeNull()
     // Availability, latency and cache hit; attempts legitimately shows 0.
     expect(screen.getAllByText('--')).toHaveLength(3)
@@ -141,37 +157,27 @@ describe('ChannelAvailabilityRow', () => {
           cache_request_count: 1200,
           cache_signal_count: 0,
         }}
-        stepMinutes={30}
       />
     )
 
     expect(screen.getByText('99.53%')).toBeInTheDocument()
     expect(screen.getAllByText('--')).toHaveLength(1)
-    expect(
-      screen.getByTitle('No request reported cache usage in this window')
-    ).toBeInTheDocument()
+    expect(screen.getByText('Cache hit')).not.toHaveAttribute('title')
   })
 
-  // The number is structurally higher on OpenAI than on Claude, so the row has
-  // to carry that warning; without it an operator ranks channels on it.
-  test('reports the cache hit rate with its caliber and its incomparability', () => {
-    render(<ChannelAvailabilityRow channel={healthyChannel} stepMinutes={30} />)
+  test('shows the reported cache hit rate without explanatory copy', () => {
+    render(<ChannelAvailabilityRow channel={healthyChannel} />)
 
     expect(screen.getByText('62.50%')).toBeInTheDocument()
     const label = screen.getByText('Cache hit')
-    expect(label.getAttribute('title')).toContain(
-      '400 of 1,000 settled requests'
-    )
-    expect(label.getAttribute('title')).toContain(
-      'Not comparable between providers'
-    )
+    expect(label).not.toHaveAttribute('title')
+    expect(screen.queryByText(/Not comparable between providers/)).toBeNull()
   })
 
   test('falls back to the channel id when the channel has been deleted', () => {
     render(
       <ChannelAvailabilityRow
         channel={{ ...healthyChannel, channel_name: '' }}
-        stepMinutes={30}
       />
     )
 
@@ -181,11 +187,11 @@ describe('ChannelAvailabilityRow', () => {
   })
 
   test('reports totals as attempts rather than requests', () => {
-    render(<ChannelAvailabilityRow channel={healthyChannel} stepMinutes={30} />)
+    render(<ChannelAvailabilityRow channel={healthyChannel} />)
 
     expect(screen.getByText('Attempts')).toBeInTheDocument()
-    expect(
-      screen.getByText('1,198 of 1,204 attempts succeeded')
-    ).toBeInTheDocument()
+    expect(screen.getByText('1,204')).toBeInTheDocument()
+    expect(screen.queryByText(/attempts succeeded/)).toBeNull()
+    expect(screen.queryByText(/min per bar/)).toBeNull()
   })
 })

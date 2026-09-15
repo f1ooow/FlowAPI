@@ -31,9 +31,7 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Switch } from '@/components/ui/switch'
 
 import { getChannelMonitoringSummary } from './api'
 import { ChannelAvailabilityRow } from './components/channel-availability-row'
@@ -49,7 +47,6 @@ export function ChannelMonitoring() {
   const { t } = useTranslation()
   const [range, setRange] = useState(DEFAULT_RANGE)
   const [search, setSearch] = useState('')
-  const [hideIdle, setHideIdle] = useState(false)
 
   const summaryQuery = useQuery({
     queryKey: ['channel-monitoring', 'summary', range],
@@ -65,30 +62,33 @@ export function ChannelMonitoring() {
     [summaryQuery.data]
   )
 
+  const trafficChannels = useMemo(
+    () => channels.filter((channel) => channel.has_data),
+    [channels]
+  )
+
   const visibleChannels = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase()
-    return channels.filter((channel) => {
-      if (hideIdle && !channel.has_data) return false
+    return trafficChannels.filter((channel) => {
       if (!keyword) return true
       return (
         channel.channel_name.toLocaleLowerCase().includes(keyword) ||
         String(channel.channel_id).includes(keyword)
       )
     })
-  }, [channels, hideIdle, search])
+  }, [search, trafficChannels])
 
-  const issueCount = channels.filter(
+  const issueCount = trafficChannels.filter(
     (channel) => channel.state === 'down' || channel.state === 'degraded'
   ).length
-  const activeCount = channels.filter((channel) => channel.has_data).length
-  const stepMinutes = summaryQuery.data?.step_minutes ?? 5
+  const activeCount = trafficChannels.length
 
   let monitoringContent: ReactNode
   if (summaryQuery.isLoading) {
     monitoringContent = (
-      <div className='space-y-3'>
-        {[0, 1, 2, 3].map((item) => (
-          <Skeleton key={item} className='h-24 rounded-lg' />
+      <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
+        {[0, 1, 2, 3, 4, 5].map((item) => (
+          <Skeleton key={item} className='h-44 rounded-lg' />
         ))}
       </div>
     )
@@ -114,13 +114,13 @@ export function ChannelMonitoring() {
     )
   } else if (visibleChannels.length > 0) {
     monitoringContent = (
-      <div className='space-y-2'>
+      <div
+        className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'
+        role='list'
+        aria-label={t('Channel Availability')}
+      >
         {visibleChannels.map((channel) => (
-          <ChannelAvailabilityRow
-            key={channel.channel_id}
-            channel={channel}
-            stepMinutes={stepMinutes}
-          />
+          <ChannelAvailabilityRow key={channel.channel_id} channel={channel} />
         ))}
       </div>
     )
@@ -128,7 +128,7 @@ export function ChannelMonitoring() {
     let emptyDescription = t('No channel has recorded an attempt yet')
     if (search) {
       emptyDescription = t('No channels match your search')
-    } else if (hideIdle) {
+    } else if (channels.length > 0) {
       emptyDescription = t('No channel received traffic in this window')
     }
     monitoringContent = (
@@ -184,43 +184,19 @@ export function ChannelMonitoring() {
             }
           />
 
-          <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
-            <div className='space-y-1'>
-              <p className='text-muted-foreground text-sm'>
-                {t(
-                  'Built from real traffic. Every retry of a failed request counts as an attempt on the channel it hit, so a channel that fails over silently still shows its failures here.'
-                )}
-              </p>
-              {/* The cache hit rate is the one metric here that is neither
-                  attempt level nor comparable between providers, so the page
-                  states both limits instead of leaving them to a tooltip. */}
-              <p className='text-muted-foreground text-sm'>
-                {t(
-                  'Cache hit rate counts settled requests that reported cache usage, not attempts, and it is not comparable between providers: a Claude miss still reports a cache write and stays in the denominator, while an OpenAI miss reports nothing and is excluded. Compare a channel against itself over time, not against a channel on another provider.'
-                )}
-              </p>
-            </div>
-            <div className='flex items-center gap-3'>
-              <Label className='text-muted-foreground gap-2 text-xs'>
-                <Switch
-                  checked={hideIdle}
-                  onCheckedChange={(checked) => setHideIdle(checked)}
-                />
-                {t('Hide channels without traffic')}
-              </Label>
-              <div className='relative w-full sm:max-w-xs'>
-                <Search
-                  className='text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2'
-                  aria-hidden='true'
-                />
-                <Input
-                  className='pl-8'
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder={t('Search channels')}
-                  aria-label={t('Search channels')}
-                />
-              </div>
+          <div className='flex justify-end'>
+            <div className='relative w-full sm:w-72'>
+              <Search
+                className='text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2'
+                aria-hidden='true'
+              />
+              <Input
+                className='pl-8'
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder={t('Search channels')}
+                aria-label={t('Search channels')}
+              />
             </div>
           </div>
 

@@ -52,11 +52,11 @@ export type ChannelMonitoringCacheStats = {
    * Cache reads over normalized input tokens across the pre-filtered requests,
    * in percent.
    *
-   * NOT comparable across providers, and the UI has to say so. A Claude miss
-   * still reports cache_creation, so Claude's misses stay in the denominator.
-   * An OpenAI miss reports nothing at all and is dropped by the pre-filter, so
-   * only requests that did hit remain and the number reads systematically
-   * higher. Never rank channels on this value.
+   * Provider reporting semantics differ, so consumers must not sort or rank
+   * channels by this value. A Claude miss still reports cache_creation, so
+   * Claude's misses stay in the denominator. An OpenAI miss reports nothing at
+   * all and is dropped by the pre-filter, so only requests that did hit remain
+   * and the number reads systematically higher.
    */
   cache_hit_rate: number
   /** Share of settled requests that carried any cache signal, in percent. */

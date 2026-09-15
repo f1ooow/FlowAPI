@@ -29,7 +29,6 @@ const NO_VALUE = '--'
 function OverviewCard(props: {
   title: string
   value: string
-  hint: string
   valueClassName?: string
 }) {
   return (
@@ -48,7 +47,6 @@ function OverviewCard(props: {
         >
           {props.value}
         </div>
-        <p className='text-muted-foreground mt-2 text-xs'>{props.hint}</p>
       </CardContent>
     </Card>
   )
@@ -64,7 +62,6 @@ export function MonitoringOverviewCards(props: {
 }) {
   const { t } = useTranslation()
   const hasData = props.overall.has_data
-  const noDataHint = t('No attempts in this window')
 
   let availabilityClassName = 'text-muted-foreground'
   if (hasData) {
@@ -86,13 +83,6 @@ export function MonitoringOverviewCards(props: {
           hasData ? `${props.overall.availability_rate.toFixed(2)}%` : NO_VALUE
         }
         valueClassName={availabilityClassName}
-        hint={
-          hasData
-            ? t('Across {{count}} channel attempts', {
-                count: props.overall.attempt_count,
-              })
-            : noDataHint
-        }
       />
       <OverviewCard
         title={t('Average latency')}
@@ -101,12 +91,10 @@ export function MonitoringOverviewCards(props: {
             ? formatMilliseconds(props.overall.avg_latency_ms, t)
             : NO_VALUE
         }
-        hint={hasData ? t('Mean duration of a channel attempt') : noDataHint}
       />
       <OverviewCard
         title={t('Error rate')}
         value={hasData ? `${props.overall.error_rate.toFixed(2)}%` : NO_VALUE}
-        hint={hasData ? t('Share of attempts that failed') : noDataHint}
       />
       <OverviewCard
         title={t('Cache hit rate')}
@@ -114,14 +102,6 @@ export function MonitoringOverviewCards(props: {
           hasCacheData
             ? `${props.overall.cache_hit_rate.toFixed(2)}%`
             : NO_VALUE
-        }
-        hint={
-          hasCacheData
-            ? t(
-                'Cache reads over input tokens across the {{count}} settled requests that reported cache usage. Not comparable between providers.',
-                { count: props.overall.cache_signal_count }
-              )
-            : t('No request reported cache usage in this window')
         }
       />
     </div>

@@ -1,5 +1,7 @@
 # Implement: 管理员渠道可用性监控
 
+第一轮采集、存储、API 与基础页面已在提交 `845a85998` 完成。阶段 0-5 以下内容保留为历史设计记录，本轮只执行「第二轮可读性改造」和对应验证，不重复改动采集或查询合同。
+
 ## 阶段 0 — 前置
 
 - [ ] 任务 A（`09-10-group-monitor-real-traffic`）已完成并改动过 `controller/relay.go`。**先读实际代码**，不要照搬 research/design 里的旧行号。
@@ -26,7 +28,7 @@
 
 **打点（核心）** —— 挂在 attempt 级，不是请求级：
 - [ ] 文本 relay 成功：`RouteAttemptSucceeded` 分支，紧邻 `service.RecordAutoBanSuccess(channel.Id)`
-- [ ] 文本 relay 失败：`processChannelError` —— 所有失败 attempt 的唯一汇合点，优先挂这里而非各分支散落
+- [ ] 文本 relay 失败与成功统一在 relay attempt 完成点打点；不要挂到也被合成渠道测试调用的 `processChannelError`
 - [ ] 任务类：`RelayTask` 重试循环与成功分支、`RelayMidjourney`
 - [ ] **nil 检查**：`relayInfo.ChannelMeta` 为 nil（选渠道前就失败）时**跳过打点**，不要读 `info.ChannelId`，否则 panic
 - [ ] `IsChannelTest` 为 true 时跳过打点
@@ -75,11 +77,25 @@
 - [ ] 新建 `web/src/features/channel-monitoring/`
 - [ ] 路由 `web/src/routes/_authenticated/channel-monitoring/`，`beforeLoad` 判 `role < ROLE.ADMIN` → `redirect('/403')`，照抄 `routes/_authenticated/channels/index.tsx:36-44`
 - [ ] 侧边栏入口放进 `id: 'admin'` nav group（`use-sidebar-data.ts`）
-- [ ] 顶部三张汇总卡：整体可用性、平均延迟、错误率
-- [ ] 主体：按渠道逐行时间线 + 行尾可用率与请求数；无数据渠道显示「暂无数据」
+- [ ] 顶部四张汇总卡：整体可用性、平均延迟、错误率、缓存命中率
+- [ ] 主体：API 保留无数据语义，页面仅展示当前时间范围内有流量的渠道卡片
 - [ ] range 切换 15m / 1h / 6h / 24h / 7d
 - [ ] **不做**端点健康 tab、**不做**活跃探测/负载卡片
 - [ ] 文案进 i18n（扁平 JSON，key 用英文原文）
+
+### 第二轮可读性改造
+
+- [x] 在 `channel-monitoring/index.tsx` 固定过滤 `has_data == false` 的渠道，删除 `hideIdle` state、Switch 和相关分支
+- [x] 删除两段页面级口径长文，只保留搜索控件
+- [x] 将渠道容器改为手机 1 列 / 平板 2 列 / 宽屏 3 列的网格
+- [x] 重排 `ChannelAvailabilityRow` 为紧凑卡片：标题行、2×2 指标网格、微型时间线
+- [x] 删除「成功 / 尝试」与「每根色条时长」行尾脚注，保留 bucket 详情 tooltip
+- [x] 精简 `MonitoringOverviewCards` 为标签 + 数值，删除说明性 hint
+- [x] 保持缓存无样本时显示 `--`，不退化为 `0%`
+- [x] 更新页面、卡片和汇总卡的行为 / 布局测试
+- [x] 按 `i18n-translate` 技能确认当前语言包无需新增静态键
+- [x] 本地启动前端，用桌面、平板、手机视口截图检查密度、截断、重叠和溢出
+- [x] 不访问、部署或修改生产环境
 
 验证：
 ```bash
@@ -94,10 +110,12 @@ cd web && bun run typecheck && bun run build
 ```
 若触及 `relaykit/`：`cd relaykit && GOWORK=off go build ./...`
 
-三库：新查询至少在 SQLite 实跑；PG 的 `FLOOR` 分支与 MySQL 整除走查确认。
+三库：新查询至少在 SQLite 实跑；MySQL 的 `FLOOR` 分支与 PostgreSQL / SQLite 整除走查确认。
 
-- [ ] 非管理员访问：后端鉴权失败、前端跳 403
-- [ ] 逐条对照 prd.md 验收清单
+- [x] 非管理员访问：后端鉴权失败、前端跳 403（沿用现有聚焦测试）
+- [x] 逐条对照 prd.md 验收清单
+
+第二轮最终验证：前端 5 个相关测试文件 26 项、`bun run typecheck`、定向 lint / format、`bun run build` 与 `git diff --check` 均通过。页面在 1440、900 和 390 像素宽度完成本地截图验收；900 像素下发现并修复了四项指标并排导致的数值截断。全仓前端 lint 仍受本任务外既有错误阻塞。
 
 ## 阶段 7 — 收口
 

@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 
 import { formatBucketTime, formatMilliseconds } from '../lib/format'
@@ -48,34 +49,8 @@ function bucketTitle(
 }
 
 /**
- * The cache hit rate needs its caliber spelled out on every row, because it is
- * the one number on this page that is neither attempt level nor comparable
- * between providers.
- */
-function cacheHitTitle(
-  channel: ChannelMonitoringChannelSummary,
-  translate: (key: string, options?: Record<string, unknown>) => string
-) {
-  if (!channel.has_cache_data) {
-    return translate('No request reported cache usage in this window')
-  }
-  return [
-    translate(
-      'Cache reads over input tokens, summed across the {{signal}} of {{total}} settled requests that reported cache usage.',
-      {
-        signal: channel.cache_signal_count.toLocaleString(),
-        total: channel.cache_request_count.toLocaleString(),
-      }
-    ),
-    translate(
-      'Not comparable between providers: a Claude miss still reports a cache write and stays in the denominator, while an OpenAI miss reports nothing and is excluded, which reads higher.'
-    ),
-  ].join(' ')
-}
-
-/**
- * One channel row: identity on the left, the availability timeline underneath,
- * and the window totals at the end of the row.
+ * One channel card: identity and state first, then the window totals and the
+ * availability timeline.
  *
  * The number of timeline slots is whatever the API returned in `buckets`; the
  * backend sizes that array from the range and the effective bucket width, so no
@@ -83,7 +58,6 @@ function cacheHitTitle(
  */
 export function ChannelAvailabilityRow(props: {
   channel: ChannelMonitoringChannelSummary
-  stepMinutes: number
 }) {
   const { t } = useTranslation()
   const hasData = props.channel.has_data
@@ -99,8 +73,8 @@ export function ChannelAvailabilityRow(props: {
     : props.channel.channel_name
 
   return (
-    <div className='rounded-lg border p-3'>
-      <div className='flex flex-wrap items-center justify-between gap-x-4 gap-y-2'>
+    <Card size='sm' className='rounded-lg' role='listitem'>
+      <CardHeader className='grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3'>
         <div className='flex min-w-0 items-center gap-2'>
           <span
             className={cn(
@@ -122,103 +96,91 @@ export function ChannelAvailabilityRow(props: {
               {t('Deleted channel')}
             </Badge>
           )}
-          <Badge
-            variant='outline'
-            data-state={props.channel.state}
-            className={cn('shrink-0', stateTextClassName(props.channel.state))}
-          >
-            {t(stateLabelKey(props.channel.state))}
-          </Badge>
         </div>
+        <Badge
+          variant='outline'
+          data-state={props.channel.state}
+          className={cn('shrink-0', stateTextClassName(props.channel.state))}
+        >
+          {t(stateLabelKey(props.channel.state))}
+        </Badge>
+      </CardHeader>
 
-        <div className='flex shrink-0 items-baseline gap-x-6'>
-          <div className='text-right'>
-            <div
+      <CardContent>
+        <dl className='grid grid-cols-2 gap-x-4 gap-y-3'>
+          <div className='min-w-0'>
+            <dt className='text-muted-foreground text-[11px] leading-4'>
+              {t('Availability')}
+            </dt>
+            <dd
               className={cn(
-                'font-mono text-sm leading-none font-semibold',
+                'mt-1 whitespace-nowrap font-mono text-xl leading-none font-semibold tabular-nums',
                 stateTextClassName(props.channel.state)
               )}
+              title={
+                hasData
+                  ? `${props.channel.availability_rate.toFixed(2)}%`
+                  : NO_VALUE
+              }
             >
               {hasData
                 ? `${props.channel.availability_rate.toFixed(2)}%`
                 : NO_VALUE}
-            </div>
-            <div className='text-muted-foreground mt-1 text-[11px] uppercase'>
-              {t('Availability')}
-            </div>
+            </dd>
           </div>
-          <div className='text-right'>
-            <div className='font-mono text-sm leading-none font-semibold'>
+          <div className='min-w-0'>
+            <dt className='text-muted-foreground text-[11px] leading-4'>
+              {t('Avg latency')}
+            </dt>
+            <dd className='mt-1 font-mono text-sm leading-none font-semibold whitespace-nowrap tabular-nums'>
               {hasData
                 ? formatMilliseconds(props.channel.avg_latency_ms, t)
                 : NO_VALUE}
-            </div>
-            <div className='text-muted-foreground mt-1 text-[11px] uppercase'>
-              {t('Avg latency')}
-            </div>
+            </dd>
           </div>
-          <div className='text-right'>
-            <div className='font-mono text-sm leading-none font-semibold'>
-              {props.channel.attempt_count.toLocaleString()}
-            </div>
-            <div
-              className='text-muted-foreground mt-1 text-[11px] uppercase'
-              title={t(
-                'Channel attempts, not user requests. One request that fails over is counted on every channel it tried.'
-              )}
-            >
+          <div className='min-w-0'>
+            <dt className='text-muted-foreground text-[11px] leading-4'>
               {t('Attempts')}
-            </div>
+            </dt>
+            <dd
+              className='mt-1 font-mono text-sm leading-none font-semibold whitespace-nowrap tabular-nums'
+              title={props.channel.attempt_count.toLocaleString()}
+            >
+              {props.channel.attempt_count.toLocaleString()}
+            </dd>
           </div>
-          <div className='text-right'>
-            <div className='font-mono text-sm leading-none font-semibold'>
+          <div className='min-w-0'>
+            <dt className='text-muted-foreground text-[11px] leading-4'>
+              {t('Cache hit')}
+            </dt>
+            <dd className='mt-1 font-mono text-sm leading-none font-semibold whitespace-nowrap tabular-nums'>
               {hasCacheData
                 ? `${props.channel.cache_hit_rate.toFixed(2)}%`
                 : NO_VALUE}
-            </div>
-            <div
-              className='text-muted-foreground decoration-muted-foreground/50 mt-1 text-[11px] uppercase underline decoration-dotted'
-              title={cacheHitTitle(props.channel, t)}
-            >
-              {t('Cache hit')}
-            </div>
+            </dd>
           </div>
+        </dl>
+
+        <div
+          className='mt-4 grid h-6 auto-cols-fr grid-flow-col gap-0 sm:gap-px'
+          role='img'
+          aria-label={t('Availability timeline for {{name}}', {
+            name: displayName,
+          })}
+        >
+          {props.channel.buckets.map((bucket) => (
+            <span
+              key={bucket.ts}
+              data-state={bucket.state}
+              className={cn(
+                'min-w-0 rounded-[1px]',
+                bucketClassName(bucket.state)
+              )}
+              title={bucketTitle(bucket, t)}
+            />
+          ))}
         </div>
-      </div>
-
-      <div
-        className='mt-3 grid h-6 auto-cols-fr grid-flow-col gap-0 sm:gap-px'
-        role='img'
-        aria-label={t('Availability timeline for {{name}}', {
-          name: displayName,
-        })}
-      >
-        {props.channel.buckets.map((bucket) => (
-          <span
-            key={bucket.ts}
-            data-state={bucket.state}
-            className={cn(
-              'min-w-0 rounded-[1px]',
-              bucketClassName(bucket.state)
-            )}
-            title={bucketTitle(bucket, t)}
-          />
-        ))}
-      </div>
-
-      <div className='text-muted-foreground mt-2 flex items-center justify-between gap-2 text-[11px]'>
-        <span>
-          {hasData
-            ? t('{{success}} of {{total}} attempts succeeded', {
-                success: props.channel.success_count.toLocaleString(),
-                total: props.channel.attempt_count.toLocaleString(),
-              })
-            : t('No attempts in this window')}
-        </span>
-        <span>
-          {t('{{minutes}} min per bar', { minutes: props.stepMinutes })}
-        </span>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   )
 }

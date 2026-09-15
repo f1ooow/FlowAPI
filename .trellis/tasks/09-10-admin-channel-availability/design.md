@@ -50,15 +50,17 @@ type ChannelMetric struct {
 
 桶宽同样取 `perf_metrics_setting.GetBucketSeconds()`（任务 A 已默认 5min），分桶在 Go 侧算：`bucketStart(ts) = ts - ts%bucketSeconds`。
 
-### 3.2 打点位置：attempt 级（本方案的核心价值）
+### 3.2 打点位置：attempt 级（第一轮已完成）
 
 **必须挂在单次渠道尝试上**。若沿用 `perf_metrics` 的请求级打点，典型 failover（渠道 A 500 → 重试渠道 B 成功）只会产生一条记在 B 的成功样本，**A 的失败完全不可见**，可用率永远接近 100%。
 
-| 场景 | 挂载点（research 给出，实现时必须复核行号） |
+| 场景 | 已实现挂载点 |
 |---|---|
-| 文本 relay 成功 | `controller/relay.go` 的 `RouteAttemptSucceeded` 分支，紧邻 `service.RecordAutoBanSuccess(channel.Id)` |
-| 文本 relay 失败 | `processChannelError` —— **所有失败 attempt 的唯一汇合点**，文本 relay 和 `RelayTask` 都调用它 |
-| 任务类 | `RelayTask` 的重试循环与成功分支、`RelayMidjourney` |
+| 文本 relay | relay switch 后的 attempt 完成点同时记录成功和失败 |
+| 任务 relay | `RelayTask` 重试循环内记录每次提交尝试 |
+| Midjourney | 上游提交门控内记录尝试 |
+
+`processChannelError` 也被合成渠道测试调用，因此没有在该函数内打点，避免测试请求污染真实可用率。
 
 **注意**：任务 A 已经改过 `controller/relay.go`（新增 `recordTaskRelaySample`、删除 `group_monitoring_probe` 消费点、内联 `recordResilientRouteErrorLog`），research 里的行号已失效，以实际代码为准。
 
@@ -93,13 +95,13 @@ type ChannelMetric struct {
 SQL：`GROUP BY channel_id, (bucket_ts / step) * step`，方言分支照抄 `model/usedata_rankings.go:51-56`：
 
 ```go
-if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
     return fmt.Sprintf("FLOOR(bucket_ts / %d) * %d", step, step)
 }
 return fmt.Sprintf("(bucket_ts / %d) * %d", step, step)
 ```
 
-**与任务 A 的「禁止 SQL 侧时间分桶」不矛盾**：那条禁令针对的是对原始时间戳用 `strftime`/`DATE_FORMAT`/`date_trunc` 等**时间函数**分桶（四方言语义不一致）。这里 `bucket_ts` 已经是整数秒，做整数除法分桶是项目已有先例，只需处理 PG 整除的类型差异。
+**与任务 A 的「禁止 SQL 侧时间分桶」不矛盾**：那条禁令针对的是对原始时间戳用 `strftime`/`DATE_FORMAT`/`date_trunc` 等**时间函数**分桶（四方言语义不一致）。这里 `bucket_ts` 已经是整数秒，做整数除法分桶是项目已有先例；MySQL 的 `/` 返回 DECIMAL，需要 `FLOOR` 保持整数桶。
 
 ### 4.2 派生指标
 
@@ -151,11 +153,43 @@ GET /api/channel-monitoring/summary?range=24h
 
 - **路由守卫**：`beforeLoad` 判 `!auth.user || auth.user.role < ROLE.ADMIN` → `throw redirect({to: '/403'})`，照抄 `web/src/routes/_authenticated/channels/index.tsx:36-44`
 - **侧边栏**：放进 `id: 'admin'` 的 nav group（`use-sidebar-data.ts`），由 `use-sidebar-view.ts:53-63` 按角色过滤
-- 顶部三张汇总卡：整体可用性、平均延迟、错误率
-- 主体：按渠道逐行的时间线 + 行尾可用率与请求数；无数据渠道显示「暂无数据 / 无请求」
+- 顶部四张汇总卡：整体可用性、平均延迟、错误率、缓存命中率
+- 主体：仅对当前时间范围内有流量的渠道展示响应式卡片；API 仍保留无数据渠道的 `has_data: false` 语义
 - range 切换：15m / 1h / 6h / 24h / 7d
 - **不做**「端点健康」tab，**不做**「活跃探测 / 负载」这类依赖探针的卡片
 - 文案走 i18n
+
+### 6.1 第二轮可读性改造
+
+页面职责是让管理员快速找到有流量且表现异常的渠道。默认数据已按「最差可用率优先」排序，因此主界面应把状态和数值放在前面，把统计口径留在代码与文档中。
+
+```text
+标题 + 有流量/异常数                 [15m 1h 6h 24h 7d]
+[整体可用性] [平均延迟] [错误率] [缓存命中率]
+                                                    [搜索渠道]
+
+[渠道卡] [渠道卡] [渠道卡]
+[渠道卡] [渠道卡] [渠道卡]
+```
+
+渠道卡片内部：
+
+```text
+状态点  渠道名 #ID                         [状态]
+
+可用率（主）                 平均延迟
+尝试数                       缓存命中
+[======================= 微型时间线 =======================]
+```
+
+- 布局使用 `grid gap-3 md:grid-cols-2 xl:grid-cols-3`；卡片内指标固定为 2×2 网格，保证平板两列布局下完整显示数值。
+- 卡片使用现有语义颜色和小圆角，不引入参考图的米色背景、大圆角或新的视觉主题。
+- 主指标用数值层级和现有状态色表达；状态同时有文本 badge，不只依赖颜色。
+- 时间线在 15m 至 7d 不同 bucket 数下均填满固定高度，不显示额外脚注；bucket 仍通过 title / tooltip 提供精确时间与成败数。
+- 默认在渲染前过滤 `has_data == false` 的渠道，删除 `hideIdle` 本地状态和 Switch。
+- 删除所有可见的口径解释与行尾注释；缓存指标仍保留 `has_cache_data` 的空值语义，不把缺少样本显示为 0%。
+- 搜索输入是页面唯一的列表控件，在手机端占满宽度，在桌面端右对齐。
+- 更新已有行级和页面测试，增加响应式布局契约测试，并在本地桌面 / 平板 / 手机视口做截图验收。
 
 ## 7. 不能碰的东西
 
@@ -172,7 +206,7 @@ A 已完成并改动了 `controller/relay.go`。B 在同一文件继续加 attem
 | 风险 | 影响 | 缓解 |
 |---|---|---|
 | `ChannelMeta` nil panic | 选渠道前失败时崩溃 | 显式 nil 检查，跳过打点（§3.3） |
-| attempt 级打点遗漏某条失败路径 | 可用率虚高 | 优先挂在 `processChannelError` 这个唯一汇合点，而非各分支散落 |
+| attempt 级打点遗漏某条失败路径 | 可用率虚高 | 第一轮已在 relay attempt 完成点、任务重试循环和 Midjourney 提交门控处接入并覆盖 failover 测试 |
 | 7d 查询数据量 | 慢查询 | SQL 侧按 step 聚合，不全量取回；`bucket_ts` 有索引 |
 | 渠道数增长 | 页面行数过多 | 行数 = 渠道数，运营可控；必要时前端分页/筛选 |
-| PG 整除类型差异 | 分桶结果错误 | 用 `FLOOR` 分支，照抄既有先例 |
+| MySQL `/` 返回 DECIMAL | 分桶无法正确降采样 | MySQL 使用 `FLOOR`，并由方言表达式测试保护 |

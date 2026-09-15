@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, test, vi } from 'vitest'
 
@@ -127,14 +127,14 @@ function renderPage() {
 }
 
 describe('ChannelMonitoring page', () => {
-  test('requests the default 24h window and lists every channel', async () => {
+  test('requests the default 24h window and excludes channels without traffic', async () => {
     const requestedRanges = renderPage()
 
     await waitFor(() => {
       expect(screen.getByText('Primary')).toBeInTheDocument()
     })
     expect(requestedRanges).toEqual(['24h'])
-    expect(screen.getByText('Idle backup')).toBeInTheDocument()
+    expect(screen.queryByText('Idle backup')).toBeNull()
   })
 
   test('refetches with the range the API advertised when one is picked', async () => {
@@ -154,19 +154,43 @@ describe('ChannelMonitoring page', () => {
     )
   })
 
-  test('hides channels without traffic once the filter is switched on', async () => {
+  test('filters active channels by name or id', async () => {
+    const user = userEvent.setup()
     renderPage()
     await waitFor(() => {
-      expect(screen.getByText('Idle backup')).toBeInTheDocument()
+      expect(screen.getByText('Primary')).toBeInTheDocument()
     })
 
-    await userEvent.click(
-      screen.getByRole('switch', { name: 'Hide channels without traffic' })
-    )
+    const search = screen.getByRole('textbox', { name: 'Search channels' })
+    await user.type(search, 'missing')
+    expect(screen.queryByText('Primary')).toBeNull()
+    expect(
+      screen.getByText('No channels match your search')
+    ).toBeInTheDocument()
 
-    await waitFor(() => {
-      expect(screen.queryByText('Idle backup')).toBeNull()
-    })
+    await user.clear(search)
+    await user.type(search, '1')
     expect(screen.getByText('Primary')).toBeInTheDocument()
+  })
+
+  test('uses a one two three-column channel card grid', async () => {
+    renderPage()
+
+    const channelList = await screen.findByRole('list', {
+      name: 'Channel Availability',
+    })
+    expect(channelList).toHaveClass('grid', 'md:grid-cols-2', 'xl:grid-cols-3')
+    expect(within(channelList).getAllByRole('listitem')).toHaveLength(1)
+  })
+
+  test('omits the idle toggle and monitoring caliber paragraphs', async () => {
+    renderPage()
+    await screen.findByText('Primary')
+
+    expect(screen.queryByRole('switch')).toBeNull()
+    expect(screen.queryByText(/Built from real traffic/)).toBeNull()
+    expect(
+      screen.queryByText(/Cache hit rate counts settled requests/)
+    ).toBeNull()
   })
 })
