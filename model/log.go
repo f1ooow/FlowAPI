@@ -146,7 +146,9 @@ func createLog(log *Log) error {
 }
 
 func clickHouseLogOrder(prefix string) string {
-	return prefix + "created_at desc, " + prefix + "request_id desc"
+	// Hedge charge rows share a timestamp/request ID; Other retains the attempt ID.
+	return prefix + "created_at desc, " + prefix + "request_id desc, " +
+		prefix + "channel_id desc, " + prefix + "upstream_request_id desc, " + prefix + "other desc"
 }
 
 func assignDisplayLogIds(logs []*Log, startIdx int) {
@@ -770,7 +772,11 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	tx := LOG_DB.Table("logs").Select("COALESCE(sum(quota), 0) quota")
 
 	// 为rpm和tpm创建单独的查询
-	rpmTpmQuery := LOG_DB.Table("logs").Select("count(*) rpm, COALESCE(sum(prompt_tokens), 0) + COALESCE(sum(completion_tokens), 0) tpm")
+	// A late losing charge must never create a new logical request sample.
+	// Count ordinary rows here and inspect only possible hedge metadata below;
+	// all attempt tokens remain additive, and legacy request IDs stay untouched.
+	const hedgeMetadataPattern = `%"hedge"%`
+	rpmTpmQuery := LOG_DB.Table("logs").Select("COALESCE(SUM(CASE WHEN other LIKE ? THEN 0 ELSE 1 END), 0) rpm, COALESCE(sum(prompt_tokens), 0) + COALESCE(sum(completion_tokens), 0) tpm", hedgeMetadataPattern)
 
 	if tx, err = applyExplicitLogTextFilter(tx, "username", username); err != nil {
 		return stat, err
@@ -816,6 +822,35 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	}
 	if err := rpmTpmQuery.Scan(&stat).Error; err != nil {
 		common.SysError("failed to query rpm/tpm stat: " + err.Error())
+		return stat, errors.New("查询统计数据失败")
+	}
+	// Parse in Go because historical Other values may be invalid JSON, and
+	// JSON validation/extraction differs across supported log databases. Stream
+	// only the matching last-minute metadata, not the entire consumption log.
+	rows, err := rpmTpmQuery.Session(&gorm.Session{}).Select("other").Where("other LIKE ?", hedgeMetadataPattern).Rows()
+	if err != nil {
+		common.SysError("failed to query hedge rpm metadata: " + err.Error())
+		return stat, errors.New("查询统计数据失败")
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var other string
+		if err := rows.Scan(&other); err != nil {
+			common.SysError("failed to read hedge rpm metadata: " + err.Error())
+			return stat, errors.New("查询统计数据失败")
+		}
+		var metadata struct {
+			Hedge *struct {
+				Role string `json:"role"`
+			} `json:"hedge"`
+		}
+		if common.UnmarshalJsonStr(other, &metadata) == nil && metadata.Hedge != nil && metadata.Hedge.Role == "loser" {
+			continue
+		}
+		stat.Rpm++
+	}
+	if err := rows.Err(); err != nil {
+		common.SysError("failed to read hedge rpm metadata: " + err.Error())
 		return stat, errors.New("查询统计数据失败")
 	}
 

@@ -432,21 +432,34 @@ func usageSemanticFromUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) 
 }
 
 func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent []string) {
+	if attempt := relayInfo.Hedge; attempt != nil && !attempt.Finalizing {
+		attempt.Usage = usage
+		attempt.ExtraContent = append([]string(nil), extraContent...)
+		return
+	}
 	originUsage := usage
 	billingUsage := effectiveBillingUsage(usage)
 	if usage == nil {
 		extraContent = append(extraContent, "上游无计费信息")
 	}
-	if originUsage != nil {
+	if originUsage != nil && (relayInfo.Hedge == nil || relayInfo.Hedge.Winner.Load()) {
 		ObserveChannelAffinityUsageCacheByRelayFormat(ctx, billingUsage, relayInfo.GetFinalRequestRelayFormat())
 	}
 
 	adminRejectReason := common.GetContextKeyString(ctx, constant.ContextKeyAdminRejectReason)
 	summary := calculateTextQuotaSummary(ctx, relayInfo, billingUsage)
+	billableAttempt := relayInfo.Hedge == nil || ((relayInfo.Hedge.Winner.Load() || relayInfo.Hedge.BillableLoser) && relayInfo.Hedge.MeteringStatus != "unmetered")
+	if !billableAttempt {
+		// Keep received usage observable even when policy waives the charge.
+		// Neither inferred tools nor constant expressions can undo a refund.
+		summary.Quota = 0
+		summary.ToolCallSurchargeQuota = decimal.Zero
+		summary.ToolSurchargeItems = nil
+	}
 
 	var tieredResult *billingexpr.TieredResult
 	tieredBillingApplied := false
-	if originUsage != nil {
+	if originUsage != nil && billableAttempt {
 		var tieredUsedVars map[string]bool
 		if snap := relayInfo.TieredBillingSnapshot; snap != nil {
 			tieredUsedVars = billingexpr.UsedVars(snap.ExprString)
@@ -479,14 +492,26 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 
 	if !summary.hasBillableUsage() {
 		extraContent = append(extraContent, "上游没有返回计费信息，无法扣费（可能是上游超时）")
+		if relayInfo.Hedge != nil && relayInfo.Hedge.Winner.Load() {
+			model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, 0)
+		}
 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, cannot consume quota, userId %d, channelId %d, tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, summary.ModelName, relayInfo.FinalPreConsumedQuota))
 	} else {
-		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
+		if relayInfo.Hedge != nil && !relayInfo.Hedge.Winner.Load() {
+			model.UpdateUserUsedQuota(relayInfo.UserId, summary.Quota)
+		} else {
+			model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, summary.Quota)
+		}
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
 	}
 
 	if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
 		logger.LogError(ctx, "error settling billing: "+err.Error())
+		if relayInfo.Hedge != nil {
+			relayInfo.Hedge.SettlementStatus = "failed"
+		}
+	} else if a := relayInfo.Hedge; a != nil && !a.Winner.Load() && !a.BillableLoser {
+		a.SettlementStatus = "not_billed"
 	}
 
 	logModel := summary.ModelName
@@ -559,6 +584,30 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 
 	attachQuotaSaturation(ctx, relayInfo, other)
+	if relayInfo.Hedge != nil {
+		other["hedge"] = relayInfo.Hedge.LogInfo()
+	}
+
+	// A request the upstream answered without any usage at all tells us nothing
+	// about caching, so it is left out of the cache sample entirely rather than
+	// counted as "a request with no cache signal", which would understate the
+	// engagement rate. The channel id is safe to read here: settlement only
+	// happens after a channel was picked.
+	channelId := relayInfo.ChannelId
+	cacheSample := channelCacheSample(summary)
+	recordCacheSample := originUsage != nil && (relayInfo.Hedge == nil || relayInfo.Hedge.MeteringStatus != "unmetered")
+	recordMetrics := func() {
+		if relayInfo.Hedge == nil || relayInfo.Hedge.Winner.Load() {
+			success := relayInfo.Hedge == nil || (relayInfo.StreamStatus != nil && relayInfo.StreamStatus.IsNormalEnd() && !relayInfo.StreamStatus.HasErrors())
+			perfmetrics.RecordRelaySample(relayInfo, success, int64(summary.CompletionTokens))
+		}
+		if recordCacheSample {
+			perfmetrics.RecordChannelCacheUsage(relayInfo, channelId, cacheSample)
+		}
+	}
+	if relayInfo.Hedge != nil {
+		recordMetrics()
+	}
 
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,
@@ -574,18 +623,7 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		Group:            relayInfo.UsingGroup,
 		Other:            other,
 	})
-	// A request the upstream answered without any usage at all tells us nothing
-	// about caching, so it is left out of the cache sample entirely rather than
-	// counted as "a request with no cache signal", which would understate the
-	// engagement rate. The channel id is safe to read here: settlement only
-	// happens after a channel was picked.
-	channelId := relayInfo.ChannelId
-	cacheSample := channelCacheSample(summary)
-	recordCacheSample := originUsage != nil
-	gopool.Go(func() {
-		perfmetrics.RecordRelaySample(relayInfo, true, int64(summary.CompletionTokens))
-		if recordCacheSample {
-			perfmetrics.RecordChannelCacheUsage(relayInfo, channelId, cacheSample)
-		}
-	})
+	if relayInfo.Hedge == nil {
+		gopool.Go(recordMetrics)
+	}
 }

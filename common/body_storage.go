@@ -29,6 +29,44 @@ type BodyStorage interface {
 	NewReader() (io.ReadCloser, error)
 }
 
+// ForkBodyStorage retains an independent cursor and file descriptor. The fork
+// remains usable after request middleware releases the original backing file.
+func ForkBodyStorage(storage BodyStorage) (BodyStorage, error) {
+	if memory, ok := storage.(*memoryStorage); ok {
+		data, err := memory.Bytes()
+		if err != nil {
+			return nil, err
+		}
+		return newMemoryStorage(data), nil
+	}
+	reader, err := storage.NewReader()
+	if err != nil {
+		return nil, err
+	}
+	file, ok := reader.(*os.File)
+	if !ok {
+		reader.Close()
+		return nil, fmt.Errorf("body storage does not support independent seek")
+	}
+	return &bodyStorageView{SectionReader: io.NewSectionReader(file, 0, storage.Size()), file: file, size: storage.Size()}, nil
+}
+
+type bodyStorageView struct {
+	*io.SectionReader
+	file *os.File
+	size int64
+}
+
+func (v *bodyStorageView) Size() int64  { return v.size }
+func (v *bodyStorageView) IsDisk() bool { return true }
+func (v *bodyStorageView) Close() error { return v.file.Close() }
+func (v *bodyStorageView) Bytes() ([]byte, error) {
+	return io.ReadAll(io.NewSectionReader(v.file, 0, v.size))
+}
+func (v *bodyStorageView) NewReader() (io.ReadCloser, error) {
+	return io.NopCloser(io.NewSectionReader(v.file, 0, v.size)), nil
+}
+
 // ReplayableBody is an outbound request body that can report its byte size and
 // create independent readers for transport-level retries.
 type ReplayableBody interface {

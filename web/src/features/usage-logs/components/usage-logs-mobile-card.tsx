@@ -46,7 +46,8 @@ import {
   isDisplayableLogType,
   isTimingLogType,
 } from '../lib/utils'
-import type { LogCategory } from '../types'
+import type { LogCategory, LogOtherData } from '../types'
+import { HedgeAttemptStatus } from './hedge-attempt-status'
 import { StreamTpsCell, TimingMetricsCell } from './timing-metrics-cell'
 import { useUsageLogsContext } from './usage-logs-provider'
 
@@ -156,9 +157,11 @@ function SummaryField<TData>({
 function MobileLogTimeStatus({
   createdAt,
   type,
+  hedge,
 }: {
   createdAt: unknown
   type: unknown
+  hedge?: LogOtherData['hedge']
 }) {
   const { t } = useTranslation()
   const timestamp = typeof createdAt === 'number' ? createdAt : undefined
@@ -171,18 +174,25 @@ function MobileLogTimeStatus({
       <div className='font-mono text-xs leading-tight tabular-nums'>
         {formatTimestampToDate(timestamp)}
       </div>
-      <div
-        className={cn(
-          'inline-flex items-center gap-1 text-xs leading-none font-medium',
-          textColorMap[variant]
-        )}
-      >
-        <span
-          className={cn('size-1.5 shrink-0 rounded-full', dotColorMap[variant])}
-          aria-hidden='true'
-        />
-        <span>{t(config.label)}</span>
-      </div>
+      {hedge ? (
+        <HedgeAttemptStatus hedge={hedge} />
+      ) : (
+        <div
+          className={cn(
+            'inline-flex items-center gap-1 text-xs leading-none font-medium',
+            textColorMap[variant]
+          )}
+        >
+          <span
+            className={cn(
+              'size-1.5 shrink-0 rounded-full',
+              dotColorMap[variant]
+            )}
+            aria-hidden='true'
+          />
+          <span>{t(config.label)}</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -334,6 +344,7 @@ function CommonLogsCard<TData>({
           <MobileLogTimeStatus
             createdAt={rowData?.created_at}
             type={rowData?.type}
+            hedge={rowData ? parseLogOther(rowData.other)?.hedge : undefined}
           />
         </div>
         <SummaryField

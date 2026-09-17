@@ -57,6 +57,9 @@ const ADVANCED_SETTINGS_FIELDS = new Set<FieldPath<ChannelFormValues>>([
   'channel_max_attempts',
   'auto_ban_threshold',
   'auto_ban_duration_minutes',
+  'first_content_timeout_seconds',
+  'streaming_idle_timeout_seconds',
+  'non_streaming_timeout_seconds',
 ])
 
 export function isAdvancedSettingsField(

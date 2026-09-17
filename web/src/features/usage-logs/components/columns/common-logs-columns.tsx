@@ -58,6 +58,7 @@ import {
 } from '../../lib/utils'
 import type { LogOtherData } from '../../types'
 import { DetailsDialog } from '../dialogs/details-dialog'
+import { HedgeAttemptStatus } from '../hedge-attempt-status'
 import { LogCostDisplay } from '../log-cost-display'
 import { ModelBadge } from '../model-badge'
 import { RouteHistoryTimeline } from '../route-history-timeline'
@@ -276,19 +277,24 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const log = row.original
         const timestamp = row.getValue('created_at') as number
         const config = getLogTypeConfig(log.type)
+        const hedge = parseLogOther(log.other)?.hedge
 
         return (
           <div className='flex min-w-0 flex-col gap-0.5'>
             <span className='truncate font-mono text-xs tabular-nums'>
               {formatTimestampToDate(timestamp)}
             </span>
-            <StatusBadge
-              label={t(config.label)}
-              variant={config.color as StatusBadgeProps['variant']}
-              size='sm'
-              copyable={false}
-              className='-ml-1.5 !text-xs [&_span]:!text-xs'
-            />
+            {hedge ? (
+              <HedgeAttemptStatus hedge={hedge} />
+            ) : (
+              <StatusBadge
+                label={t(config.label)}
+                variant={config.color as StatusBadgeProps['variant']}
+                size='sm'
+                copyable={false}
+                className='-ml-1.5 !text-xs [&_span]:!text-xs'
+              />
+            )}
           </div>
         )
       },

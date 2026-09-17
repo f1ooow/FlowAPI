@@ -335,6 +335,9 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.channel_max_attempts !== 2 ||
     values.auto_ban_threshold !== 5 ||
     values.auto_ban_duration_minutes !== 30 ||
+    values.first_content_timeout_seconds > 0 ||
+    values.streaming_idle_timeout_seconds > 0 ||
+    values.non_streaming_timeout_seconds > 0 ||
     values.proxy?.trim() ||
     values.system_prompt?.trim() ||
     values.force_format ||
@@ -728,6 +731,15 @@ export function ChannelMutateDrawer({
   const currentChannelMaxAttempts = form.watch('channel_max_attempts')
   const currentAutoBanThreshold = form.watch('auto_ban_threshold')
   const currentAutoBanDurationMinutes = form.watch('auto_ban_duration_minutes')
+  const currentFirstContentTimeoutSeconds = form.watch(
+    'first_content_timeout_seconds'
+  )
+  const currentStreamingIdleTimeoutSeconds = form.watch(
+    'streaming_idle_timeout_seconds'
+  )
+  const currentNonStreamingTimeoutSeconds = form.watch(
+    'non_streaming_timeout_seconds'
+  )
   const currentTag = form.watch('tag')
   const currentRemark = form.watch('remark')
   const currentStatusCodeMapping = form.watch('status_code_mapping')
@@ -993,7 +1005,10 @@ export function ChannelMutateDrawer({
   const reliabilityConfigured = Boolean(
     currentChannelMaxAttempts !== 2 ||
     currentAutoBanThreshold !== 5 ||
-    currentAutoBanDurationMinutes !== 30
+    currentAutoBanDurationMinutes !== 30 ||
+    currentFirstContentTimeoutSeconds > 0 ||
+    currentStreamingIdleTimeoutSeconds > 0 ||
+    currentNonStreamingTimeoutSeconds > 0
   )
   const routingStrategyConfigured = Boolean(
     currentPriority ||

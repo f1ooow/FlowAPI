@@ -77,6 +77,7 @@ const createRoutingReliabilitySchema = (
   z
     .object({
       RetryTimes: z.coerce.number().min(0).max(10),
+      general_setting: z.object({ bill_hedge_losers: z.boolean() }),
       ChannelDisableThreshold: numericString,
       AutomaticDisableChannelEnabled: z.boolean(),
       AutomaticEnableChannelEnabled: z.boolean(),
@@ -136,6 +137,7 @@ type RoutingReliabilityFormInput = z.input<RoutingReliabilitySchema>
 
 type RoutingReliabilitySectionProps = {
   defaultValues: {
+    'general_setting.bill_hedge_losers'?: boolean
     RetryTimes: number
     ChannelDisableThreshold: string
     AutomaticDisableChannelEnabled: boolean
@@ -155,6 +157,7 @@ function normalizeLineEndings(value: string) {
 }
 
 type NormalizedRoutingReliabilityValues = {
+  'general_setting.bill_hedge_losers': boolean
   RetryTimes: number
   ChannelDisableThreshold: string
   AutomaticDisableChannelEnabled: boolean
@@ -178,6 +181,9 @@ function normalizeChannelTestMode(value?: string): ChannelTestMode {
 const buildFormDefaults = (
   defaults: RoutingReliabilitySectionProps['defaultValues']
 ): RoutingReliabilityFormInput => ({
+  general_setting: {
+    bill_hedge_losers: defaults['general_setting.bill_hedge_losers'] ?? true,
+  },
   RetryTimes: defaults.RetryTimes ?? 0,
   ChannelDisableThreshold: defaults.ChannelDisableThreshold ?? '',
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
@@ -203,6 +209,8 @@ const buildFormDefaults = (
 const normalizeDefaults = (
   defaults: RoutingReliabilitySectionProps['defaultValues']
 ): NormalizedRoutingReliabilityValues => ({
+  'general_setting.bill_hedge_losers':
+    defaults['general_setting.bill_hedge_losers'] ?? true,
   RetryTimes: defaults.RetryTimes ?? 0,
   ChannelDisableThreshold: (defaults.ChannelDisableThreshold ?? '').trim(),
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
@@ -230,6 +238,7 @@ const normalizeDefaults = (
 const normalizeFormValues = (
   values: RoutingReliabilityFormValues
 ): NormalizedRoutingReliabilityValues => ({
+  'general_setting.bill_hedge_losers': values.general_setting.bill_hedge_losers,
   RetryTimes: values.RetryTimes,
   ChannelDisableThreshold: values.ChannelDisableThreshold.trim(),
   AutomaticDisableChannelEnabled: values.AutomaticDisableChannelEnabled,
@@ -320,10 +329,11 @@ export function RoutingReliabilitySection({
 
     for (const key of updates) {
       const value = normalized[key]
-      await updateOption.mutateAsync({
+      const result = await updateOption.mutateAsync({
         key,
         value,
       })
+      if (!result.success) return
     }
 
     baselineRef.current = normalized
@@ -337,6 +347,31 @@ export function RoutingReliabilitySection({
             onSave={form.handleSubmit(onSubmit)}
             isSaving={updateOption.isPending}
           />
+
+          <FormField
+            control={form.control}
+            name='general_setting.bill_hedge_losers'
+            render={({ field }) => (
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <FormLabel>{t('Bill provider racing losers')}</FormLabel>
+                  <FormDescription>
+                    {t(
+                      'When enabled, only losing attempts that already have a protocol-valid response prefix when a winner is selected continue bounded background metering and user billing. Headers and heartbeats alone do not qualify. When disabled, losing attempts are cancelled and only the winner is billed.'
+                    )}
+                  </FormDescription>
+                </SettingsSwitchContent>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                </FormControl>
+              </SettingsSwitchItem>
+            )}
+          />
+
+          <Separator />
 
           <div className='flex min-w-0 flex-col gap-4'>
             <div className='flex flex-col gap-1'>

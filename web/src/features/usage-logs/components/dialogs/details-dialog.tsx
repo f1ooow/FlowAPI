@@ -83,6 +83,11 @@ import {
   isTimingLogType,
 } from '../../lib/utils'
 import { USAGE_BILLING_PATH, type LogOtherData } from '../../types'
+import {
+  HedgeAttemptStatus,
+  HedgeMeteringStatus,
+} from '../hedge-attempt-status'
+import { LogCostDisplay } from '../log-cost-display'
 import { RouteHistoryTimeline } from '../route-history-timeline'
 
 // Maps a channel-update changed-field token (as recorded by the backend audit)
@@ -388,7 +393,7 @@ function BillingBreakdown(props: {
   }
 
   rows.push({
-    label: t('Total Cost'),
+    label: other.hedge ? t('Attempt charge') : t('Total Cost'),
     value: formatLogQuota(log.quota),
   })
 
@@ -489,9 +494,12 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const isTopup = props.log.type === 1
   const isManage = props.log.type === 3
   const isSubscription = other?.billing_source === 'subscription'
-  const isTieredBilling =
+  const showBillingBreakdown =
     isConsume &&
     !isViolation &&
+    (!other?.hedge || other.hedge.settlement_status === 'settled')
+  const isTieredBilling =
+    showBillingBreakdown &&
     other?.billing_mode === 'tiered_expr' &&
     !!other?.expr_b64
   const hasAudioTokens = other?.ws || other?.audio
@@ -623,12 +631,16 @@ export function DetailsDialog(props: DetailsDialogProps) {
       title={
         <>
           {t('Log Details')}
-          <StatusBadge
-            label={t(typeConfig.label)}
-            variant={typeConfig.color as StatusBadgeProps['variant']}
-            size='sm'
-            copyable={false}
-          />
+          {other?.hedge ? (
+            <HedgeAttemptStatus hedge={other.hedge} />
+          ) : (
+            <StatusBadge
+              label={t(typeConfig.label)}
+              variant={typeConfig.color as StatusBadgeProps['variant']}
+              size='sm'
+              copyable={false}
+            />
+          )}
         </>
       }
       description={t('View the complete details for this log entry')}
@@ -644,6 +656,32 @@ export function DetailsDialog(props: DetailsDialogProps) {
       bodyClassName='pr-2 sm:pr-4'
     >
       <div className='w-full max-w-full min-w-0 space-y-2.5 overflow-x-hidden py-1 sm:space-y-3'>
+        {other?.hedge && (
+          <DetailSection label={t('Provider racing')}>
+            <DetailRow
+              label={t('Attempt ID')}
+              value={other.hedge.attempt_id}
+              mono
+            />
+            <DetailRow
+              label={t('Attempt')}
+              value={String(other.hedge.attempt)}
+            />
+            <DetailRow
+              label={t('Usage')}
+              value={<HedgeMeteringStatus hedge={other.hedge} />}
+            />
+            <DetailRow
+              label={t('Attempt charge')}
+              value={<LogCostDisplay quota={props.log.quota} other={other} />}
+            />
+            <p className='text-muted-foreground text-xs'>
+              {t(
+                'Charges with the same request ID are added together. Extra racing charges may appear later.'
+              )}
+            </p>
+          </DetailSection>
+        )}
         {/* Overview section - key identifiers */}
         <div className='min-w-0 space-y-1'>
           {props.log.request_id && (
@@ -1090,7 +1128,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
         )}
 
         {/* Billing breakdown (consume type) */}
-        {isConsume && other && !isViolation && (
+        {showBillingBreakdown && other && (
           <BillingBreakdown
             log={props.log}
             other={other}

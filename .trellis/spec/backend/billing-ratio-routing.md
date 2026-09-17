@@ -51,6 +51,10 @@ effective = base group ratio * user-group ratio * (include channel ratio ? selec
 - Missing user-group ratio is `1`; a configured zero is preserved.
 - Resolve the ratio after every channel/group selection, including retries.
 - Before sending the upstream attempt, reserve the recomputed target if it exceeds the existing reservation.
+- This maximum-reservation rule applies to serial retries sharing one billing
+  session. Concurrent [hedge attempts](./streaming-provider-hedge.md) require
+  independent additive reservations and their own immutable effective-ratio
+  snapshots; each billable attempt settles only its own usage.
 - Settlement uses the last successful route's effective ratio; a cheaper route refunds through normal settlement.
 - Asynchronous tasks snapshot all component ratios and the effective ratio. Polling and token recalculation must not read current mutable settings.
 - Anonymous group responses may expose the existing base `ratio`, but never cost-derived ranges or raw channel ratios.

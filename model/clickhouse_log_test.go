@@ -97,8 +97,27 @@ func TestClickHouseCreateTableHasTTL(t *testing.T) {
 }
 
 func TestClickHouseLogOrder(t *testing.T) {
-	assert.Equal(t, "created_at desc, request_id desc", clickHouseLogOrder(""))
-	assert.Equal(t, "logs.created_at desc, logs.request_id desc", clickHouseLogOrder("logs."))
+	db := setupHedgeLogDB(t)
+	logs := []Log{
+		{CreatedAt: 100, RequestId: "race", ChannelId: 11, UpstreamRequestId: "upstream", Other: `{"hedge":{"attempt_id":"a"}}`},
+		{CreatedAt: 100, RequestId: "race", ChannelId: 12, UpstreamRequestId: "upstream", Other: `{"hedge":{"attempt_id":"c"}}`},
+		{CreatedAt: 100, RequestId: "race", ChannelId: 11, UpstreamRequestId: "upstream", Other: `{"hedge":{"attempt_id":"b"}}`},
+		{CreatedAt: 100, RequestId: "race", ChannelId: 11, UpstreamRequestId: "upstream-z", Other: `{"hedge":{"attempt_id":"d"}}`},
+	}
+	require.NoError(t, db.Create(&logs).Error)
+	for _, prefix := range []string{"", "logs."} {
+		t.Run("prefix="+prefix, func(t *testing.T) {
+			var ids []int
+			for offset := 0; offset < len(logs); offset += 2 {
+				var page []Log
+				require.NoError(t, db.Table("logs").Order(clickHouseLogOrder(prefix)).Offset(offset).Limit(2).Find(&page).Error)
+				for _, entry := range page {
+					ids = append(ids, entry.Id)
+				}
+			}
+			assert.Equal(t, []int{logs[1].Id, logs[3].Id, logs[2].Id, logs[0].Id}, ids)
+		})
+	}
 }
 
 func TestBuildLogLikeConditionUsesStandardEscape(t *testing.T) {

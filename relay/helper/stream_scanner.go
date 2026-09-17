@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -86,12 +87,29 @@ func StreamScannerHandlerWithGate(c *gin.Context, resp *http.Response, info *rel
 	return streamScannerHandler(c, resp, info, protocol, dataHandler)
 }
 
+type streamIdleReader struct {
+	io.Reader
+	timer   *time.Ticker
+	timeout time.Duration
+}
+
+func (r *streamIdleReader) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	if n > 0 {
+		r.timer.Reset(r.timeout)
+	}
+	return n, err
+}
+
 func streamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, protocol StreamProtocol, dataHandler func(data string, sr *StreamResult)) *types.NewAPIError {
 
 	if resp == nil || dataHandler == nil || info == nil {
 		return nil
 	}
 	gateEnabled := protocol != ""
+	// Separate from adapter state: the scanner sees each upstream event once,
+	// including the precommit prefix, and keeps no losing answer content.
+	toolCollector := &relaycommon.RelayInfo{OriginModelName: info.OriginModelName}
 
 	// 无条件新建 StreamStatus
 	if gateEnabled {
@@ -102,18 +120,34 @@ func streamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	streamingTimeout := time.Duration(constant.StreamingTimeout) * time.Second
+	var streamingTimeout time.Duration
+	if settings := info.ChannelSetting.Reliability; settings != nil && settings.StreamingIdleTimeoutSeconds != nil {
+		streamingTimeout = time.Duration(*settings.StreamingIdleTimeoutSeconds) * time.Second
+	}
+	// A stopped timer supplies a nil channel, preserving an explicit disabled override.
+	var idleC <-chan time.Time
+	var ticker *time.Ticker
+	if streamingTimeout > 0 {
+		ticker = time.NewTicker(streamingTimeout)
+		idleC = ticker.C
+	}
 
+	var streamReader io.Reader = resp.Body
+	if ticker != nil {
+		streamReader = &streamIdleReader{Reader: resp.Body, timer: ticker, timeout: streamingTimeout}
+	}
 	var (
 		stopChan    = make(chan bool, 3) // 增加缓冲区避免阻塞
-		scanner     = NewStreamScanner(resp.Body)
-		ticker      = time.NewTicker(streamingTimeout)
+		scanner     = NewStreamScanner(streamReader)
 		pingTicker  *time.Ticker
 		writeMutex  sync.Mutex     // Mutex to protect concurrent writes
 		wg          sync.WaitGroup // 用于等待所有 goroutine 退出
 		cleanupOnce sync.Once
 		stopOnce    sync.Once
 	)
+	if info.Hedge != nil {
+		scanner.Buffer(make([]byte, InitialScannerBufferSize), 1<<20)
+	}
 
 	stop := func() {
 		stopOnce.Do(func() {
@@ -146,7 +180,9 @@ func streamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				_ = resp.Body.Close()
 			}
 
-			ticker.Stop()
+			if ticker != nil {
+				ticker.Stop()
+			}
 			if pingTicker != nil {
 				pingTicker.Stop()
 			}
@@ -277,6 +313,15 @@ func streamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		// back so far. It reports false when the request is going away and the
 		// scanner must stop.
 		commitBufferedStream := func() bool {
+			if info.Hedge != nil && info.Hedge.Commit != nil {
+				if !info.Hedge.Commit() {
+					// Metering was observed before the gate. A detached collector
+					// does not need to render or retain the losing answer.
+					buffered = nil
+					info.StreamStatus.MarkCommitted()
+					return c.Request.Context().Err() == nil
+				}
+			}
 			writeMutex.Lock()
 			copyCodexSSEHeaders(c, resp)
 			SetEventStreamHeaders(c)
@@ -304,7 +349,6 @@ func streamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			default:
 			}
 
-			ticker.Reset(streamingTimeout)
 			data := scanner.Text()
 			logger.LogDebug(c, "stream scanner data: %s", data)
 
@@ -318,6 +362,41 @@ func streamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			data = strings.TrimSpace(data)
 			if data == "" {
 				continue
+			}
+			if info.Hedge != nil {
+				verdict := classifyStreamFrame(protocol, data)
+				if verdict == streamFrameError || verdict == streamFrameMalformed {
+					info.Hedge.ObservePrefix(false)
+				} else if resp.StatusCode >= 200 && resp.StatusCode < 300 &&
+					strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") && validHedgePrefix(protocol, data) {
+					info.Hedge.ObservePrefix(true)
+				}
+				observeHedgeUsage(info.Hedge, protocol, data)
+				if protocol == StreamProtocolOpenAIResponses {
+					var event struct {
+						Type string `json:"type"`
+						Item *struct {
+							Type string `json:"type"`
+							Name string `json:"name"`
+						} `json:"item"`
+					}
+					if common.UnmarshalJsonStr(data, &event) == nil && event.Type == dto.ResponsesOutputTypeItemDone && event.Item != nil && event.Item.Type == dto.BuildInCallFunctionCall {
+						toolCollector.CountBillableToolCall(event.Item.Type, event.Item.Name)
+					}
+				}
+				if info.Hedge.Detached.Load() {
+					buffered = nil
+					info.StreamStatus.MarkCommitted()
+					if verdict == streamFrameError || verdict == streamFrameMalformed {
+						info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonHandlerStop, &StreamPrecommitFailure{Reason: "invalid_losing_stream"})
+						return
+					}
+					if verdict == streamFrameTerminal {
+						info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
+						return
+					}
+					continue
+				}
 			}
 			if gateEnabled && !info.StreamStatus.IsCommitted() {
 				verdict := classifyStreamFrame(protocol, data)
@@ -382,6 +461,9 @@ func streamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			}
 
 			if !strings.HasPrefix(data, "[DONE]") {
+				if info.Hedge != nil && info.Hedge.Detached.Load() {
+					continue
+				}
 				info.SetFirstResponseTime()
 				info.ReceivedResponseCount++
 
@@ -416,7 +498,7 @@ func streamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 	// 主循环等待完成或超时
 	select {
-	case <-ticker.C:
+	case <-idleC:
 		err := fmt.Errorf("streaming idle timeout")
 		if gateEnabled && !info.StreamStatus.IsCommitted() {
 			setPrecommitErr(&StreamPrecommitFailure{Reason: "idle_timeout"})
@@ -431,6 +513,9 @@ func streamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	}
 
 	cleanup()
+	if info.Hedge != nil && protocol == StreamProtocolOpenAIResponses {
+		info.Hedge.ReportedToolUsage = toolCollector.ResponsesUsageInfo
+	}
 	if info.StreamStatus.IsNormalEnd() && !info.StreamStatus.HasErrors() {
 		logger.LogInfo(c, fmt.Sprintf("stream ended: %s", info.StreamStatus.Summary()))
 	} else {

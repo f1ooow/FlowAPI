@@ -125,6 +125,14 @@ export interface ToolSurchargeItem {
 }
 
 export interface LogOtherData {
+  hedge?: {
+    attempt_id: string
+    attempt: number
+    role: 'winner' | 'loser'
+    usage_source: 'upstream' | 'unknown' | 'estimated'
+    metering_status: 'complete' | 'partial' | 'unmetered'
+    settlement_status: 'settled' | 'failed' | 'unmetered' | 'not_billed'
+  }
   admin_info?: {
     // Full routing chain (channel ids/names, priorities, weights, upstream
     // status codes). Admin-only: the backend strips admin_info for non-admin

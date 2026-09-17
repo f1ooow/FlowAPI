@@ -21,6 +21,44 @@ import { beforeAll, describe, expect, test } from 'vitest'
 import { RouteHistoryTimeline } from '../route-history-timeline'
 
 describe('route history timeline', () => {
+  test('shows losing and threshold events as racing states rather than successful delivered responses', () => {
+    render(
+      <RouteHistoryTimeline
+        attempts={[
+          {
+            channel_id: 301,
+            attempt: 1,
+            outcome: 'hedge_threshold',
+            reason: 'first_content_timeout',
+          },
+          { channel_id: 301, attempt: 1, outcome: 'hedge_loser' },
+          { channel_id: 301, attempt: 1, outcome: 'hedge_draining' },
+          {
+            channel_id: 301,
+            attempt: 1,
+            outcome: 'hedge_cancelled',
+            reason: 'loser_billing_policy',
+          },
+          {
+            channel_id: 302,
+            attempt: 2,
+            outcome: 'hedge_winner',
+            reason: 'first_content',
+          },
+        ]}
+      />
+    )
+    expect(screen.getByText('Extra racing attempt')).toBeInTheDocument()
+    expect(screen.getByText('Racing winner')).toBeInTheDocument()
+    expect(
+      screen.getByText('First-content threshold reached')
+    ).toBeInTheDocument()
+    expect(screen.getByText('Background metering')).toBeInTheDocument()
+    expect(screen.getByText('Racing attempt cancelled')).toBeInTheDocument()
+    expect(screen.getByText(/Loser billing policy/)).toBeInTheDocument()
+    expect(screen.queryByText('Success')).not.toBeInTheDocument()
+  })
+
   beforeAll(() => {
     i18next.addResourceBundle('en', 'translation', {
       Success: 'Success',

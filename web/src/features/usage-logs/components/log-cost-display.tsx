@@ -32,6 +32,7 @@ import { formatLogQuota } from '@/lib/format'
 
 import { hasToolSurcharge } from '../lib/format'
 import type { LogOtherData } from '../types'
+import { HedgeMeteringStatus } from './hedge-attempt-status'
 
 interface LogCostDisplayProps {
   quota: number
@@ -118,26 +119,43 @@ function SubscriptionBadge(props: { quota: number }) {
 }
 
 export function LogCostDisplay(props: LogCostDisplayProps) {
+  const { t } = useTranslation()
   const isSubscription = props.other?.billing_source === 'subscription'
   const showToolSurcharge = hasToolSurcharge(props.other)
+  const hedge = props.other?.hedge
+
+  if (hedge && hedge.settlement_status !== 'settled') {
+    let label = t('Not charged')
+    if (hedge.settlement_status === 'failed') label = t('Settlement failed')
+    if (hedge.settlement_status === 'not_billed') label = t('Not billed')
+
+    return (
+      <div className='flex flex-col gap-0.5'>
+        <span className='text-xs'>{label}</span>
+        <HedgeMeteringStatus hedge={hedge} />
+      </div>
+    )
+  }
 
   if (!isSubscription && !showToolSurcharge) {
     return (
       <div className='flex flex-col gap-0.5'>
         <QuotaBadge quota={props.quota} />
+        {hedge && <HedgeMeteringStatus hedge={hedge} />}
       </div>
     )
   }
 
   return (
     <TooltipProvider>
-      <div className='inline-flex items-center gap-1'>
+      <div className='inline-flex flex-wrap items-center gap-1'>
         {isSubscription ? (
           <SubscriptionBadge quota={props.quota} />
         ) : (
           <QuotaBadge quota={props.quota} />
         )}
         {showToolSurcharge ? <ToolSurchargeMarker /> : null}
+        {hedge && <HedgeMeteringStatus hedge={hedge} />}
       </div>
     </TooltipProvider>
   )

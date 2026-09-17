@@ -38,6 +38,45 @@ function getOutcomePresentation(outcome: string) {
         iconClass: 'text-emerald-600',
         circleClass: 'border-emerald-200 bg-emerald-50',
       }
+    case 'hedge_winner':
+      return {
+        label: 'Racing winner',
+        icon: CheckCircle2,
+        iconClass: 'text-emerald-600',
+        circleClass: 'border-emerald-200 bg-emerald-50',
+      }
+    case 'hedge_cancelled':
+      return {
+        label: 'Racing attempt cancelled',
+        icon: CircleStop,
+        iconClass: 'text-amber-600',
+        circleClass: 'border-amber-200 bg-amber-50',
+      }
+    case 'hedge_draining':
+      return {
+        label: 'Background metering',
+        icon: RefreshCw,
+        iconClass: 'text-amber-600',
+        circleClass: 'border-amber-200 bg-amber-50',
+      }
+    case 'hedge_loser':
+      return {
+        label: 'Extra racing attempt',
+        icon: CircleStop,
+        iconClass: 'text-amber-600',
+        circleClass: 'border-amber-200 bg-amber-50',
+      }
+    case 'hedge_launched':
+    case 'hedge_threshold':
+      return {
+        label:
+          outcome === 'hedge_launched'
+            ? 'Racing attempt started'
+            : 'First-content threshold reached',
+        icon: RefreshCw,
+        iconClass: 'text-amber-600',
+        circleClass: 'border-amber-200 bg-amber-50',
+      }
     case 'retrying_channel':
       return {
         label: 'Retry',
@@ -85,6 +124,9 @@ const reasonTranslationKeys: Record<string, string> = {
   configured_skip: 'Configured retry disabled',
   successful_status: 'Successful status',
   attempts_exhausted: 'Attempts exhausted',
+  loser_billing_policy: 'Loser billing policy',
+  first_content: 'First content received',
+  first_content_timeout: 'First-content threshold reached',
 }
 
 function formatReason(
@@ -155,9 +197,15 @@ export function RouteHistoryTimeline({
           statusClass = 'border-amber-500 text-amber-700'
         }
         let outcomeClass = 'border-rose-500 text-rose-600'
-        if (presentation.label === 'Success') {
+        if (
+          presentation.label === 'Success' ||
+          attempt.outcome === 'hedge_winner'
+        ) {
           outcomeClass = 'border-emerald-500 text-emerald-600'
-        } else if (presentation.label === 'Stopped') {
+        } else if (
+          presentation.label === 'Stopped' ||
+          attempt.outcome.startsWith('hedge_')
+        ) {
           outcomeClass = 'border-amber-500 text-amber-700'
         }
 

@@ -546,8 +546,17 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	if c != nil && c.Request != nil && req != nil {
 		req = req.WithContext(c.Request.Context())
 	}
+	var cancel context.CancelFunc
+	if settings := info.ChannelSetting.Reliability; !info.IsStream && settings != nil && settings.NonStreamingTimeoutSeconds != nil && *settings.NonStreamingTimeoutSeconds > 0 {
+		var ctx context.Context
+		ctx, cancel = context.WithTimeout(req.Context(), time.Duration(*settings.NonStreamingTimeoutSeconds)*time.Second)
+		req = req.WithContext(ctx)
+	}
 	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
 	if err != nil {
+		if cancel != nil {
+			cancel()
+		}
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)
 	}
 	// Clients are cached and shared across channels, so override redirect
@@ -593,13 +602,28 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		}
 	}
 
+	if info.Hedge != nil && info.Hedge.Dispatched != nil {
+		info.Hedge.Dispatched()
+	}
 	resp, err := relayClient.Do(req)
 	if err != nil {
+		if cancel != nil {
+			cancel()
+		}
 		logger.LogError(c, "do request failed: "+err.Error())
 		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
 	}
 	if resp == nil {
+		if cancel != nil {
+			cancel()
+		}
 		return nil, errors.New("resp is nil")
+	}
+	if cancel != nil {
+		resp.Body = &deadlineResponseBody{ReadCloser: resp.Body, cancel: cancel}
+	}
+	if info.Hedge != nil {
+		resp.Body = &hedgeResponseBody{ReadCloser: resp.Body, attempt: info.Hedge}
 	}
 	if common2.DebugEnabled {
 		policy := service.NormalizeHTTPTransportPolicy(info.ChannelSetting)

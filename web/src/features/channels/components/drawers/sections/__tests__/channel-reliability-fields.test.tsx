@@ -23,7 +23,10 @@ import { describe, expect, test, vi } from 'vitest'
 
 import { Form } from '@/components/ui/form'
 
-import type { ChannelFormValues } from '../../../../lib/channel-form'
+import {
+  CHANNEL_FORM_DEFAULT_VALUES,
+  type ChannelFormValues,
+} from '../../../../lib/channel-form'
 import { ChannelReliabilityFields } from '../channel-reliability-fields'
 
 const translate = (key: string) => key
@@ -33,25 +36,43 @@ vi.mock('react-i18next', () => ({
 
 function ReliabilityHarness() {
   const form = useForm<ChannelFormValues>({
-    defaultValues: {
-      channel_max_attempts: 2,
-      auto_ban_threshold: 5,
-      auto_ban_duration_minutes: 30,
-    } as ChannelFormValues,
+    defaultValues: CHANNEL_FORM_DEFAULT_VALUES,
   })
   const attempts = form.watch('channel_max_attempts')
+  const idleTimeout = form.watch('streaming_idle_timeout_seconds')
 
   return (
     <FormProvider {...form}>
       <Form {...form}>
         <ChannelReliabilityFields />
         <output data-testid='attempts-state'>{String(attempts)}</output>
+        <output data-testid='idle-timeout-state'>{String(idleTimeout)}</output>
       </Form>
     </FormProvider>
   )
 }
 
 describe('ChannelReliabilityFields', () => {
+  test('defaults every timeout to zero and clearing a custom timeout disables it', async () => {
+    const user = userEvent.setup()
+    render(<ReliabilityHarness />)
+    const input = screen.getByLabelText('Streaming idle timeout (seconds)')
+    expect(
+      screen.getByLabelText('Streaming first-content threshold (seconds)')
+    ).toHaveValue(0)
+    expect(
+      screen.getByLabelText('Non-streaming total timeout (seconds)')
+    ).toHaveValue(0)
+    expect(input).toHaveValue(0)
+    await user.tripleClick(input)
+    await user.keyboard('120')
+    expect(input).toHaveValue(120)
+    expect(screen.getByTestId('idle-timeout-state')).toHaveTextContent('120')
+    await user.clear(input)
+    expect(input).toHaveValue(0)
+    expect(screen.getByTestId('idle-timeout-state')).toHaveTextContent('0')
+  })
+
   test('never renders NaN or stores NaN when the attempts field is cleared', async () => {
     const user = userEvent.setup()
     render(<ReliabilityHarness />)

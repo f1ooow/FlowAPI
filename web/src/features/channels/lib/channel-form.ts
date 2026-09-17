@@ -290,6 +290,28 @@ export const channelFormSchema = z
     channel_max_attempts: z.number().int().min(1).max(10),
     auto_ban_threshold: z.number().int().min(1).max(100),
     auto_ban_duration_minutes: z.number().int().min(1).max(1440),
+    first_content_timeout_seconds: z
+      .number()
+      .refine(
+        (value) => Number.isInteger(value) && value >= 0 && value <= 180,
+        'Enter 0 or a whole number from 1 to 180.'
+      ),
+    streaming_idle_timeout_seconds: z
+      .number()
+      .refine(
+        (value) =>
+          Number.isInteger(value) &&
+          (value === 0 || (value >= 60 && value <= 600)),
+        'Enter 0 or a whole number from 60 to 600.'
+      ),
+    non_streaming_timeout_seconds: z
+      .number()
+      .refine(
+        (value) =>
+          Number.isInteger(value) &&
+          (value === 0 || (value >= 60 && value <= 1800)),
+        'Enter 0 or a whole number from 60 to 1800.'
+      ),
   })
   .superRefine((data, ctx) => {
     if (
@@ -465,6 +487,9 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   channel_max_attempts: 2,
   auto_ban_threshold: 5,
   auto_ban_duration_minutes: 30,
+  first_content_timeout_seconds: 0,
+  streaming_idle_timeout_seconds: 0,
+  non_streaming_timeout_seconds: 0,
   advanced_custom: '',
 }
 
@@ -533,6 +558,9 @@ export function transformChannelToFormDefaults(
   let channelMaxAttempts = 2
   let autoBanThreshold = 5
   let autoBanDurationMinutes = 30
+  let firstContentTimeoutSeconds = 0
+  let streamingIdleTimeoutSeconds = 0
+  let nonStreamingTimeoutSeconds = 0
 
   if (channel.settings) {
     try {
@@ -562,6 +590,12 @@ export function transformChannelToFormDefaults(
         advancedCustom = stringifyAdvancedCustomConfig(parsed.advanced_custom)
       }
       if (parsed.reliability && typeof parsed.reliability === 'object') {
+        firstContentTimeoutSeconds =
+          parsed.reliability.first_content_timeout_seconds ?? 0
+        streamingIdleTimeoutSeconds =
+          parsed.reliability.streaming_idle_timeout_seconds ?? 0
+        nonStreamingTimeoutSeconds =
+          parsed.reliability.non_streaming_timeout_seconds ?? 0
         channelMaxAttempts = parsed.reliability.max_attempts ?? 2
         autoBanThreshold =
           parsed.reliability.auto_ban_threshold ??
@@ -630,6 +664,9 @@ export function transformChannelToFormDefaults(
     channel_max_attempts: channelMaxAttempts,
     auto_ban_threshold: autoBanThreshold,
     auto_ban_duration_minutes: autoBanDurationMinutes,
+    first_content_timeout_seconds: firstContentTimeoutSeconds,
+    streaming_idle_timeout_seconds: streamingIdleTimeoutSeconds,
+    non_streaming_timeout_seconds: nonStreamingTimeoutSeconds,
     advanced_custom: advancedCustom,
   }
 }
@@ -798,9 +835,16 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
   }
 
   settingsObj.reliability = {
+    ...(typeof settingsObj.reliability === 'object' &&
+    settingsObj.reliability !== null
+      ? settingsObj.reliability
+      : {}),
     max_attempts: formData.channel_max_attempts,
     auto_ban_threshold: formData.auto_ban_threshold,
     auto_ban_duration_seconds: formData.auto_ban_duration_minutes * 60,
+    first_content_timeout_seconds: formData.first_content_timeout_seconds,
+    streaming_idle_timeout_seconds: formData.streaming_idle_timeout_seconds,
+    non_streaming_timeout_seconds: formData.non_streaming_timeout_seconds,
   }
 
   return JSON.stringify(settingsObj)

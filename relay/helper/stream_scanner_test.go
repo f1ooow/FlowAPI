@@ -15,6 +15,7 @@ import (
 
 	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -794,16 +795,10 @@ func TestStreamScannerHandler_StreamStatus_HandlerDone(t *testing.T) {
 }
 
 func TestStreamScannerHandler_StreamStatus_Timeout(t *testing.T) {
-	// Not parallel: modifies global constant.StreamingTimeout
-	oldTimeout := constant.StreamingTimeout
-	constant.StreamingTimeout = 1
-	t.Cleanup(func() { constant.StreamingTimeout = oldTimeout })
-
 	pr, pw := io.Pipe()
+	defer pw.Close()
 	go func() {
 		fmt.Fprint(pw, "data: {\"id\":1}\n")
-		time.Sleep(2 * time.Second)
-		pw.Close()
 	}()
 
 	recorder := httptest.NewRecorder()
@@ -811,7 +806,8 @@ func TestStreamScannerHandler_StreamStatus_Timeout(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 
 	resp := &http.Response{Body: pr}
-	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
+	timeout := 1
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelSetting: dto.ChannelSettings{Reliability: &dto.ChannelReliabilitySettings{StreamingIdleTimeoutSeconds: &timeout}}}}
 
 	done := make(chan struct{})
 	go func() {

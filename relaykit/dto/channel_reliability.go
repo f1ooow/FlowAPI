@@ -12,9 +12,12 @@ const (
 )
 
 type ChannelReliabilitySettings struct {
-	MaxAttempts         int `json:"max_attempts,omitempty"`
-	AutoBanThreshold    int `json:"auto_ban_threshold,omitempty"`
-	AutoBanDurationSecs int `json:"auto_ban_duration_seconds,omitempty"`
+	FirstContentTimeoutSeconds  *int `json:"first_content_timeout_seconds,omitempty"`
+	StreamingIdleTimeoutSeconds *int `json:"streaming_idle_timeout_seconds,omitempty"`
+	NonStreamingTimeoutSeconds  *int `json:"non_streaming_timeout_seconds,omitempty"`
+	MaxAttempts                 int  `json:"max_attempts,omitempty"`
+	AutoBanThreshold            int  `json:"auto_ban_threshold,omitempty"`
+	AutoBanDurationSecs         int  `json:"auto_ban_duration_seconds,omitempty"`
 }
 
 func DefaultChannelReliabilitySettings() ChannelReliabilitySettings {
@@ -40,6 +43,19 @@ func (s ChannelReliabilitySettings) WithDefaults() ChannelReliabilitySettings {
 }
 
 func (s ChannelReliabilitySettings) Validate() error {
+	for _, bound := range []struct {
+		name     string
+		value    *int
+		min, max int
+	}{
+		{"first_content_timeout_seconds", s.FirstContentTimeoutSeconds, 1, 180},
+		{"streaming_idle_timeout_seconds", s.StreamingIdleTimeoutSeconds, 60, 600},
+		{"non_streaming_timeout_seconds", s.NonStreamingTimeoutSeconds, 60, 1800},
+	} {
+		if bound.value != nil && *bound.value != 0 && (*bound.value < bound.min || *bound.value > bound.max) {
+			return fmt.Errorf("reliability.%s must be 0 or between %d and %d", bound.name, bound.min, bound.max)
+		}
+	}
 	s = s.WithDefaults()
 	if s.MaxAttempts < 1 || s.MaxAttempts > MaxChannelMaxAttempts {
 		return fmt.Errorf("reliability.max_attempts must be between 1 and %d", MaxChannelMaxAttempts)

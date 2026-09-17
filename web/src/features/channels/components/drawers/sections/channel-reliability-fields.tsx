@@ -71,6 +71,30 @@ const RELIABILITY_FIELDS: ReliabilityField[] = [
   },
 ]
 
+const TIMEOUT_FIELDS = [
+  {
+    name: 'first_content_timeout_seconds',
+    label: 'Streaming first-content threshold (seconds)',
+    description:
+      '0: racing disabled. Range: 1-180 seconds. Loser billing follows the global routing reliability setting.',
+    max: 180,
+  },
+  {
+    name: 'streaming_idle_timeout_seconds',
+    label: 'Streaming idle timeout (seconds)',
+    description:
+      '0: channel idle timer disabled. Custom range: 60-600 seconds.',
+    max: 600,
+  },
+  {
+    name: 'non_streaming_timeout_seconds',
+    label: 'Non-streaming total timeout (seconds)',
+    description:
+      '0: added timer disabled. Custom range: 60-1800 seconds. Transport limits still apply.',
+    max: 1800,
+  },
+] as const
+
 export function ChannelReliabilityFields() {
   const { t } = useTranslation()
   const form = useFormContext<ChannelFormValues>()
@@ -109,6 +133,43 @@ export function ChannelReliabilityFields() {
             )}
           />
         ))}
+      </div>
+      <div className='space-y-3 border-t pt-4'>
+        <h4 className='text-sm font-medium'>{t('Request timeouts')}</h4>
+        <div className='grid gap-4 sm:grid-cols-2'>
+          {TIMEOUT_FIELDS.map((config) => (
+            <FormField
+              key={config.name}
+              control={form.control}
+              name={config.name}
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t(config.label)}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={0}
+                      max={config.max}
+                      step={1}
+                      {...safeNumberFieldProps(field)}
+                      onChange={(event) => {
+                        if (event.target.value === '') {
+                          field.onChange(0)
+                        } else if (
+                          Number.isFinite(event.target.valueAsNumber)
+                        ) {
+                          field.onChange(event.target.valueAsNumber)
+                        }
+                      }}
+                    />
+                  </FormControl>
+                  <FormDescription>{t(config.description)}</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          ))}
+        </div>
       </div>
     </div>
   )

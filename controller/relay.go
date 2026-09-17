@@ -161,6 +161,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	relayInfo.SetEstimatePromptTokens(tokens)
+	if initial, _ := model.CacheGetChannel(common.GetContextKeyInt(c, constant.ContextKeyChannelId)); hedgeEligible(c, relayInfo, initial) {
+		newAPIError = relayWithHedge(c, relayInfo, initial, tokens, meta)
+		return
+	}
 
 	priceData, err := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
 	if err != nil {

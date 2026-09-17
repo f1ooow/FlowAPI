@@ -38,6 +38,15 @@ func (cm *ConfigManager) Get(name string) interface{} {
 	return cm.configs[name]
 }
 
+// Snapshot copies a registered configuration under the same lock as updates.
+// Configuration structs contain values or immutable references; callers must
+// not mutate maps or slices retained in the copy.
+func (cm *ConfigManager) Snapshot(name string, destination interface{}) {
+	cm.mutex.RLock()
+	defer cm.mutex.RUnlock()
+	reflect.ValueOf(destination).Elem().Set(reflect.ValueOf(cm.configs[name]).Elem())
+}
+
 // LoadFromDB 从数据库加载配置
 func (cm *ConfigManager) LoadFromDB(options map[string]string) error {
 	cm.mutex.Lock()
@@ -279,6 +288,8 @@ func ConfigToMap(config interface{}) (map[string]string, error) {
 
 // UpdateConfigFromMap 从map更新配置对象（导出函数）
 func UpdateConfigFromMap(config interface{}, configMap map[string]string) error {
+	GlobalConfig.mutex.Lock()
+	defer GlobalConfig.mutex.Unlock()
 	return updateConfigFromMap(config, configMap)
 }
 

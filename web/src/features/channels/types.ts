@@ -118,6 +118,9 @@ export interface ChannelReliabilitySettings {
   max_attempts: number
   auto_ban_threshold: number
   auto_ban_duration_seconds: number
+  first_content_timeout_seconds?: number
+  streaming_idle_timeout_seconds?: number
+  non_streaming_timeout_seconds?: number
 }
 
 export interface AdvancedCustomConfig {

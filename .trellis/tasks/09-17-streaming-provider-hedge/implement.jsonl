@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/billing-ratio-routing.md", "reason": "Reuse per-group conditional channel-ratio billing for every independently billed attempt"}
+{"file": ".trellis/spec/backend/streaming-provider-hedge.md", "reason": "Timeout defaults, protocol-prefix admission, global loser-billing policy, isolated attempts and accounting/statistics invariants"}
+{"file": ".trellis/tasks/09-17-streaming-provider-hedge/research/cch-timeout-routing.md", "reason": "Pinned reference behavior and deviations from older author prose"}
+{"file": ".trellis/tasks/09-17-streaming-provider-hedge/research/flowapi-backend.md", "reason": "Request ownership, adapter capabilities, cancellation and billing hazards"}
+{"file": ".trellis/tasks/09-17-streaming-provider-hedge/research/hedge-user-billing.md", "reason": "User-confirmed additive winner/loser billing supersedes winner-only research; funding and metering constraints"}
+{"file": ".trellis/tasks/09-17-streaming-provider-hedge/research/implementation-contract.md", "reason": "Shared backend/frontend timeout API and ownership"}
