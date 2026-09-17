@@ -379,3 +379,24 @@ gpt-image-2 的 `1572864` 就会判成 `1k`。实际填对了。
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: 流式供应商竞速与输家计费
+
+**Date**: 2026-09-17
+**Task**: 流式供应商竞速与输家计费
+**Branch**: `main`
+
+### Summary
+
+新增渠道三级超时、双供应商竞速、可配置输家计费及日志与管理界面，并完成后端、前端和浏览器验证。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b9692d6f4` | (see git log) |
+
+### Status
+
+[OK] **Completed**
