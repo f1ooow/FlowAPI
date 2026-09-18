@@ -45,7 +45,8 @@ export const api = axios.create({
   baseURL: '',
   withCredentials: true,
   headers: {
-    'Cache-Control': 'no-store',
+    // Revalidate existing entries too, including previously cached API errors.
+    'Cache-Control': 'no-cache, no-store',
   },
 })
 
