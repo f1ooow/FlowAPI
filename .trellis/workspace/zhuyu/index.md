@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 5
-- **Last Active**: 2026-09-17
+- **Total Sessions**: 6
+- **Last Active**: 2026-09-18
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~402 | Active |
+| `journal-1.md` | ~423 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 6 | 2026-09-18 | Preserve model redirects during body passthrough | `c99ea5f97` | `main` |
 | 5 | 2026-09-17 | 流式供应商竞速与输家计费 | `b9692d6f4` | `main` |
 | 4 | 2026-09-15 | 渠道统计与可用性页面发布 | `1995addc7`, `831f93204`, `1ddc9a65b` | `main` |
 | 3 | 2026-09-11 | Global channel passthrough completed | `0e391d3e0` | `main` |

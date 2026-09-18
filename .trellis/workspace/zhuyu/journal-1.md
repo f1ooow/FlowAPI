@@ -400,3 +400,24 @@ gpt-image-2 的 `1572864` 就会判成 `1k`。实际填对了。
 ### Status
 
 [OK] **Completed**
+
+
+## Session 6: Preserve model redirects during body passthrough
+
+**Date**: 2026-09-18
+**Task**: Preserve model redirects during body passthrough
+**Branch**: `main`
+
+### Summary
+
+Fixed JSON top-level model rewriting for OpenAI, Responses, Claude, image and rerank passthrough. Preserved raw unknown values, original no-op bodies and independent replay storage. Full Go tests, relay vet and focused race tests passed; independent review found no defects. No production deployment or real provider validation. Unrelated dirty work preserved.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c99ea5f97` | (see git log) |
+
+### Status
+
+[OK] **Completed**
