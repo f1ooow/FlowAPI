@@ -1,0 +1,3 @@
+{"file": "AGENTS.md", "reason": "Go JSON wrapper, scoped changes, and test quality requirements"}
+{"file": ".trellis/spec/backend/global-passthrough.md", "reason": "Existing passthrough contract; approved task changes only JSON model mapping behavior"}
+{"file": ".trellis/spec/backend/streaming-provider-hedge.md", "reason": "Preserve independent body readers and immutable original payload across attempts"}
