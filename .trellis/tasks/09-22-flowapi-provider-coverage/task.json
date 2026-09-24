@@ -1,0 +1,72 @@
+{
+  "id": "flowapi-provider-coverage",
+  "name": "flowapi-provider-coverage",
+  "title": "补齐 FlowAPI 渠道、模型与计费覆盖",
+  "description": "已实现 KeliAPI 目标媒体能力到 FlowAPI 的直接接入；46 个目标模型、14 条源渠道拆为 15 条目标渠道，Wan 仅 Rolldek。2026-09-25 用户授权 HK 发布及配置导入；本地发布核验通过，生产部署和供应商实测尚待记录，KeliAPI 不变。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": "provider-adapters+task-lifecycle+pricing+frontend+verification",
+  "package": null,
+  "priority": "P2",
+  "creator": "zhuyu",
+  "assignee": "zhuyu",
+  "createdAt": "2026-09-22",
+  "completedAt": "2026-09-25",
+  "branch": "codex/flowapi-provider-coverage",
+  "base_branch": "main",
+  "worktree_path": "/Users/Zhuyu/.codex/worktrees/flowapi-provider-coverage/FlowAPI",
+  "commit": "8156149df",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "09-22-flowapi-video-adapter-alignment",
+    "09-22-flowapi-media-audio-channels",
+    "09-22-flowapi-seedream-images",
+    "09-22-flowapi-pricing-verification"
+  ],
+  "parent": null,
+  "relatedFiles": [
+    "relay/relay_adaptor.go",
+    "relay/relay_task.go",
+    "service/task_polling.go",
+    "service/task_billing.go",
+    "model/task.go",
+    "router/video-router.go",
+    "router/relay-router.go",
+    "middleware/distributor.go",
+    "relaykit/dto/channel_settings.go"
+  ],
+  "notes": "本地实现、HK 生产部署、渠道/价格导入及真实最小验收已完成；KeliAPI 广州未修改。FastAI 两条 time 路由待独立定价，Wan 仅 Rolldek。",
+  "meta": {
+    "objective": "Make FlowAPI the complete shared gateway for the model/channel families currently maintained only in KeliAPI, while leaving KeliAPI production unchanged.",
+    "planning_status": "approved",
+    "execution_authorized": true,
+    "deployment_authorization": {
+      "date": "2026-09-25",
+      "user_message": "可以上线现在",
+      "target": "HK FlowAPI",
+      "scope": "发布已实现代码并导入批准的媒体渠道、基准价格及 image/vedio 分组；Wan 仅 Rolldek，KeliAPI 不改。",
+      "status": "authorized_not_yet_deployed"
+    },
+    "depends_on": [],
+    "baseline_date": "2026-09-22",
+    "requirement_ids": [
+      "R0",
+      "R1",
+      "R2",
+      "R3",
+      "R4",
+      "R5",
+      "R6"
+    ],
+    "approval": {
+      "date": "2026-09-22",
+      "user_message": "ok",
+      "basis": "用户在最终计划摘要及实现批准请求之后确认。",
+      "scope": "按已审阅计划进行本地实现与验证；生产配置、付费调用和部署仍需对应阶段的授权。",
+      "implementation_started": true
+    },
+    "implementation_status": "deployed_hk_live_smoke_verified",
+    "production_status": "hk_deployed_2026-09-25_config_imported_smoke_verified"
+  }
+}

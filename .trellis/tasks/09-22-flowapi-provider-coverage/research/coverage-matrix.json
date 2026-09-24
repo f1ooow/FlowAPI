@@ -1,0 +1,1199 @@
+{
+  "observed_at": "2026-09-22T07:28:54.975347+00:00",
+  "comparison_observed_at": "2026-09-22T07:28:56.591357+00:00",
+  "note": "只读配置清单；存在于渠道模型字段不证明真实请求可用。无凭据。价格是源站配置，不是采购成本。",
+  "counts": {
+    "keli_channels": 20,
+    "keli_enabled": 20,
+    "keli_unique_models": 92,
+    "flow_channels": 37,
+    "flow_enabled": 34,
+    "flow_unique_models": 53,
+    "missing_ids": 51,
+    "missing_media_ids": 48,
+    "source_media_channel_rows": 14
+  },
+  "currency_config": {
+    "keli": {
+      "USDExchangeRate": 1,
+      "general_setting.quota_display_type": "CNY"
+    },
+    "flow": {
+      "USDExchangeRate": 1,
+      "general_setting.quota_display_type": "CNY"
+    }
+  },
+  "historical_alias_discrepancies": [
+    "claude-opus-4-5",
+    "claude-sonnet-4-5",
+    "gpt-5.2"
+  ],
+  "source_channels": [
+    {
+      "id": 42,
+      "name": "Seedance",
+      "type": 54,
+      "status": 1,
+      "group": "video",
+      "priority": 0,
+      "upstream_host": null,
+      "upstream_path": "",
+      "models": [
+        "doubao-seedance-2-5-260628",
+        "doubao-seedance-2-0-260128",
+        "doubao-seedance-2-0-fast-260128",
+        "doubao-seedance-2-0-mini-260615"
+      ],
+      "model_mapping": null,
+      "video_protocol": null,
+      "task_endpoint_override": null,
+      "owner": "video",
+      "family": "Seedance 原生",
+      "billing_unit_to_verify": "token / 输入媒体 / 分辨率",
+      "verification": "inventory_and_source_only"
+    },
+    {
+      "id": 48,
+      "name": "Happy horse",
+      "type": 17,
+      "status": 1,
+      "group": "video",
+      "priority": 0,
+      "upstream_host": "dashscope.aliyuncs.com",
+      "upstream_path": "",
+      "models": [
+        "happyhorse-1.0-t2v",
+        "happyhorse-1.0-i2v",
+        "happyhorse-1.0-r2v",
+        "happyhorse-1.0-video-edit"
+      ],
+      "model_mapping": null,
+      "video_protocol": null,
+      "task_endpoint_override": null,
+      "owner": "video",
+      "family": "HappyHorse 原生",
+      "billing_unit_to_verify": "秒 / 分辨率",
+      "verification": "inventory_and_source_only"
+    },
+    {
+      "id": 49,
+      "name": "Minimax TTS",
+      "type": 35,
+      "status": 1,
+      "group": "video",
+      "priority": 0,
+      "upstream_host": "api-bj.minimaxi.com",
+      "upstream_path": "",
+      "models": [
+        "speech-2.8-hd",
+        "speech-2.8-turbo",
+        "speech-2.6-hd",
+        "speech-2.6-turbo",
+        "speech-02-hd",
+        "speech-02-turbo",
+        "minimax-files-upload",
+        "minimax-voice-clone",
+        "minimax-music-generation",
+        "music-2.6",
+        "music-2.6-free",
+        "music-2.5+",
+        "music-2.5",
+        "music-2.0",
+        "music-cover",
+        "music-cover-free",
+        "MiniMax-Hailuo-2.3",
+        "MiniMax-Hailuo-2.3-Fast",
+        "MiniMax-Hailuo-02"
+      ],
+      "model_mapping": null,
+      "video_protocol": null,
+      "task_endpoint_override": null,
+      "owner": "media+video",
+      "family": "MiniMax 扩展与 Hailuo",
+      "billing_unit_to_verify": "字符 / 次 / 分辨率时长档",
+      "verification": "inventory_and_source_only"
+    },
+    {
+      "id": 50,
+      "name": "Viapi-Ali-Vision",
+      "type": 100,
+      "status": 1,
+      "group": "video",
+      "priority": 0,
+      "upstream_host": null,
+      "upstream_path": "",
+      "models": [
+        "viapi-super-resolve",
+        "viapi-erase-subtitles",
+        "viapi-segment-common"
+      ],
+      "model_mapping": null,
+      "video_protocol": null,
+      "task_endpoint_override": null,
+      "owner": "media",
+      "family": "Viapi",
+      "billing_unit_to_verify": "分钟 / 次",
+      "verification": "inventory_and_source_only"
+    },
+    {
+      "id": 51,
+      "name": "VolcVOD",
+      "type": 101,
+      "status": 1,
+      "group": "video",
+      "priority": 0,
+      "upstream_host": null,
+      "upstream_path": "",
+      "models": [
+        "volc-vod-erase-subtitle-auto",
+        "volc-vod-erase-subtitle-locations",
+        "volc-vod-audio-extract"
+      ],
+      "model_mapping": null,
+      "video_protocol": null,
+      "task_endpoint_override": null,
+      "owner": "media",
+      "family": "VolcVOD",
+      "billing_unit_to_verify": "动作决定：分钟 / 次",
+      "verification": "inventory_and_source_only"
+    },
+    {
+      "id": 52,
+      "name": "VolcCV",
+      "type": 102,
+      "status": 1,
+      "group": "image",
+      "priority": 0,
+      "upstream_host": null,
+      "upstream_path": "",
+      "models": [
+        "volc-lens-lqir"
+      ],
+      "model_mapping": null,
+      "video_protocol": null,
+      "task_endpoint_override": null,
+      "owner": "media",
+      "family": "VolcCV",
+      "billing_unit_to_verify": "次",
+      "verification": "inventory_and_source_only"
+    },
+    {
+      "id": 53,
+      "name": "VolcSeedream",
+      "type": 45,
+      "status": 1,
+      "group": "image",
+      "priority": 0,
+      "upstream_host": "ark.cn-beijing.volces.com",
+      "upstream_path": "",
+      "models": [
+        "doubao-seedream-5-0-260128",
+        "doubao-seedream-4-5-251128",
+        "doubao-seedream-4-0-250828"
+      ],
+      "model_mapping": null,
+      "video_protocol": null,
+      "task_endpoint_override": null,
+      "owner": "images",
+      "family": "Seedream 原生",
+      "billing_unit_to_verify": "张",
+      "verification": "inventory_and_source_only"
+    },
+    {
+      "id": 54,
+      "name": "VolcEngine TTS",
+      "type": 45,
+      "status": 1,
+      "group": "video",
+      "priority": 0,
+      "upstream_host": null,
+      "upstream_path": "",
+      "models": [
+        "doubao-tts-2.0"
+      ],
+      "model_mapping": {
+        "doubao-tts-2.0": ""
+      },
+      "video_protocol": null,
+      "task_endpoint_override": null,
+      "owner": "media",
+      "family": "Volcengine TTS",
+      "billing_unit_to_verify": "字符",
+      "verification": "inventory_and_source_only"
+    },
+    {
+      "id": 56,
+      "name": "VolcEngine ASR",
+      "type": 45,
+      "status": 1,
+      "group": "video",
+      "priority": 0,
+      "upstream_host": null,
+      "upstream_path": "",
+      "models": [
+        "doubao-asr-2.0"
+      ],
+      "model_mapping": {
+        "doubao-tts-2.0": ""
+      },
+      "video_protocol": null,
+      "task_endpoint_override": null,
+      "owner": "media",
+      "family": "Volcengine ASR",
+      "billing_unit_to_verify": "音频时长",
+      "verification": "inventory_and_source_only"
+    },
+    {
+      "id": 61,
+      "name": "Happy horse (ZIV）",
+      "type": 17,
+      "status": 1,
+      "group": "video",
+      "priority": 2,
+      "upstream_host": "zivv.pro",
+      "upstream_path": "",
+      "models": [
+        "happyhorse-1.0-t2v",
+        "happyhorse-1.0-i2v",
+        "happyhorse-1.0-r2v",
+        "happyhorse-1.0-video-edit",
+        "happyhorse-1.1-r2v",
+        "happyhorse-1.1-i2v",
+        "happyhorse-1.1-t2v"
+      ],
+      "model_mapping": null,
+      "video_protocol": null,
+      "task_endpoint_override": {
+        "fetch_path": "/api/v1/tasks/{task_id}",
+        "submit_path": "/v1/services/aigc/video-generation/video-synthesis"
+      },
+      "owner": "video",
+      "family": "HappyHorse Zivv",
+      "billing_unit_to_verify": "秒 / 分辨率",
+      "verification": "inventory_and_source_only"
+    },
+    {
+      "id": 62,
+      "name": "MetaSo MiniMax H3",
+      "type": 35,
+      "status": 1,
+      "group": "video",
+      "priority": 10,
+      "upstream_host": "metaso.cn",
+      "upstream_path": "/api/minimax",
+      "models": [
+        "MiniMax-H3",
+        "minimax-files-upload"
+      ],
+      "model_mapping": null,
+      "video_protocol": null,
+      "task_endpoint_override": null,
+      "owner": "video+media",
+      "family": "MetaSo H3 与文件上传",
+      "billing_unit_to_verify": "秒 / 分辨率；上传免费",
+      "verification": "inventory_and_source_only"
+    },
+    {
+      "id": 64,
+      "name": "FastAI 视频",
+      "type": 60,
+      "status": 1,
+      "group": "video",
+      "priority": 20,
+      "upstream_host": "fastaitoken.com",
+      "upstream_path": "",
+      "models": [
+        "doubao-seedance-2-5-260628",
+        "doubao-seedance-2-0-260128",
+        "doubao-seedance-2-0-fast-260128",
+        "doubao-seedance-2-0-mini-260615",
+        "wan-3.0-time",
+        "wan-3.0"
+      ],
+      "model_mapping": {
+        "doubao-seedance-2-5-260628": "seedance-2.5-token",
+        "doubao-seedance-2-0-260128": "seedance-2.0-time",
+        "doubao-seedance-2-0-fast-260128": "seedance-2.0-fast-time",
+        "doubao-seedance-2-0-mini-260615": "seedance-2.0-mini-token",
+        "wan-3.0": "wan-3.0-time"
+      },
+      "video_protocol": null,
+      "task_endpoint_override": null,
+      "owner": "video",
+      "family": "FastAI 视频",
+      "target_scope_note": "Seedance only; FastAI Wan aliases are excluded because Wan is Rolldek-only",
+      "billing_unit_to_verify": "time 与 token 两类",
+      "verification": "inventory_and_source_only"
+    },
+    {
+      "id": 74,
+      "name": "Zivv 即梦",
+      "type": 60,
+      "status": 1,
+      "group": "image",
+      "priority": 0,
+      "upstream_host": "zivv.pro",
+      "upstream_path": "",
+      "models": [
+        "doubao-seedream-5-0-pro-260628"
+      ],
+      "model_mapping": null,
+      "video_protocol": null,
+      "task_endpoint_override": null,
+      "owner": "images",
+      "family": "Seedream Pro / Zivv",
+      "billing_unit_to_verify": "张 / 分层张数",
+      "verification": "inventory_and_source_only"
+    },
+    {
+      "id": 75,
+      "name": "Rolldek Wan",
+      "type": 1,
+      "status": 1,
+      "group": "video",
+      "priority": 20,
+      "upstream_host": "rolldek.com",
+      "upstream_path": "",
+      "models": [
+        "wan3.0-video",
+        "wan3.0-video-prime"
+      ],
+      "model_mapping": null,
+      "video_protocol": "wan-rolldek-v1",
+      "task_endpoint_override": null,
+      "owner": "video",
+      "family": "Rolldek Wan",
+      "billing_unit_to_verify": "实际输出秒数 / 分辨率",
+      "verification": "inventory_and_source_only"
+    }
+  ],
+  "models": [
+    {
+      "model": "MiniMax-H3",
+      "source_channels": [
+        62
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0.19,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "MiniMax-Hailuo-02",
+      "source_channels": [
+        49
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 2,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "MiniMax-Hailuo-2.3",
+      "source_channels": [
+        49
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 2,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "MiniMax-Hailuo-2.3-Fast",
+      "source_channels": [
+        49
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 1.35,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "doubao-asr-2.0",
+      "source_channels": [
+        56
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": null,
+        "ModelRatio": 151.36,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "doubao-seedance-2-0-260128",
+      "source_channels": [
+        42,
+        64
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": null,
+        "ModelRatio": 23,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "doubao-seedance-2-0-fast-260128",
+      "source_channels": [
+        42,
+        64
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": null,
+        "ModelRatio": 18.5,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "doubao-seedance-2-0-mini-260615",
+      "source_channels": [
+        42,
+        64
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": null,
+        "ModelRatio": 11.5,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "doubao-seedance-2-5-260628",
+      "source_channels": [
+        42,
+        64
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": null,
+        "ModelRatio": 35,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "doubao-seedream-4-0-250828",
+      "source_channels": [
+        53
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0.2,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "doubao-seedream-4-5-251128",
+      "source_channels": [
+        53
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0.25,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "doubao-seedream-5-0-260128",
+      "source_channels": [
+        53
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0.22,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "doubao-seedream-5-0-pro-260628",
+      "source_channels": [
+        74
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0.25,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "doubao-tts-2.0",
+      "source_channels": [
+        54
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": null,
+        "ModelRatio": 250,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "happyhorse-1.0-i2v",
+      "source_channels": [
+        48,
+        61
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0.5,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "happyhorse-1.0-r2v",
+      "source_channels": [
+        48,
+        61
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0.5,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "happyhorse-1.0-t2v",
+      "source_channels": [
+        48,
+        61
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0.5,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "happyhorse-1.0-video-edit",
+      "source_channels": [
+        48,
+        61
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0.5,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "happyhorse-1.1-i2v",
+      "source_channels": [
+        61
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0.5,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": "tiered_expr",
+        "billing_setting.billing_expr": "tier(\"standard\", p * 0 + c * 0)"
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "happyhorse-1.1-r2v",
+      "source_channels": [
+        61
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0.5,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": "tiered_expr",
+        "billing_setting.billing_expr": "tier(\"standard\", p * 0 + c * 0)"
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "happyhorse-1.1-t2v",
+      "source_channels": [
+        61
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0.5,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": "tiered_expr",
+        "billing_setting.billing_expr": "tier(\"standard\", p * 0 + c * 0)"
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "minimax-files-upload",
+      "source_channels": [
+        49,
+        62
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "minimax-music-generation",
+      "source_channels": [
+        49
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 1,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "minimax-voice-clone",
+      "source_channels": [
+        49
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 9.9,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "music-2.0",
+      "source_channels": [
+        49
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0.25,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "music-2.5",
+      "source_channels": [
+        49
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 1,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "music-2.5+",
+      "source_channels": [
+        49
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 1,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "music-2.6",
+      "source_channels": [
+        49
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 1,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "music-2.6-free",
+      "source_channels": [
+        49
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "music-cover",
+      "source_channels": [
+        49
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 1,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "music-cover-free",
+      "source_channels": [
+        49
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "speech-02-hd",
+      "source_channels": [
+        49
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": null,
+        "ModelRatio": 175,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "speech-02-turbo",
+      "source_channels": [
+        49
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": null,
+        "ModelRatio": 100,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "speech-2.6-hd",
+      "source_channels": [
+        49
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": null,
+        "ModelRatio": 175,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "speech-2.6-turbo",
+      "source_channels": [
+        49
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": null,
+        "ModelRatio": 100,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "speech-2.8-hd",
+      "source_channels": [
+        49
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": null,
+        "ModelRatio": 175,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "speech-2.8-turbo",
+      "source_channels": [
+        49
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": null,
+        "ModelRatio": 100,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "viapi-erase-subtitles",
+      "source_channels": [
+        50
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0.4,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "viapi-segment-common",
+      "source_channels": [
+        50
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0.0016,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "viapi-super-resolve",
+      "source_channels": [
+        50
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0.4,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "volc-lens-lqir",
+      "source_channels": [
+        52
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0.05,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "volc-vod-audio-extract",
+      "source_channels": [
+        51
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0.002,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "volc-vod-erase-subtitle-auto",
+      "source_channels": [
+        51
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0.07,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "volc-vod-erase-subtitle-locations",
+      "source_channels": [
+        51
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 4,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "wan-3.0",
+      "source_channels": [
+        64
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": null,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "excluded_fastai_wan_rolldek_only",
+      "target_scope_note": "Wan is configured only on Rolldek channel 75",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "wan-3.0-time",
+      "source_channels": [
+        64
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": null,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "excluded_fastai_wan_rolldek_only",
+      "target_scope_note": "Wan is configured only on Rolldek channel 75",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "wan3.0-video",
+      "source_channels": [
+        75
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0.6,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "wan3.0-video-prime",
+      "source_channels": [
+        75
+      ],
+      "absent_from_flow_channel_lists": true,
+      "source_stored_retail_config": {
+        "ModelPrice": 0.9,
+        "ModelRatio": null,
+        "CompletionRatio": null,
+        "billing_setting.billing_mode": null,
+        "billing_setting.billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price_status": "proposal_required",
+      "provider_execution_verified": false
+    }
+  ]
+}

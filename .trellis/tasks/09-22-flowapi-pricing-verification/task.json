@@ -1,0 +1,62 @@
+{
+  "id": "flowapi-pricing-verification",
+  "name": "flowapi-pricing-verification",
+  "title": "统一价格、渠道配置与端到端验收",
+  "description": "46 个纳入目标范围的媒体模型逐项定价和配置提案（源差集含 48 个媒体 ID，FastAI Wan 仅保留 Rolldek 渠道）、3 个历史文本别名核实、管理界面及本地/真实/上线验证。",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": "pricing+frontend+configuration+verification",
+  "package": null,
+  "priority": "P2",
+  "creator": "zhuyu",
+  "assignee": "zhuyu",
+  "createdAt": "2026-09-22",
+  "completedAt": null,
+  "branch": "codex/flowapi-provider-coverage",
+  "base_branch": "main",
+  "worktree_path": "/Users/Zhuyu/.codex/worktrees/flowapi-provider-coverage/FlowAPI",
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "09-22-flowapi-provider-coverage",
+  "relatedFiles": [
+    "setting/ratio_setting",
+    "web/src/features/pricing",
+    "web/src/features/system-settings/models",
+    "web/src/features/channels"
+  ],
+  "notes": "本地代码已实现；2026-09-25 用户明确授权 HK FlowAPI 上线及既定配置导入。发布前本地核验已通过；尚未记录生产部署或真实供应商验收，KeliAPI 保持不变。",
+  "meta": {
+    "planning_status": "approved",
+    "implementation_status": "implemented_local_release_checks_passed_provider_verification_pending",
+    "execution_authorized": true,
+    "deployment_authorization": {
+      "date": "2026-09-25",
+      "user_message": "可以上线现在",
+      "target": "HK FlowAPI",
+      "scope": "发布已实现代码并导入批准的媒体渠道、基准价格及 image/vedio 分组；Wan 仅 Rolldek，KeliAPI 不改。",
+      "status": "authorized_not_yet_deployed"
+    },
+    "depends_on": [
+      "P0 可并行盘点与价格草案",
+      "video/media/images 的协议与 usage 合同 → 精确账单和最终配置",
+      "父任务集成 → 端到端验证",
+      "2026-09-25 已授权发布及基准配置；父任务记录相应外部执行和真实验证"
+    ],
+    "baseline_date": "2026-09-22",
+    "requirement_ids": [
+      "R0",
+      "R5",
+      "R6"
+    ],
+    "approval": {
+      "date": "2026-09-22",
+      "user_message": "ok",
+      "basis": "用户在最终计划摘要及实现批准请求之后确认。",
+      "scope": "按已审阅计划进行本地实现与验证；生产配置、付费调用和部署仍需对应阶段的授权。",
+      "implementation_started": true
+    },
+    "artifact_status": "deployment_authorized_reviewed_manifest_15_channels_46_models_provider_verification_pending"
+  }
+}

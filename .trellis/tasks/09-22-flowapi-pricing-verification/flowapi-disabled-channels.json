@@ -1,0 +1,302 @@
+{
+  "schema_version": 2,
+  "purpose": "reviewed deployment manifest; production state is recorded separately",
+  "deployment_status": "deployment_authorized_2026-09-25_pending_provider_verification",
+  "import_identity": "Use source_channel_id plus group; Viapi source 50 is split into image and vedio target channels.",
+  "group_policy": {
+    "image": "图片生成、图片处理和视觉增强",
+    "vedio": "视频、音频及混合媒体（名称按用户要求保留 vedio）"
+  },
+  "channels": [
+    {
+      "source_channel_id": 42,
+      "name": "Seedance",
+      "type": 54,
+      "base_url": "https://ark.cn-beijing.volces.com",
+      "endpoint_basis": "FlowAPI ChannelTypeDoubaoVideo default; source base URL is empty",
+      "group": "vedio",
+      "status": "disabled_pending_provider_verification",
+      "models": [
+        "doubao-seedance-2-5-260628",
+        "doubao-seedance-2-0-260128",
+        "doubao-seedance-2-0-fast-260128",
+        "doubao-seedance-2-0-mini-260615"
+      ],
+      "settings": {},
+      "target_owner": "video",
+      "source_retail_only": true,
+      "credentials": null
+    },
+    {
+      "source_channel_id": 48,
+      "name": "Happy horse",
+      "type": 17,
+      "base_url": "https://dashscope.aliyuncs.com",
+      "group": "vedio",
+      "status": "disabled_pending_provider_verification",
+      "models": [
+        "happyhorse-1.0-t2v",
+        "happyhorse-1.0-i2v",
+        "happyhorse-1.0-r2v",
+        "happyhorse-1.0-video-edit"
+      ],
+      "settings": {},
+      "target_owner": "video",
+      "source_retail_only": true,
+      "credentials": null
+    },
+    {
+      "source_channel_id": 49,
+      "name": "Minimax TTS",
+      "type": 35,
+      "base_url": "https://api-bj.minimaxi.com",
+      "group": "vedio",
+      "status": "disabled_pending_provider_verification",
+      "models": [
+        "speech-2.8-hd",
+        "speech-2.8-turbo",
+        "speech-2.6-hd",
+        "speech-2.6-turbo",
+        "speech-02-hd",
+        "speech-02-turbo",
+        "minimax-files-upload",
+        "minimax-voice-clone",
+        "minimax-music-generation",
+        "music-2.6",
+        "music-2.6-free",
+        "music-2.5+",
+        "music-2.5",
+        "music-2.0",
+        "music-cover",
+        "music-cover-free",
+        "MiniMax-Hailuo-2.3",
+        "MiniMax-Hailuo-2.3-Fast",
+        "MiniMax-Hailuo-02"
+      ],
+      "settings": {},
+      "target_owner": "media+video",
+      "source_retail_only": true,
+      "credentials": null
+    },
+    {
+      "source_channel_id": 50,
+      "name": "Viapi-Ali-Image",
+      "type": 100,
+      "group": "image",
+      "status": "disabled_pending_provider_verification",
+      "models": [
+        "viapi-segment-common"
+      ],
+      "settings": {},
+      "target_owner": "media",
+      "source_retail_only": true,
+      "credentials": null
+    },
+    {
+      "source_channel_id": 50,
+      "name": "Viapi-Ali-Video",
+      "type": 100,
+      "group": "vedio",
+      "status": "disabled_pending_provider_verification",
+      "models": [
+        "viapi-super-resolve",
+        "viapi-erase-subtitles"
+      ],
+      "settings": {},
+      "target_owner": "media",
+      "source_retail_only": true,
+      "credentials": null
+    },
+    {
+      "source_channel_id": 51,
+      "name": "VolcVOD",
+      "type": 101,
+      "base_url": "https://vod.volcengineapi.com",
+      "endpoint_basis": "Adapter fixed signed VOD OpenAPI endpoint",
+      "group": "vedio",
+      "status": "disabled_pending_provider_verification",
+      "models": [
+        "volc-vod-erase-subtitle-auto",
+        "volc-vod-erase-subtitle-locations",
+        "volc-vod-audio-extract"
+      ],
+      "settings": {},
+      "target_owner": "media",
+      "source_retail_only": true,
+      "credentials": null
+    },
+    {
+      "source_channel_id": 52,
+      "name": "VolcCV",
+      "type": 102,
+      "base_url": "https://visual.volcengineapi.com",
+      "endpoint_basis": "Adapter fixed signed CV OpenAPI endpoint",
+      "group": "image",
+      "status": "disabled_pending_provider_verification",
+      "models": [
+        "volc-lens-lqir"
+      ],
+      "settings": {},
+      "target_owner": "media",
+      "source_retail_only": true,
+      "credentials": null
+    },
+    {
+      "source_channel_id": 53,
+      "name": "VolcSeedream",
+      "type": 45,
+      "base_url": "https://ark.cn-beijing.volces.com",
+      "group": "image",
+      "status": "disabled_pending_provider_verification",
+      "models": [
+        "doubao-seedream-5-0-260128",
+        "doubao-seedream-4-5-251128",
+        "doubao-seedream-4-0-250828"
+      ],
+      "settings": {},
+      "target_owner": "images",
+      "source_retail_only": true,
+      "credentials": null
+    },
+    {
+      "source_channel_id": 54,
+      "name": "VolcEngine TTS",
+      "type": 45,
+      "group": "vedio",
+      "status": "disabled_pending_provider_verification",
+      "models": [
+        "doubao-tts-2.0"
+      ],
+      "model_mapping": {},
+      "mapping_basis": "Keep the public model so the adapter selects Seed TTS V3; discard the source empty-string mapping.",
+      "settings": {},
+      "target_owner": "media",
+      "source_retail_only": true,
+      "credentials": null
+    },
+    {
+      "source_channel_id": 56,
+      "name": "VolcEngine ASR",
+      "type": 45,
+      "group": "vedio",
+      "status": "disabled_pending_provider_verification",
+      "models": [
+        "doubao-asr-2.0"
+      ],
+      "model_mapping": {},
+      "mapping_basis": "Discard the unrelated source TTS mapping; ASR uses its public model and fixed speech endpoint.",
+      "settings": {},
+      "target_owner": "media",
+      "source_retail_only": true,
+      "credentials": null
+    },
+    {
+      "source_channel_id": 61,
+      "name": "Happy horse (ZIV）",
+      "type": 17,
+      "base_url": "https://zivv.pro",
+      "group": "vedio",
+      "status": "disabled_pending_provider_verification",
+      "models": [
+        "happyhorse-1.0-t2v",
+        "happyhorse-1.0-i2v",
+        "happyhorse-1.0-r2v",
+        "happyhorse-1.0-video-edit",
+        "happyhorse-1.1-r2v",
+        "happyhorse-1.1-i2v",
+        "happyhorse-1.1-t2v"
+      ],
+      "settings": {
+        "task_endpoint_override": {
+          "fetch_path": "/api/v1/tasks/{task_id}",
+          "submit_path": "/v1/services/aigc/video-generation/video-synthesis"
+        }
+      },
+      "target_owner": "video",
+      "source_retail_only": true,
+      "credentials": null
+    },
+    {
+      "source_channel_id": 62,
+      "name": "MetaSo MiniMax H3",
+      "type": 35,
+      "base_url": "https://metaso.cn/api/minimax",
+      "group": "vedio",
+      "status": "disabled_pending_provider_verification",
+      "models": [
+        "MiniMax-H3",
+        "minimax-files-upload"
+      ],
+      "settings": {},
+      "target_owner": "video+media",
+      "source_retail_only": true,
+      "credentials": null
+    },
+    {
+      "source_channel_id": 64,
+      "name": "FastAI 视频",
+      "source_type": 60,
+      "type": 103,
+      "base_url": "https://fastaitoken.com",
+      "group": "vedio",
+      "status": "disabled_pending_provider_verification",
+      "models": [
+        "doubao-seedance-2-5-260628",
+        "doubao-seedance-2-0-mini-260615"
+      ],
+      "model_mapping": {
+        "doubao-seedance-2-5-260628": "seedance-2.5-token",
+        "doubao-seedance-2-0-mini-260615": "seedance-2.0-mini-token"
+      },
+      "blocked_routes": [
+        {
+          "model": "doubao-seedance-2-0-260128",
+          "upstream_model": "seedance-2.0-time",
+          "reason": "Public model has token ModelRatio 23; FastAI upstream bills seconds and requires a separately priced public alias. Native Seedance source 42 remains configured."
+        },
+        {
+          "model": "doubao-seedance-2-0-fast-260128",
+          "upstream_model": "seedance-2.0-fast-time",
+          "reason": "Public model has token ModelRatio 18.5; FastAI upstream bills seconds and requires a separately priced public alias. Native Seedance source 42 remains configured."
+        }
+      ],
+      "settings": {},
+      "target_owner": "video",
+      "source_retail_only": true,
+      "credentials": null
+    },
+    {
+      "source_channel_id": 74,
+      "name": "Zivv 即梦",
+      "type": 60,
+      "base_url": "https://zivv.pro",
+      "group": "image",
+      "status": "disabled_pending_provider_verification",
+      "models": [
+        "doubao-seedream-5-0-pro-260628"
+      ],
+      "settings": {},
+      "target_owner": "images",
+      "source_retail_only": true,
+      "credentials": null
+    },
+    {
+      "source_channel_id": 75,
+      "name": "Rolldek Wan",
+      "type": 1,
+      "base_url": "https://rolldek.com",
+      "group": "vedio",
+      "status": "disabled_pending_provider_verification",
+      "models": [
+        "wan3.0-video",
+        "wan3.0-video-prime"
+      ],
+      "settings": {
+        "video_protocol": "wan-rolldek-v1"
+      },
+      "target_owner": "video",
+      "source_retail_only": true,
+      "credentials": null
+    }
+  ]
+}

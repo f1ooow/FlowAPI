@@ -13,6 +13,7 @@
 | [streaming-provider-hedge.md](./streaming-provider-hedge.md) | 超时竞速、输家计费开关、请求隔离和统计合同 | 项目合同 |
 | [global-passthrough.md](./global-passthrough.md) | 全局请求体/请求头透传、覆盖优先级与渠道继承 | 项目合同 |
 | [channel-list-derived-metrics.md](./channel-list-derived-metrics.md) | 渠道列表从独立日志库补充派生指标的合同 | 项目合同 |
+| [media-channel-deployment.md](./media-channel-deployment.md) | Keli 媒体渠道导入、分组、价格模式和禁用路由合同 | 项目合同 |
 
 ## 如何填写
 

@@ -1,0 +1,924 @@
+{
+  "schema_version": 3,
+  "currency": "CNY display / USDExchangeRate=1",
+  "source_note": "Keli values are retail configuration baselines, not supplier-cost evidence. HappyHorse 1.1 is the explicit exception: its 0.5 baseline follows the configured 1.0 family price; live Keli ModelPrice lacks those three keys. User authorized deployment on 2026-09-25; application and provider verification are recorded separately.",
+  "deployment_policy": {
+    "status": "deployment_authorized_2026-09-25_pending_provider_verification",
+    "channel_status": "disabled_pending_provider_verification",
+    "price_basis": "keli_source_retail_except_documented_family_baselines",
+    "fixed_price_field": "ModelPrice",
+    "ratio_price_field": "ModelRatio",
+    "copy_rule": "source_retail.model_price -> ModelPrice; source_retail.model_ratio -> ModelRatio; price lookup uses the public model, never the mapped upstream alias",
+    "wan_scope": "Rolldek channel 75 only; omit FastAI Wan aliases from target configuration",
+    "unknown_price": "leave_unconfigured",
+    "commercial_target_price": "Independent future retail repricing is unset; deployment uses the approved source baseline, not this null field.",
+    "conflicting_price_keys": "For these 46 models, remove the opposite ModelPrice/ModelRatio entry before applying the chosen mode. Do not overwrite unrelated models.",
+    "source_expression_policy": "Do not copy source billing modes or expressions. HappyHorse 1.1 zero-valued tiered_expr is removed; its 0.5 per-second baseline is explicitly adopted from HappyHorse 1.0 with the same adapter resolution ratios, not copied from live source ModelPrice or a code default.",
+    "fastai_route_policy": "Source 64 uses dedicated type 103. Only token aliases with compatible public ModelRatio are imported; the two time aliases are held outside channel.models. Native source 42 retains all four public models."
+  },
+  "deployment_base_pricing": {
+    "price_basis_overrides": {
+      "happyhorse-1.1-i2v": "Adopt happyhorse-1.0-i2v baseline 0.5; shared HappyHorse resolution ratio table. Current source DB key absent, no code default.",
+      "happyhorse-1.1-r2v": "Adopt happyhorse-1.0-r2v baseline 0.5; shared HappyHorse resolution ratio table. Current source DB key absent, no code default.",
+      "happyhorse-1.1-t2v": "Adopt happyhorse-1.0-t2v baseline 0.5; shared HappyHorse resolution ratio table. Current source DB key absent, no code default."
+    },
+    "model_price": {
+      "MiniMax-H3": 0.19,
+      "MiniMax-Hailuo-02": 2,
+      "MiniMax-Hailuo-2.3": 2,
+      "MiniMax-Hailuo-2.3-Fast": 1.35,
+      "doubao-seedream-4-0-250828": 0.2,
+      "doubao-seedream-4-5-251128": 0.25,
+      "doubao-seedream-5-0-260128": 0.22,
+      "doubao-seedream-5-0-pro-260628": 0.25,
+      "happyhorse-1.0-i2v": 0.5,
+      "happyhorse-1.0-r2v": 0.5,
+      "happyhorse-1.0-t2v": 0.5,
+      "happyhorse-1.0-video-edit": 0.5,
+      "happyhorse-1.1-i2v": 0.5,
+      "happyhorse-1.1-r2v": 0.5,
+      "happyhorse-1.1-t2v": 0.5,
+      "minimax-files-upload": 0,
+      "minimax-music-generation": 1,
+      "minimax-voice-clone": 9.9,
+      "music-2.0": 0.25,
+      "music-2.5": 1,
+      "music-2.5+": 1,
+      "music-2.6": 1,
+      "music-2.6-free": 0,
+      "music-cover": 1,
+      "music-cover-free": 0,
+      "viapi-erase-subtitles": 0.4,
+      "viapi-segment-common": 0.0016,
+      "viapi-super-resolve": 0.4,
+      "volc-lens-lqir": 0.05,
+      "volc-vod-audio-extract": 0.002,
+      "volc-vod-erase-subtitle-auto": 0.07,
+      "volc-vod-erase-subtitle-locations": 4,
+      "wan3.0-video": 0.6,
+      "wan3.0-video-prime": 0.9
+    },
+    "model_ratio": {
+      "doubao-asr-2.0": 151.36,
+      "doubao-seedance-2-0-260128": 23,
+      "doubao-seedance-2-0-fast-260128": 18.5,
+      "doubao-seedance-2-0-mini-260615": 11.5,
+      "doubao-seedance-2-5-260628": 35,
+      "doubao-tts-2.0": 250,
+      "speech-02-hd": 175,
+      "speech-02-turbo": 100,
+      "speech-2.6-hd": 175,
+      "speech-2.6-turbo": 100,
+      "speech-2.8-hd": 175,
+      "speech-2.8-turbo": 100
+    },
+    "unconfigured": [],
+    "withheld_routes": [
+      {
+        "source_channel_id": 64,
+        "model": "doubao-seedance-2-0-260128",
+        "upstream_model": "seedance-2.0-time",
+        "required_price_field": "ModelPrice",
+        "required_unit": "seconds",
+        "deployment_price": null,
+        "reason": "No verified per-second baseline for this FastAI route; the public model keeps ModelRatio 23 for native source 42. A separately named and priced public alias is required before enabling this route."
+      },
+      {
+        "source_channel_id": 64,
+        "model": "doubao-seedance-2-0-fast-260128",
+        "upstream_model": "seedance-2.0-fast-time",
+        "required_price_field": "ModelPrice",
+        "required_unit": "seconds",
+        "deployment_price": null,
+        "reason": "No verified per-second baseline for this FastAI route; the public model keeps ModelRatio 18.5 for native source 42. A separately named and priced public alias is required before enabling this route."
+      }
+    ]
+  },
+  "rows": [
+    {
+      "model": "MiniMax-H3",
+      "source_channels": [
+        62
+      ],
+      "unit": "seconds",
+      "source_retail": {
+        "model_price": 0.19,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "MiniMax-Hailuo-02",
+      "source_channels": [
+        49
+      ],
+      "unit": "tier",
+      "source_retail": {
+        "model_price": 2,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "MiniMax-Hailuo-2.3",
+      "source_channels": [
+        49
+      ],
+      "unit": "tier",
+      "source_retail": {
+        "model_price": 2,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "MiniMax-Hailuo-2.3-Fast",
+      "source_channels": [
+        49
+      ],
+      "unit": "tier",
+      "source_retail": {
+        "model_price": 1.35,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "doubao-asr-2.0",
+      "source_channels": [
+        56
+      ],
+      "unit": "seconds",
+      "source_retail": {
+        "model_price": null,
+        "model_ratio": 151.36,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "doubao-seedance-2-0-260128",
+      "source_channels": [
+        42,
+        64
+      ],
+      "deployment_source_channels": [42],
+      "withheld_source_channels": [64],
+      "unit": "tokens",
+      "source_retail": {
+        "model_price": null,
+        "model_ratio": 23,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "doubao-seedance-2-0-fast-260128",
+      "source_channels": [
+        42,
+        64
+      ],
+      "deployment_source_channels": [42],
+      "withheld_source_channels": [64],
+      "unit": "tokens",
+      "source_retail": {
+        "model_price": null,
+        "model_ratio": 18.5,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "doubao-seedance-2-0-mini-260615",
+      "source_channels": [
+        42,
+        64
+      ],
+      "unit": "tokens",
+      "source_retail": {
+        "model_price": null,
+        "model_ratio": 11.5,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "doubao-seedance-2-5-260628",
+      "source_channels": [
+        42,
+        64
+      ],
+      "unit": "tokens",
+      "source_retail": {
+        "model_price": null,
+        "model_ratio": 35,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "doubao-seedream-4-0-250828",
+      "source_channels": [
+        53
+      ],
+      "unit": "images",
+      "source_retail": {
+        "model_price": 0.2,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "doubao-seedream-4-5-251128",
+      "source_channels": [
+        53
+      ],
+      "unit": "images",
+      "source_retail": {
+        "model_price": 0.25,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "doubao-seedream-5-0-260128",
+      "source_channels": [
+        53
+      ],
+      "unit": "images",
+      "source_retail": {
+        "model_price": 0.22,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "doubao-seedream-5-0-pro-260628",
+      "source_channels": [
+        74
+      ],
+      "unit": "images",
+      "source_retail": {
+        "model_price": 0.25,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "doubao-tts-2.0",
+      "source_channels": [
+        54
+      ],
+      "unit": "characters",
+      "source_retail": {
+        "model_price": null,
+        "model_ratio": 250,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "happyhorse-1.0-i2v",
+      "source_channels": [
+        48,
+        61
+      ],
+      "unit": "seconds",
+      "source_retail": {
+        "model_price": 0.5,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "happyhorse-1.0-r2v",
+      "source_channels": [
+        48,
+        61
+      ],
+      "unit": "seconds",
+      "source_retail": {
+        "model_price": 0.5,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "happyhorse-1.0-t2v",
+      "source_channels": [
+        48,
+        61
+      ],
+      "unit": "seconds",
+      "source_retail": {
+        "model_price": 0.5,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "happyhorse-1.0-video-edit",
+      "source_channels": [
+        48,
+        61
+      ],
+      "unit": "seconds",
+      "source_retail": {
+        "model_price": 0.5,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "happyhorse-1.1-i2v",
+      "source_channels": [
+        61
+      ],
+      "unit": "seconds",
+      "source_retail": {
+        "model_price": null,
+        "model_ratio": null,
+        "billing_mode": "tiered_expr",
+        "billing_expr": "tier(\"standard\", p * 0 + c * 0)"
+      },
+      "deployment_base_price": 0.5,
+      "price_basis": "adopt_happyhorse_1_0_family_baseline",
+      "source_observation": "2026-09-25 live source DB export by main session supersedes 2026-09-22 snapshot; ModelPrice key absent. Neither fork has a HappyHorse 1.1 code default. Both versions share the adapter resolution ratios.",
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "happyhorse-1.1-r2v",
+      "source_channels": [
+        61
+      ],
+      "unit": "seconds",
+      "source_retail": {
+        "model_price": null,
+        "model_ratio": null,
+        "billing_mode": "tiered_expr",
+        "billing_expr": "tier(\"standard\", p * 0 + c * 0)"
+      },
+      "deployment_base_price": 0.5,
+      "price_basis": "adopt_happyhorse_1_0_family_baseline",
+      "source_observation": "2026-09-25 live source DB export by main session supersedes 2026-09-22 snapshot; ModelPrice key absent. Neither fork has a HappyHorse 1.1 code default. Both versions share the adapter resolution ratios.",
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "happyhorse-1.1-t2v",
+      "source_channels": [
+        61
+      ],
+      "unit": "seconds",
+      "source_retail": {
+        "model_price": null,
+        "model_ratio": null,
+        "billing_mode": "tiered_expr",
+        "billing_expr": "tier(\"standard\", p * 0 + c * 0)"
+      },
+      "deployment_base_price": 0.5,
+      "price_basis": "adopt_happyhorse_1_0_family_baseline",
+      "source_observation": "2026-09-25 live source DB export by main session supersedes 2026-09-22 snapshot; ModelPrice key absent. Neither fork has a HappyHorse 1.1 code default. Both versions share the adapter resolution ratios.",
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "minimax-files-upload",
+      "source_channels": [
+        49,
+        62
+      ],
+      "unit": "free",
+      "source_retail": {
+        "model_price": 0,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "minimax-music-generation",
+      "source_channels": [
+        49
+      ],
+      "unit": "request",
+      "source_retail": {
+        "model_price": 1,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "minimax-voice-clone",
+      "source_channels": [
+        49
+      ],
+      "unit": "request",
+      "source_retail": {
+        "model_price": 9.9,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "music-2.0",
+      "source_channels": [
+        49
+      ],
+      "unit": "request",
+      "source_retail": {
+        "model_price": 0.25,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "music-2.5",
+      "source_channels": [
+        49
+      ],
+      "unit": "request",
+      "source_retail": {
+        "model_price": 1,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "music-2.5+",
+      "source_channels": [
+        49
+      ],
+      "unit": "request",
+      "source_retail": {
+        "model_price": 1,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "music-2.6",
+      "source_channels": [
+        49
+      ],
+      "unit": "request",
+      "source_retail": {
+        "model_price": 1,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "music-2.6-free",
+      "source_channels": [
+        49
+      ],
+      "unit": "request",
+      "source_retail": {
+        "model_price": 0,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "music-cover",
+      "source_channels": [
+        49
+      ],
+      "unit": "request",
+      "source_retail": {
+        "model_price": 1,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "music-cover-free",
+      "source_channels": [
+        49
+      ],
+      "unit": "request",
+      "source_retail": {
+        "model_price": 0,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "speech-02-hd",
+      "source_channels": [
+        49
+      ],
+      "unit": "characters",
+      "source_retail": {
+        "model_price": null,
+        "model_ratio": 175,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "speech-02-turbo",
+      "source_channels": [
+        49
+      ],
+      "unit": "characters",
+      "source_retail": {
+        "model_price": null,
+        "model_ratio": 100,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "speech-2.6-hd",
+      "source_channels": [
+        49
+      ],
+      "unit": "characters",
+      "source_retail": {
+        "model_price": null,
+        "model_ratio": 175,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "speech-2.6-turbo",
+      "source_channels": [
+        49
+      ],
+      "unit": "characters",
+      "source_retail": {
+        "model_price": null,
+        "model_ratio": 100,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "speech-2.8-hd",
+      "source_channels": [
+        49
+      ],
+      "unit": "characters",
+      "source_retail": {
+        "model_price": null,
+        "model_ratio": 175,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "speech-2.8-turbo",
+      "source_channels": [
+        49
+      ],
+      "unit": "characters",
+      "source_retail": {
+        "model_price": null,
+        "model_ratio": 100,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "viapi-erase-subtitles",
+      "source_channels": [
+        50
+      ],
+      "unit": "minutes",
+      "source_retail": {
+        "model_price": 0.4,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "viapi-segment-common",
+      "source_channels": [
+        50
+      ],
+      "unit": "request",
+      "source_retail": {
+        "model_price": 0.0016,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "viapi-super-resolve",
+      "source_channels": [
+        50
+      ],
+      "unit": "minutes",
+      "source_retail": {
+        "model_price": 0.4,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "volc-lens-lqir",
+      "source_channels": [
+        52
+      ],
+      "unit": "request",
+      "source_retail": {
+        "model_price": 0.05,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "volc-vod-audio-extract",
+      "source_channels": [
+        51
+      ],
+      "unit": "input_minutes",
+      "source_retail": {
+        "model_price": 0.002,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "volc-vod-erase-subtitle-auto",
+      "source_channels": [
+        51
+      ],
+      "unit": "output_minutes",
+      "source_retail": {
+        "model_price": 0.07,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "volc-vod-erase-subtitle-locations",
+      "source_channels": [
+        51
+      ],
+      "unit": "output_minutes",
+      "source_retail": {
+        "model_price": 4,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "wan3.0-video",
+      "source_channels": [
+        75
+      ],
+      "unit": "seconds",
+      "source_retail": {
+        "model_price": 0.6,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    },
+    {
+      "model": "wan3.0-video-prime",
+      "source_channels": [
+        75
+      ],
+      "unit": "seconds",
+      "source_retail": {
+        "model_price": 0.9,
+        "model_ratio": null,
+        "billing_mode": null,
+        "billing_expr": null
+      },
+      "supplier_cost_verified": false,
+      "target_price": null,
+      "approval": "pending_supplier_cost_and_product_approval",
+      "provider_execution_verified": false
+    }
+  ],
+  "fastai_aliases": {
+    "doubao-seedance-2-5-260628": "seedance-2.5-token",
+    "doubao-seedance-2-0-mini-260615": "seedance-2.0-mini-token"
+  },
+  "historical_text_aliases": [
+    {
+      "model": "claude-opus-4-5",
+      "disposition": "hold_until_flow_upstream_mapping_confirmed",
+      "target_price": null
+    },
+    {
+      "model": "claude-sonnet-4-5",
+      "disposition": "hold_until_flow_upstream_mapping_confirmed",
+      "target_price": null
+    },
+    {
+      "model": "gpt-5.2",
+      "disposition": "hold_until_flow_upstream_mapping_confirmed",
+      "target_price": null
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/billing-ratio-routing.md", "reason": "FlowAPI 现有渠道/用户组倍率和异步计费快照合同，移植时必须保留。"}
+{"file": ".trellis/tasks/09-22-flowapi-provider-coverage/research/coverage-baseline.md", "reason": "当前代码与线上配置的已核实差异及验证边界。"}
+{"file": ".trellis/tasks/09-22-flowapi-provider-coverage/research/contract-review.md", "reason": "轮询、Wan 恢复、跨账号 ID、溢出与价格展示的验收合同。"}
+{"file": ".trellis/tasks/09-22-flowapi-media-audio-channels/design.md", "reason": "本任务的所有权、依赖和具体设计。"}
