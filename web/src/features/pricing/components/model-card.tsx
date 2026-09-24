@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
+import { billingUnitLabel } from '@/lib/media-billing-unit'
 
 import { DEFAULT_TOKEN_UNIT } from '../constants'
 import {
@@ -55,6 +56,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   const usdExchangeRate = props.usdExchangeRate ?? 1
   const showRechargePrice = props.showRechargePrice ?? false
   const isTokenBased = isTokenBasedModel(props.model)
+  const billingUnit = billingUnitLabel(props.model.billing_unit, t)
   const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
   const tags = parseTags(props.model.tags)
   const endpoints = props.model.supported_endpoint_types || []
@@ -188,7 +190,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
             props.selectedGroup
           )}
         </span>{' '}
-        / {t('request')}
+        / {billingUnit}
       </span>
     )
   }

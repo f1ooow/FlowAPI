@@ -2,12 +2,18 @@ package router
 
 import (
 	"github.com/QuantumNous/new-api/controller"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/middleware"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
 func SetVideoRouter(router *gin.Engine) {
+	wan := router.Group("/api/v1", middleware.RouteTag("relay"), middleware.TokenAuth())
+	wan.GET("/task-submissions/:client_key", controller.GetTaskSubmission)
+	wan.POST(strings.TrimPrefix(dto.WanCreatePath, "/api/v1"), middleware.TaskSubmission(), middleware.Distribute(), controller.RelayTask)
+	wan.GET("/tasks/:task_id", middleware.Distribute(), controller.RelayTaskFetch)
 	// Video proxy: accepts either session auth (dashboard) or token auth (API clients)
 	videoProxyRouter := router.Group("/v1")
 	videoProxyRouter.Use(middleware.RouteTag("relay"))

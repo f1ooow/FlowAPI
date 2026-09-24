@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { ChannelMediaSettings } from './sections/channel-media-settings'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -294,6 +295,10 @@ const SENSITIVE_FORM_FIELDS = [
   'allow_speed',
   'claude_beta_query',
   'disable_task_polling_sleep',
+  'video_protocol',
+  'task_submit_path',
+  'task_fetch_path',
+  'other_info',
   'upstream_model_update_check_enabled',
   'upstream_model_update_auto_sync_enabled',
   'upstream_model_update_ignored_models',
@@ -4076,6 +4081,8 @@ export function ChannelMutateDrawer({
                                   </FormItem>
                                 )}
                               />
+
+                              <ChannelMediaSettings channelType={currentType} />
 
                               <FormField
                                 control={form.control}

@@ -54,6 +54,10 @@ const (
 	RelayModeResponsesCompact
 
 	RelayModeAlphaSearch
+
+	RelayModeMiniMaxFilesUpload
+	RelayModeMiniMaxVoiceClone
+	RelayModeMiniMaxMusic
 )
 
 func Path2RelayMode(path string) int {
@@ -80,6 +84,12 @@ func Path2RelayMode(path string) int {
 		relayMode = RelayModeResponses
 	} else if strings.HasPrefix(path, "/v1/alpha/search") {
 		relayMode = RelayModeAlphaSearch
+	} else if path == "/v1/files/upload" {
+		relayMode = RelayModeMiniMaxFilesUpload
+	} else if path == "/v1/voice_clone" {
+		relayMode = RelayModeMiniMaxVoiceClone
+	} else if path == "/v1/music_generation" {
+		relayMode = RelayModeMiniMaxMusic
 	} else if strings.HasPrefix(path, "/v1/audio/speech") {
 		relayMode = RelayModeAudioSpeech
 	} else if strings.HasPrefix(path, "/v1/audio/transcriptions") {

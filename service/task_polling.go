@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"sort"
 	"strings"
@@ -32,6 +33,35 @@ type TaskPollingAdaptor interface {
 	// AdjustBillingOnComplete 在任务到达终态（成功/失败）时由轮询循环调用。
 	// 返回正数触发差额结算（补扣/退还），返回 0 保持预扣费金额不变。
 	AdjustBillingOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) int
+}
+
+// TaskBillingCheckedAdaptor may return a zero-but-handled result (for example
+// a free media operation) and an auditable quota clamp. It is optional so old
+// task adaptors keep their existing contract.
+type TaskBillingCheckedAdaptor interface {
+	AdjustBillingOnCompleteChecked(task *model.Task, taskResult *relaycommon.TaskInfo) (int, *common.QuotaClamp, bool)
+}
+
+// IsMeaningfulVideoTaskResponse prevents provider-native payloads from being
+// mistaken for the new-api passthrough envelope merely because they happen to
+// contain {"code":"success"}. A passthrough response is authoritative only
+// when its data contains a recognized internal task status.
+func IsMeaningfulVideoTaskResponse(response *taskdto.TaskResponse[model.Task]) bool {
+	if response == nil || !response.IsSuccess() {
+		return false
+	}
+	switch response.Data.Status {
+	case model.TaskStatusNotStart,
+		model.TaskStatusSubmitted,
+		model.TaskStatusQueued,
+		model.TaskStatusInProgress,
+		model.TaskStatusSuccess,
+		model.TaskStatusFailure,
+		model.TaskStatusUnknown:
+		return true
+	default:
+		return false
+	}
 }
 
 // GetTaskAdaptorFunc 由 main 包注入，用于获取指定平台的任务适配器。
@@ -410,12 +440,6 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 	if adaptor == nil {
 		return fmt.Errorf("video adaptor not found")
 	}
-	info := &relaycommon.RelayInfo{}
-	info.ChannelMeta = &relaycommon.ChannelMeta{
-		ChannelBaseUrl: cacheGetChannel.GetBaseURL(),
-	}
-	info.ApiKey = cacheGetChannel.Key
-	adaptor.Init(info)
 	disablePollingSleep := cacheGetChannel.GetOtherSettings().DisableTaskPollingSleep
 	for i, taskId := range taskIds {
 		if ctx.Err() != nil {
@@ -459,9 +483,28 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	if privateData.Key != "" {
 		key = privateData.Key
 	}
+	settings := ch.GetOtherSettings()
+	if privateData.ChannelBaseURL != "" {
+		baseURL = privateData.ChannelBaseURL
+	}
+	if privateData.ChannelSettings != nil {
+		settings.VideoProtocol = privateData.ChannelSettings.VideoProtocol
+		settings.TaskEndpointOverride = privateData.ChannelSettings.TaskEndpointOverride
+	}
+	otherInfo := ch.OtherInfo
+	if privateData.ChannelOtherInfo != nil {
+		otherInfo = *privateData.ChannelOtherInfo
+	}
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{
+		ChannelOtherInfo: otherInfo,
+		ChannelId:        ch.Id, ChannelType: ch.Type, ChannelBaseUrl: baseURL,
+		ChannelOtherSettings: settings, ApiKey: key, UpstreamModelName: task.Properties.UpstreamModelName,
+	}, OriginModelName: task.Properties.OriginModelName}
+	adaptor.Init(info)
 	resp, err := adaptor.FetchTask(baseURL, key, map[string]any{
 		"task_id": task.GetUpstreamTaskID(),
 		"action":  task.Action,
+		"model":   task.Properties.UpstreamModelName,
 	}, proxy)
 	if err != nil {
 		return fmt.Errorf("fetchTask failed for task %s: %w", taskId, err)
@@ -479,7 +522,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	taskResult := &relaycommon.TaskInfo{}
 	// try parse as New API response format
 	var responseItems taskdto.TaskResponse[model.Task]
-	if err = common.Unmarshal(responseBody, &responseItems); err == nil && responseItems.IsSuccess() {
+	if err = common.Unmarshal(responseBody, &responseItems); err == nil && IsMeaningfulVideoTaskResponse(&responseItems) {
 		logger.LogDebug(ctx, "updateVideoSingleTask parsed as new api response format: %+v", responseItems)
 		t := responseItems.Data
 		taskResult.TaskID = t.TaskID
@@ -490,6 +533,19 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		task.Data = t.Data
 	} else if taskResult, err = adaptor.ParseTaskResult(responseBody); err != nil {
 		return fmt.Errorf("parseTaskResult failed for task %s: %w", taskId, err)
+	}
+
+	if bc := task.PrivateData.BillingContext; bc != nil && bc.BillingUnit == "output_seconds" && taskResult.Status == model.TaskStatusSuccess {
+		seconds := taskResult.OutputVideoDuration
+		if seconds <= 0 {
+			seconds, err = ProbeWanMediaDuration(ctx, taskResult.Url, true)
+		}
+		if err != nil || math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds <= 0 || seconds+bc.InputVideoDuration > 30 {
+			// A successful provider task is not a failed job merely because its
+			// media is temporarily unavailable. Keep the reservation and retry polling.
+			return fmt.Errorf("Wan output duration verification pending")
+		}
+		bc.OutputVideoDuration = seconds
 	}
 
 	task.Data = redactVideoResponseBody(responseBody)
@@ -550,6 +606,10 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 			task.PrivateData.ResultURL = taskcommon.BuildProxyURL(task.TaskID)
 		}
 		shouldSettle = true
+	case model.TaskStatusUnknown:
+		task.Status = snap.Status
+		task.Data = snap.Data
+		return nil
 	case model.TaskStatusFailure:
 		logger.LogJson(ctx, fmt.Sprintf("Task %s failed", taskId), task)
 		task.Status = model.TaskStatusFailure
@@ -641,6 +701,18 @@ func truncateBase64(s string) string {
 //  2. taskResult.TotalTokens > 0 → 按 token 重算
 //  3. 都不满足 → 保持预扣额度不变
 func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) {
+	if bc := task.PrivateData.BillingContext; bc != nil && bc.BillingUnit == "output_seconds" {
+		actual, clamp := wanActualQuotaChecked(task)
+		RecalculateTaskQuota(ctx, task, actual, "Wan output duration", clamp)
+		return
+	}
+	if checked, ok := adaptor.(TaskBillingCheckedAdaptor); ok {
+		actual, clamp, handled := checked.AdjustBillingOnCompleteChecked(task, taskResult)
+		if handled {
+			RecalculateTaskQuota(ctx, task, actual, "checked adaptor计费调整", clamp)
+			return
+		}
+	}
 	// 0. 按次计费的任务不做差额结算
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.PerCallBilling {
 		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 按次计费，跳过差额结算", task.TaskID))

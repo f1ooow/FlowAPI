@@ -101,9 +101,12 @@ func (m Properties) Value() (driver.Value, error) {
 }
 
 type TaskPrivateData struct {
-	Key            string `json:"key,omitempty"`
-	UpstreamTaskID string `json:"upstream_task_id,omitempty"` // 上游真实 task ID
-	ResultURL      string `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
+	ChannelOtherInfo *string                   `json:"channel_other_info,omitempty"`
+	ChannelBaseURL   string                    `json:"channel_base_url,omitempty"`
+	ChannelSettings  *dto.ChannelOtherSettings `json:"channel_settings,omitempty"`
+	Key              string                    `json:"key,omitempty"`
+	UpstreamTaskID   string                    `json:"upstream_task_id,omitempty"` // 上游真实 task ID
+	ResultURL        string                    `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
 	BillingSource  string              `json:"billing_source,omitempty"`  // "wallet"、"subscription" 或 "unlimited"
 	SubscriptionId int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
@@ -114,6 +117,10 @@ type TaskPrivateData struct {
 
 // TaskBillingContext 记录任务提交时的计费参数，以便轮询阶段可以重新计算额度。
 type TaskBillingContext struct {
+	BillingUnit         string             `json:"billing_unit,omitempty"`
+	Resolution          string             `json:"resolution,omitempty"`
+	OutputVideoDuration float64            `json:"output_video_duration,omitempty"`
+	InputVideoDuration  float64            `json:"input_video_duration,omitempty"`
 	ModelPrice          float64            `json:"model_price,omitempty"`           // 模型单价
 	GroupRatio          float64            `json:"group_ratio,omitempty"`           // 历史兼容：旧任务中是最终分组倍率
 	BaseGroupRatio      float64            `json:"base_group_ratio,omitempty"`      // 提交时计费分组倍率
@@ -125,6 +132,25 @@ type TaskBillingContext struct {
 	OtherRatios         map[string]float64 `json:"other_ratios,omitempty"`          // 附加倍率（时长、分辨率等）
 	OriginModelName     string             `json:"origin_model_name,omitempty"`     // 模型名称，必须为OriginModelName
 	PerCallBilling      bool               `json:"per_call_billing,omitempty"`      // 按次计费：跳过轮询阶段的差额结算
+}
+
+// NewTaskBillingContext freezes the prices used by submission and later settlement.
+func NewTaskBillingContext(info *commonRelay.RelayInfo) *TaskBillingContext {
+	effectiveRatio := info.PriceData.GroupRatioInfo.GroupRatio
+	return &TaskBillingContext{
+		BillingUnit:         info.BillingUnit,
+		ModelPrice:          info.PriceData.ModelPrice,
+		GroupRatio:          effectiveRatio,
+		BaseGroupRatio:      info.PriceData.GroupRatioInfo.BaseGroupRatio,
+		UserGroupRatio:      info.PriceData.GroupRatioInfo.UserGroupRatio,
+		ChannelRatio:        info.PriceData.GroupRatioInfo.ChannelRatio,
+		IncludeChannelRatio: info.PriceData.GroupRatioInfo.IncludeChannelRatio,
+		EffectiveRatio:      &effectiveRatio,
+		ModelRatio:          info.PriceData.ModelRatio,
+		OtherRatios:         info.PriceData.OtherRatios(),
+		OriginModelName:     info.OriginModelName,
+		PerCallBilling:      common.StringsContains(constant.TaskPricePatches, info.OriginModelName) || info.PriceData.UsePrice,
+	}
 }
 
 // GetUpstreamTaskID 获取上游真实 task ID（用于与 provider 通信）
@@ -183,9 +209,19 @@ func InitTask(platform constant.TaskPlatform, relayInfo *commonRelay.RelayInfo) 
 	properties := Properties{}
 	privateData := TaskPrivateData{}
 	if relayInfo != nil && relayInfo.ChannelMeta != nil {
-		if relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeGemini ||
-			relayInfo.ChannelMeta.ChannelType == constant.ChannelTypeVertexAi {
-			privateData.Key = relayInfo.ChannelMeta.ApiKey
+		// Provider task IDs are scoped to the submitting account, including
+		// multi-key channels. Do not rotate credentials during polling.
+		privateData.Key = relayInfo.ChannelMeta.ApiKey
+		privateData.ChannelBaseURL = relayInfo.ChannelMeta.ChannelBaseUrl
+		otherInfo := relayInfo.ChannelMeta.ChannelOtherInfo
+		privateData.ChannelOtherInfo = &otherInfo
+		settings := relayInfo.ChannelMeta.ChannelOtherSettings
+		privateData.ChannelSettings = &dto.ChannelOtherSettings{
+			VideoProtocol: settings.VideoProtocol,
+		}
+		if settings.TaskEndpointOverride != nil {
+			override := *settings.TaskEndpointOverride
+			privateData.ChannelSettings.TaskEndpointOverride = &override
 		}
 		if relayInfo.UpstreamModelName != "" {
 			properties.UpstreamModelName = relayInfo.UpstreamModelName

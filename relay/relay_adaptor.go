@@ -35,6 +35,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/submodel"
 	taskali "github.com/QuantumNous/new-api/relay/channel/task/ali"
 	taskdoubao "github.com/QuantumNous/new-api/relay/channel/task/doubao"
+	taskfastaitoken "github.com/QuantumNous/new-api/relay/channel/task/fastaitoken"
 	taskGemini "github.com/QuantumNous/new-api/relay/channel/task/gemini"
 	"github.com/QuantumNous/new-api/relay/channel/task/hailuo"
 	taskjimeng "github.com/QuantumNous/new-api/relay/channel/task/jimeng"
@@ -42,7 +43,10 @@ import (
 	tasksora "github.com/QuantumNous/new-api/relay/channel/task/sora"
 	"github.com/QuantumNous/new-api/relay/channel/task/suno"
 	taskvertex "github.com/QuantumNous/new-api/relay/channel/task/vertex"
+	taskviapi "github.com/QuantumNous/new-api/relay/channel/task/viapi"
 	taskVidu "github.com/QuantumNous/new-api/relay/channel/task/vidu"
+	taskvolccv "github.com/QuantumNous/new-api/relay/channel/task/volccv"
+	taskvolcvod "github.com/QuantumNous/new-api/relay/channel/task/volcvod"
 	"github.com/QuantumNous/new-api/relay/channel/tencent"
 	"github.com/QuantumNous/new-api/relay/channel/vertex"
 	"github.com/QuantumNous/new-api/relay/channel/volcengine"
@@ -168,6 +172,14 @@ func GetTaskAdaptor(platform constant.TaskPlatform) channel.TaskAdaptor {
 			return &taskGemini.TaskAdaptor{}
 		case constant.ChannelTypeMiniMax:
 			return &hailuo.TaskAdaptor{}
+		case constant.ChannelTypeViapi:
+			return &taskviapi.TaskAdaptor{}
+		case constant.ChannelTypeVolcVod:
+			return &taskvolcvod.TaskAdaptor{}
+		case constant.ChannelTypeVolcCv:
+			return &taskvolccv.TaskAdaptor{}
+		case constant.ChannelTypeFastAIToken:
+			return &taskfastaitoken.TaskAdaptor{}
 		}
 	}
 	return nil

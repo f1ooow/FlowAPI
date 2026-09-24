@@ -39,6 +39,11 @@ func Distribute() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
 			return
 		}
+		binding, err := miniMaxRequestBinding(c, modelRequest.Model)
+		if err != nil {
+			abortWithOpenAiMessage(c, http.StatusConflict, err.Error())
+			return
+		}
 		if ok {
 			id, err := strconv.Atoi(channelId.(string))
 			if err != nil {
@@ -102,7 +107,14 @@ func Distribute() func(c *gin.Context) {
 					}
 				}
 
-				if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, modelRequest.Model, usingGroup); found {
+				if binding != nil {
+					channel, err = selectMiniMaxResourceChannel(c, binding, modelRequest.Model, usingGroup)
+					if err != nil {
+						abortWithOpenAiMessage(c, http.StatusForbidden, err.Error())
+						return
+					}
+				}
+				if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, modelRequest.Model, usingGroup); found && channel == nil {
 					affinityUsable := false
 					preferred, err := model.CacheGetChannel(preferredChannelID)
 					if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled &&
@@ -161,8 +173,22 @@ func Distribute() func(c *gin.Context) {
 				}
 			}
 		}
+		if ok && binding != nil {
+			if channel.Id != binding.ChannelID {
+				abortWithOpenAiMessage(c, http.StatusConflict, "resource belongs to another channel")
+				return
+			}
+			channel, err = selectMiniMaxResourceChannel(c, binding, modelRequest.Model, common.GetContextKeyString(c, constant.ContextKeyUsingGroup))
+			if err != nil {
+				abortWithOpenAiMessage(c, http.StatusForbidden, err.Error())
+				return
+			}
+		}
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
-		SetupContextForSelectedChannel(c, channel, modelRequest.Model)
+		if setupErr := SetupContextForSelectedChannel(c, channel, modelRequest.Model); setupErr != nil && shouldSelectChannel {
+			abortWithOpenAiMessage(c, http.StatusServiceUnavailable, setupErr.Error())
+			return
+		}
 		c.Next()
 		if channel != nil && c.Writer != nil && c.Writer.Status() < http.StatusBadRequest {
 			service.RecordChannelAffinity(c, channel.Id)
@@ -289,6 +315,19 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		}
 		c.Set("platform", string(constant.TaskPlatformSuno))
 		c.Set("relay_mode", relayMode)
+	} else if c.Request.URL.Path == taskdto.WanCreatePath || strings.HasPrefix(c.Request.URL.Path, "/api/v1/tasks/") {
+		if c.Request.Method == http.MethodGet {
+			shouldSelectChannel = false
+			modelRequest.Model = getTaskOriginModelName(c)
+			c.Set("relay_mode", relayconstant.RelayModeVideoFetchByID)
+		} else {
+			req, e := getModelFromRequest(c)
+			if e != nil {
+				return nil, false, e
+			}
+			modelRequest.Model = req.Model
+			c.Set("relay_mode", relayconstant.RelayModeVideoSubmit)
+		}
 	} else if strings.Contains(c.Request.URL.Path, "/v1/videos/") && strings.HasSuffix(c.Request.URL.Path, "/remix") {
 		relayMode := relayconstant.RelayModeVideoSubmit
 		c.Set("relay_mode", relayMode)
@@ -373,6 +412,30 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 			}
 		}
 	}
+	// MiniMax 扩展端点：files/upload (multipart) / voice_clone (JSON) / music_generation (JSON)
+	if strings.HasPrefix(c.Request.URL.Path, "/v1/files/upload") {
+		// multipart：model 字段从 form 抽取；CCS 端在 multipart 里带 "model" 字段
+		contentType := c.ContentType()
+		if slices.Contains([]string{gin.MIMEPOSTForm, gin.MIMEMultipartPOSTForm}, contentType) {
+			if form, formErr := common.ParseMultipartFormReusable(c); formErr == nil {
+				if vals, ok := form.Value["model"]; ok && len(vals) > 0 {
+					modelRequest.Model = vals[0]
+				}
+			}
+		}
+		// 若用户未指定 model，使用 MiniMax 文件上传的默认占位模型
+		modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "minimax-files-upload")
+		c.Set("relay_mode", relayconstant.RelayModeMiniMaxFilesUpload)
+	}
+	if strings.HasPrefix(c.Request.URL.Path, "/v1/voice_clone") {
+		// model 字段由前面的 getModelFromRequest 已抽取；未指定时填默认值
+		modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "minimax-voice-clone")
+		c.Set("relay_mode", relayconstant.RelayModeMiniMaxVoiceClone)
+	}
+	if strings.HasPrefix(c.Request.URL.Path, "/v1/music_generation") {
+		modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "minimax-music-generation")
+		c.Set("relay_mode", relayconstant.RelayModeMiniMaxMusic)
+	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/audio") {
 		relayMode := relayconstant.RelayModeAudioSpeech
 		if strings.HasPrefix(c.Request.URL.Path, "/v1/audio/speech") {
@@ -445,6 +508,7 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	common.SetContextKey(c, constant.ContextKeyChannelCreateTime, channel.CreatedTime)
 	common.SetContextKey(c, constant.ContextKeyChannelSetting, channel.GetSetting())
 	common.SetContextKey(c, constant.ContextKeyChannelOtherSetting, channel.GetOtherSettings())
+	c.Set("channel_other_info", channel.OtherInfo)
 	paramOverride := channel.GetParamOverride()
 	headerOverride := channel.GetHeaderOverride()
 	if mergedParam, applied := service.ApplyChannelAffinityOverrideTemplate(c, paramOverride); applied {
@@ -461,6 +525,12 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	common.SetContextKey(c, constant.ContextKeyChannelCostRatio, channel.GetCostRatio())
 
 	key, index, newAPIError := channel.GetNextEnabledKey()
+	if boundChannel := c.GetInt("minimax_resource_channel_id"); boundChannel != 0 {
+		if channel.Id != boundChannel {
+			return types.NewError(errors.New("MiniMax resource channel cannot change"), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		}
+		key, index, newAPIError = c.GetString("minimax_resource_key"), c.GetInt("minimax_resource_key_index"), nil
+	}
 	if newAPIError != nil {
 		return newAPIError
 	}

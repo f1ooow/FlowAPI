@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { z } from 'zod'
 
+import { isValidTaskEndpointPath } from './media-settings'
+
 import {
   CLAUDE_FIELD_PASSTHROUGH_TYPES,
   CHANNEL_TYPE_NEW_API,
@@ -252,6 +254,10 @@ export const channelFormSchema = z
       .refine(isOptionalJsonObject, ERROR_MESSAGES.INVALID_JSON),
     advanced_custom: z.string().optional(),
     other: z.string().optional(),
+    other_info: z.string().optional().refine(isOptionalJsonObject, ERROR_MESSAGES.INVALID_JSON),
+    video_protocol: z.enum(['', 'wan-rolldek-v1']).optional(),
+    task_submit_path: z.string().optional().refine((value) => isValidTaskEndpointPath(value, false), 'Use a same-origin path without placeholders.'),
+    task_fetch_path: z.string().optional().refine((value) => isValidTaskEndpointPath(value, true), 'Use a same-origin path with {task_id} exactly once.'),
     // Multi-key options (not sent to backend directly)
     multi_key_mode: z.enum(['single', 'batch', 'multi_to_single']).optional(),
     multi_key_type: z.enum(['random', 'polling']).optional(),
@@ -315,7 +321,7 @@ export const channelFormSchema = z
   })
   .superRefine((data, ctx) => {
     if (
-      [3, 8, 36, 45, CHANNEL_TYPE_NEW_API].includes(data.type) &&
+      [3, 8, 36, 45, CHANNEL_TYPE_NEW_API, 103].includes(data.type) &&
       !data.base_url?.trim()
     ) {
       addRequiredIssue(
@@ -454,6 +460,10 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   header_override: '',
   settings: '{}',
   other: '',
+  other_info: '{}',
+  video_protocol: '',
+  task_submit_path: '',
+  task_fetch_path: '',
   multi_key_mode: 'single',
   multi_key_type: 'random',
   batch_add_set_key_prefix_2_name: false,
@@ -551,6 +561,9 @@ export function transformChannelToFormDefaults(
   let allowSpeed = false
   let claudeBetaQuery = false
   let disableTaskPollingSleep = false
+  let videoProtocol: '' | 'wan-rolldek-v1' = ''
+  let taskSubmitPath = ''
+  let taskFetchPath = ''
   let upstreamModelUpdateCheckEnabled = false
   let upstreamModelUpdateAutoSyncEnabled = false
   let upstreamModelUpdateIgnoredModels = ''
@@ -577,6 +590,9 @@ export function transformChannelToFormDefaults(
       allowSpeed = parsed.allow_speed === true
       claudeBetaQuery = parsed.claude_beta_query === true
       disableTaskPollingSleep = parsed.disable_task_polling_sleep === true
+      videoProtocol = parsed.video_protocol === 'wan-rolldek-v1' ? parsed.video_protocol : ''
+      taskSubmitPath = parsed.task_endpoint_override?.submit_path || ''
+      taskFetchPath = parsed.task_endpoint_override?.fetch_path || ''
       upstreamModelUpdateCheckEnabled =
         parsed.upstream_model_update_check_enabled === true
       upstreamModelUpdateAutoSyncEnabled =
@@ -639,6 +655,10 @@ export function transformChannelToFormDefaults(
     header_override: channel.header_override || '',
     settings: channel.settings || '{}',
     other: channel.other || '',
+    other_info: channel.other_info || '{}',
+    video_protocol: videoProtocol,
+    task_submit_path: taskSubmitPath,
+    task_fetch_path: taskFetchPath,
     multi_key_mode: 'single',
     multi_key_type: channel.channel_info.multi_key_mode || 'random',
     batch_add_set_key_prefix_2_name: false,
@@ -797,6 +817,15 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
   settingsObj.disable_task_polling_sleep =
     formData.disable_task_polling_sleep === true
 
+  if (formData.video_protocol) settingsObj.video_protocol = formData.video_protocol
+  else delete settingsObj.video_protocol
+  if (formData.task_submit_path || formData.task_fetch_path) {
+    settingsObj.task_endpoint_override = {
+      submit_path: formData.task_submit_path || undefined,
+      fetch_path: formData.task_fetch_path || undefined,
+    }
+  } else delete settingsObj.task_endpoint_override
+
   // Upstream model update settings (for model-fetchable channel types)
   if (MODEL_FETCHABLE_TYPES.has(formData.type)) {
     settingsObj.upstream_model_update_check_enabled =
@@ -890,6 +919,7 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
     header_override: formData.header_override || null,
     settings: buildSettingsJSON(formData),
     other: formData.other || '',
+    other_info: formData.other_info || '{}',
   }
 
   // Clean up empty strings to null for optional fields
@@ -938,6 +968,7 @@ export function transformFormDataToUpdatePayload(
     header_override: formData.header_override || null,
     settings: buildSettingsJSON(formData),
     other: formData.other || '',
+    other_info: formData.other_info || '{}',
   }
 
   // Only include key if it was changed (not empty)

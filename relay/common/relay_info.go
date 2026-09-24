@@ -70,6 +70,7 @@ type ChannelMeta struct {
 	HeadersOverride      map[string]interface{}
 	ChannelSetting       dto.ChannelSettings
 	ChannelOtherSettings dto.ChannelOtherSettings
+	ChannelOtherInfo     string
 	UpstreamModelName    string
 	IsModelMapped        bool
 	SupportStreamOptions bool // 是否支持流式选项
@@ -199,6 +200,7 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 		ChannelIsMultiKey:    common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey),
 		ChannelMultiKeyIndex: common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex),
 		ChannelBaseUrl:       common.GetContextKeyString(c, constant.ContextKeyChannelBaseUrl),
+		ChannelOtherInfo:     c.GetString("channel_other_info"),
 		ApiType:              apiType,
 		ApiVersion:           c.GetString("api_version"),
 		ApiKey:               common.GetContextKeyString(c, constant.ContextKeyChannelKey),
@@ -859,6 +861,7 @@ func (info *RelayInfo) HasSendResponse() bool {
 }
 
 type TaskRelayInfo struct {
+	BillingUnit  string
 	Action       string
 	OriginTaskID string
 	// PublicTaskID 是提交时预生成的 task_xxxx 格式公开 ID，
@@ -956,15 +959,16 @@ func (t *TaskSubmitReq) UnmarshalMetadata(v any) error {
 }
 
 type TaskInfo struct {
-	Code             int    `json:"code"`
-	TaskID           string `json:"task_id"`
-	Status           string `json:"status"`
-	Reason           string `json:"reason,omitempty"`
-	Url              string `json:"url,omitempty"`
-	RemoteUrl        string `json:"remote_url,omitempty"`
-	Progress         string `json:"progress,omitempty"`
-	CompletionTokens int    `json:"completion_tokens,omitempty"` // 用于按倍率计费
-	TotalTokens      int    `json:"total_tokens,omitempty"`      // 用于按倍率计费
+	OutputVideoDuration float64 `json:"output_video_duration,omitempty"`
+	Code                int     `json:"code"`
+	TaskID              string  `json:"task_id"`
+	Status              string  `json:"status"`
+	Reason              string  `json:"reason,omitempty"`
+	Url                 string  `json:"url,omitempty"`
+	RemoteUrl           string  `json:"remote_url,omitempty"`
+	Progress            string  `json:"progress,omitempty"`
+	CompletionTokens    int     `json:"completion_tokens,omitempty"` // 用于按倍率计费
+	TotalTokens         int     `json:"total_tokens,omitempty"`      // 用于按倍率计费
 }
 
 func FailTaskInfo(reason string) *TaskInfo {

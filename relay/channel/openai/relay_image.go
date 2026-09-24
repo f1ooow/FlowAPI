@@ -36,12 +36,18 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
+		if isSeedreamLayerRequest(c, info) {
+			return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+		}
 		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
 	}
 
 	var usageResp dto.SimpleResponse
 	err = common.Unmarshal(responseBody, &usageResp)
 	if err != nil {
+		if isSeedreamLayerRequest(c, info) {
+			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+		}
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
 
@@ -49,7 +55,9 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 
-	updateOpenAIImageCount(info, gjson.GetBytes(responseBody, "data.#").Int())
+	if apiErr := applySeedreamImageCount(c, info, responseBody); apiErr != nil {
+		return nil, apiErr
+	}
 
 	// 写入新的 response body
 	service.IOCopyBytesGracefully(c, resp, responseBody)
@@ -57,6 +65,55 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 	normalizeOpenAIUsage(&usageResp.Usage)
 	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
 	return &usageResp.Usage, nil
+}
+
+// The final outbound mode takes precedence over the original client request:
+// channel overrides and model mapping may change it before the attempt.
+func isSeedreamLayerRequest(c *gin.Context, info *relaycommon.RelayInfo) bool {
+	if mode, exists := c.Get("seedream_layer_decomposition"); exists {
+		enabled, _ := mode.(bool)
+		return enabled
+	}
+	if info == nil {
+		return false
+	}
+	request, ok := info.Request.(*dto.ImageRequest)
+	if !ok || request == nil || request.LayerDecomposition == nil || !*request.LayerDecomposition {
+		return false
+	}
+	model := request.Model
+	if info.ChannelMeta != nil && info.UpstreamModelName != "" {
+		model = info.UpstreamModelName
+	}
+	return model == dto.Seedream50Pro
+}
+
+func applySeedreamImageCount(c *gin.Context, info *relaycommon.RelayInfo, responseBody []byte) *types.NewAPIError {
+	count := gjson.GetBytes(responseBody, "data.#").Int()
+	layer := isSeedreamLayerRequest(c, info)
+	if layer {
+		var response struct {
+			Usage struct {
+				GeneratedImages *int64 `json:"generated_images"`
+			} `json:"usage"`
+		}
+		err := common.Unmarshal(responseBody, &response)
+		generated := response.Usage.GeneratedImages
+		if err != nil || generated == nil || *generated < 1 || *generated > dto.MaxSeedreamLayerImages || count != *generated {
+			logger.LogWarn(c, "Seedream layer response rejected: generated_images must be an integer in 1..17 matching data length")
+			return types.NewErrorWithStatusCode(fmt.Errorf("invalid Seedream layer usage: generated_images must be an integer in 1..17 matching data length"), types.ErrorCodeBadResponseBody, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+		}
+		c.Set("seedream_layer_image_count", int(*generated)) // bounded above
+		if info != nil && info.PriceData.UsePrice && info.TieredBillingSnapshot == nil {
+			info.PriceData.AddOtherRatio("n", float64(*generated)*dto.SeedreamLayerImagePriceFactor)
+		}
+		return nil
+	}
+	if info != nil && info.ChannelMeta != nil && dto.IsSeedreamModel(info.UpstreamModelName) && count > dto.MaxImageN {
+		return types.NewErrorWithStatusCode(fmt.Errorf("Seedream output count exceeds %d", dto.MaxImageN), types.ErrorCodeBadResponseBody, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+	}
+	updateOpenAIImageCount(info, count)
+	return nil
 }
 
 // normalizeOpenAIUsage maps the OpenAI Images usage shape (input_tokens /
@@ -94,6 +151,10 @@ func OpenaiImageStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp 
 	if resp == nil || resp.Body == nil {
 		logger.LogError(c, "invalid image stream response")
 		return nil, types.NewOpenAIError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse, http.StatusInternalServerError)
+	}
+	if isSeedreamLayerRequest(c, info) && strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") {
+		service.CloseResponseBodyGracefully(resp)
+		return nil, types.NewErrorWithStatusCode(fmt.Errorf("unexpected streaming Seedream layer response"), types.ErrorCodeBadResponseBody, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
 	}
 
 	contentType := strings.ToLower(resp.Header.Get("Content-Type"))
@@ -239,6 +300,9 @@ func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
+		if isSeedreamLayerRequest(c, info) {
+			return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+		}
 		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
 	}
 
@@ -247,6 +311,9 @@ func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 	// re-marshaled for each SSE event.
 	var usageResp dto.SimpleResponse
 	if err := common.Unmarshal(responseBody, &usageResp); err != nil {
+		if isSeedreamLayerRequest(c, info) {
+			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+		}
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
 	if oaiError := usageResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
@@ -256,7 +323,9 @@ func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
 
 	imageCount := gjson.GetBytes(responseBody, "data.#").Int()
-	updateOpenAIImageCount(info, imageCount)
+	if apiErr := applySeedreamImageCount(c, info, responseBody); apiErr != nil {
+		return nil, apiErr
+	}
 
 	helper.SetEventStreamHeaders(c)
 	c.Status(http.StatusOK)

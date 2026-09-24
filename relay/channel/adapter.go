@@ -82,3 +82,8 @@ type TaskAdaptor interface {
 type OpenAIVideoConverter interface {
 	ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error)
 }
+
+// TaskErrorResponseAdaptor decodes provider-native errors without treating them as accepted tasks.
+type TaskErrorResponseAdaptor interface {
+	DoErrorResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) *taskdto.TaskError
+}

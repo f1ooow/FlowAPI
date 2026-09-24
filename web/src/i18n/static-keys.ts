@@ -19,6 +19,11 @@ For commercial licensing, please contact support@quantumnous.com
 // Static translation keys that don't get picked up by the t('...') regex.
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
+  'Ali Viapi',
+  'VolcVOD',
+  'VolcCV',
+  'FastAI Video',
+  'Billing Unit',
   // Header navigation
   'Home',
   'Console',
@@ -310,6 +315,21 @@ export const STATIC_I18N_KEYS = [
   'hours',
   'seconds',
   'minutes',
+  'characters',
+  'images',
+  'input minutes',
+  'output minutes',
+  'resolution/duration tier',
+  'Media provider settings',
+  'Rolldek Wan protocol',
+  'Enable only for a provider that supports wan-rolldek-v1.',
+  'Task submit path',
+  'Task query path',
+  'Leave blank to use the provider default. Paths must stay on the configured host.',
+  'Use a same-origin path with {task_id} exactly once.',
+  'VOD account configuration (JSON)',
+  'ASR uploads require vod_ak, vod_sk, vod_space and vod_playback_domain. VOD tasks use the channel key and vod_space. Optional: vod_region, vod_playback_scheme, vod_url_auth_key.',
+  'Use explicit time model IDs for per-second prices. Token models require token pricing.',
   'Custom (seconds)',
   'No Reset',
   'Daily',

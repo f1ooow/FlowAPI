@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -53,6 +54,7 @@ type requestPayload struct {
 	Tools                 []struct {
 		Type string `json:"type,omitempty"`
 	} `json:"tools,omitempty"`
+	OutputFormat     *string        `json:"output_format,omitempty"`
 	SafetyIdentifier string         `json:"safety_identifier,omitempty"`
 	Priority         *dto.IntValue  `json:"priority,omitempty"`
 	Resolution       string         `json:"resolution,omitempty"`
@@ -62,10 +64,6 @@ type requestPayload struct {
 	Seed             *dto.IntValue  `json:"seed,omitempty"`
 	CameraFixed      *dto.BoolValue `json:"camera_fixed,omitempty"`
 	Watermark        *dto.BoolValue `json:"watermark,omitempty"`
-}
-
-type responsePayload struct {
-	ID string `json:"id"` // task_id
 }
 
 type responseTask struct {
@@ -119,7 +117,17 @@ func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 // ValidateRequestAndSetAction parses body, validates fields and sets default action.
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *taskdto.TaskError) {
 	// Accept only POST /v1/video/generations as "generate" action.
-	return relaycommon.ValidateBasicTaskRequest(c, info, constant.TaskActionGenerate)
+	if taskErr := relaycommon.ValidateBasicTaskRequest(c, info, constant.TaskActionGenerate); taskErr != nil {
+		return taskErr
+	}
+	req, err := relaycommon.GetTaskRequest(c)
+	if err == nil {
+		_, err = a.convertToRequestPayload(&req)
+	}
+	if err != nil {
+		return service.TaskErrorWrapperLocal(err, "invalid_request", http.StatusBadRequest)
+	}
+	return nil
 }
 
 // BuildRequestURL constructs the upstream URL.
@@ -141,8 +149,17 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	if err != nil {
 		return nil
 	}
-	hasVideo := hasVideoInMetadata(req.Metadata)
-	resolution, _ := req.Metadata["resolution"].(string)
+	payload, err := a.convertToRequestPayload(&req)
+	if err != nil {
+		return nil
+	}
+	hasVideo := false
+	for _, item := range payload.Content {
+		if item.Type == "video_url" {
+			hasVideo = true
+		}
+	}
+	resolution := payload.Resolution
 	ratio, ok := GetVideoInputRatio(info.OriginModelName, resolution, hasVideo)
 	if !ok || ratio == 1.0 {
 		return nil
@@ -150,36 +167,6 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	return map[string]float64{"video_input": ratio}
 }
 
-// hasVideoInMetadata 直接检查 metadata 的 content 数组是否包含 video_url 条目，
-// 避免构建完整的上游 requestPayload。
-func hasVideoInMetadata(metadata map[string]interface{}) bool {
-	if metadata == nil {
-		return false
-	}
-	contentRaw, ok := metadata["content"]
-	if !ok {
-		return false
-	}
-	contentSlice, ok := contentRaw.([]interface{})
-	if !ok {
-		return false
-	}
-	for _, item := range contentSlice {
-		itemMap, ok := item.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if itemMap["type"] == "video_url" {
-			return true
-		}
-		if _, has := itemMap["video_url"]; has {
-			return true
-		}
-	}
-	return false
-}
-
-// BuildRequestBody converts request into Doubao specific format.
 func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayInfo) (io.Reader, error) {
 	req, err := relaycommon.GetTaskRequest(c)
 	if err != nil {
@@ -217,12 +204,15 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	_ = resp.Body.Close()
 
 	// Parse Doubao response
-	var dResp responsePayload
+	var dResp responseTask
 	if err := common.Unmarshal(responseBody, &dResp); err != nil {
 		taskErr = service.TaskErrorWrapper(errors.Wrapf(err, "body: %s", responseBody), "unmarshal_response_body_failed", http.StatusInternalServerError)
 		return
 	}
 
+	if dResp.Error.Code != "" || dResp.Error.Message != "" {
+		return "", nil, service.TaskErrorWrapper(fmt.Errorf("%s: %s", dResp.Error.Code, dResp.Error.Message), "upstream_error", http.StatusBadGateway)
+	}
 	if dResp.ID == "" {
 		taskErr = service.TaskErrorWrapper(fmt.Errorf("task_id is empty"), "invalid_response", http.StatusInternalServerError)
 		return
@@ -245,7 +235,7 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 		return nil, fmt.Errorf("invalid task_id")
 	}
 
-	uri := fmt.Sprintf("%s/api/v3/contents/generations/tasks/%s", baseUrl, taskID)
+	uri := fmt.Sprintf("%s/api/v3/contents/generations/tasks/%s", baseUrl, url.PathEscape(taskID))
 
 	req, err := http.NewRequest(http.MethodGet, uri, nil)
 	if err != nil {
@@ -294,10 +284,29 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq) (*
 		return nil, errors.Wrap(err, "unmarshal metadata failed")
 	}
 
-	if sec, _ := strconv.Atoi(req.Seconds); sec > 0 {
+	if req.Duration != 0 {
+		r.Duration = lo.ToPtr(dto.IntValue(req.Duration))
+	} else if req.Seconds != "" {
+		sec, err := strconv.Atoi(req.Seconds)
+		if err != nil {
+			return nil, fmt.Errorf("invalid seconds")
+		}
 		r.Duration = lo.ToPtr(dto.IntValue(sec))
 	}
 
+	if r.Model != req.Model {
+		return nil, fmt.Errorf("cannot change model with metadata")
+	}
+	if r.Duration != nil && (*r.Duration < 0 || *r.Duration > relaycommon.MaxTaskDurationSeconds) {
+		return nil, fmt.Errorf("duration must be between 0 and %d", relaycommon.MaxTaskDurationSeconds)
+	}
+	counts := map[string]int{}
+	for _, item := range r.Content {
+		counts[item.Type]++
+	}
+	if counts["image_url"] > 9 || counts["video_url"] > 3 || counts["audio_url"] > 3 {
+		return nil, fmt.Errorf("too many reference media inputs")
+	}
 	r.Content = lo.Reject(r.Content, func(c ContentItem, _ int) bool { return c.Type == "text" })
 	r.Content = append(r.Content, ContentItem{
 		Type: "text",
@@ -313,9 +322,10 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 		return nil, errors.Wrap(err, "unmarshal task result failed")
 	}
 
-	taskResult := relaycommon.TaskInfo{
-		Code: 0,
+	if resTask.Status == "" && (resTask.Error.Code != "" || resTask.Error.Message != "") {
+		return nil, fmt.Errorf("Seedance query error: %s", resTask.Error.Message)
 	}
+	taskResult := relaycommon.TaskInfo{Code: 0, TaskID: resTask.ID}
 
 	// Map Doubao status to internal status
 	switch resTask.Status {

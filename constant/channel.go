@@ -58,6 +58,10 @@ const (
 	ChannelTypeAdvancedCustom = 58
 	ChannelTypeSub2API        = 59
 	ChannelTypeNewAPI         = 60
+	ChannelTypeViapi          = 100
+	ChannelTypeVolcVod        = 101
+	ChannelTypeVolcCv         = 102
+	ChannelTypeFastAIToken    = 103
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 
 )
@@ -124,6 +128,10 @@ var ChannelBaseURLs = []string{
 	"",                                          //58
 	"",                                          //59
 	"",                                          //60
+	ChannelTypeViapi:                            "", // Each Viapi action selects its service endpoint.
+	ChannelTypeVolcVod:                          "https://vod.volcengineapi.com",
+	ChannelTypeVolcCv:                           "https://visual.volcengineapi.com",
+	ChannelTypeFastAIToken:                      "https://fastaitoken.com",
 }
 
 var ChannelTypeNames = map[int]string{
@@ -184,6 +192,10 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeAdvancedCustom: "Advanced Custom",
 	ChannelTypeSub2API:        "Sub2API",
 	ChannelTypeNewAPI:         "New API",
+	ChannelTypeViapi:          "AliViapi",
+	ChannelTypeVolcVod:        "VolcVOD",
+	ChannelTypeVolcCv:         "VolcCV",
+	ChannelTypeFastAIToken:    "FastAI",
 }
 
 func GetChannelTypeName(channelType int) string {

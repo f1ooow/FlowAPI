@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -22,6 +23,10 @@ import (
 
 func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.NewAPIError) {
 	info.InitChannelMeta(c)
+	// Retries may select a different model/protocol; retain only this attempt's
+	// final outgoing mode and actual output count.
+	c.Set("seedream_layer_decomposition", false)
+	c.Set("seedream_layer_image_count", 0)
 
 	imageReq, ok := info.Request.(*dto.ImageRequest)
 	if !ok {
@@ -36,6 +41,9 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	err = helper.ModelMappedHelper(c, info, request)
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
+	}
+	if dto.IsSeedreamModel(info.UpstreamModelName) && (info.RelayMode != relayconstant.RelayModeImagesGenerations || c.ContentType() != "application/json") {
+		return types.NewErrorWithStatusCode(fmt.Errorf("Seedream reference editing requires JSON image input on /v1/images/generations"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
 
 	adaptor := GetAdaptor(info.ApiType)
@@ -62,6 +70,9 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	} else {
 		convertedRequest, err := adaptor.ConvertImageRequest(c, info, *request)
 		if err != nil {
+			if dto.IsSeedreamModel(info.UpstreamModelName) {
+				return types.NewErrorWithStatusCode(err, types.ErrorCodeConvertRequestFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+			}
 			return types.NewError(err, types.ErrorCodeConvertRequestFailed)
 		}
 		relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)
@@ -95,6 +106,12 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	}
 
 	statusCodeMappingStr := c.GetString("status_code_mapping")
+	if dto.IsSeedreamModel(info.UpstreamModelName) {
+		requestBody, newAPIError = prepareSeedreamImageRequest(c, info, requestBody)
+		if newAPIError != nil {
+			return newAPIError
+		}
+	}
 
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
@@ -151,6 +168,9 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 	}
 	if imageN > 0 {
 		logContent = append(logContent, fmt.Sprintf("生成数量 %d", imageN))
+	}
+	if count := c.GetInt("seedream_layer_image_count"); count > 0 {
+		logContent = append(logContent, fmt.Sprintf("图层拆分实际张数 %d", count))
 	}
 
 	service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), logContent)

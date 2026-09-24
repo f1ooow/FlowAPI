@@ -210,7 +210,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	transparentFailover := supportsTransparentFailover(relayInfo)
 	c.Set("resilient_route", true)
 	_, specificChannel := c.Get("specific_channel_id")
-	if specificChannel {
+	if specificChannel || c.GetInt("minimax_resource_channel_id") != 0 {
 		transparentFailover = false
 	}
 	var channel *model.Channel
@@ -478,6 +478,13 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 }
 
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
+	if id := c.GetInt("minimax_resource_channel_id"); id != 0 {
+		ch, err := model.GetChannelById(id, true)
+		if err != nil {
+			return nil, types.NewError(err, types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		}
+		return ch, middleware.SetupContextForSelectedChannel(c, ch, info.OriginModelName)
+	}
 	if info.ChannelMeta == nil {
 		autoBan := c.GetBool("auto_ban")
 		autoBanInt := 1
@@ -664,6 +671,10 @@ func RelayTask(c *gin.Context) {
 		return
 	}
 
+	if publicID := c.GetString("task_submission_public_id"); publicID != "" {
+		relayInfo.PublicTaskID = publicID
+	}
+
 	if taskErr := relay.ResolveOriginTask(c, relayInfo); taskErr != nil {
 		respondTaskError(c, taskErr)
 		return
@@ -672,9 +683,17 @@ func RelayTask(c *gin.Context) {
 	var result *relay.TaskSubmitResult
 	var taskErr *taskdto.TaskError
 	defer func() {
-		if taskErr != nil && relayInfo.Billing != nil {
+		if taskErr != nil && relayInfo.Billing != nil && !c.GetBool("task_submission_uncertain") {
 			relayInfo.Billing.Refund(c)
 		}
+	}()
+
+	// Publish the task ID only after the task is durably queryable.
+	respBuffer := newTaskResponseBuffer(c.Writer)
+	c.Writer = respBuffer
+	defer func() {
+		c.Writer = respBuffer.ResponseWriter
+		respBuffer.flushToClient()
 	}()
 
 	retryParam := &service.RetryParam{
@@ -718,6 +737,7 @@ func RelayTask(c *gin.Context) {
 		}
 		c.Request.Body = io.NopCloser(bodyStorage)
 
+		respBuffer.reset()
 		attemptStart := time.Now()
 		result, taskErr = relay.RelayTaskSubmit(c, relayInfo)
 		// 与同步 relay 同口径：这里记的是一次渠道尝试，重试循环每转一圈都记一次。
@@ -759,29 +779,41 @@ func RelayTask(c *gin.Context) {
 		task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
 		task.PrivateData.TokenId = relayInfo.TokenId
 		task.PrivateData.NodeName = common.NodeName
-		effectiveRatio := relayInfo.PriceData.GroupRatioInfo.GroupRatio
-		task.PrivateData.BillingContext = &model.TaskBillingContext{
-			ModelPrice:          relayInfo.PriceData.ModelPrice,
-			GroupRatio:          effectiveRatio,
-			BaseGroupRatio:      relayInfo.PriceData.GroupRatioInfo.BaseGroupRatio,
-			UserGroupRatio:      relayInfo.PriceData.GroupRatioInfo.UserGroupRatio,
-			ChannelRatio:        relayInfo.PriceData.GroupRatioInfo.ChannelRatio,
-			IncludeChannelRatio: relayInfo.PriceData.GroupRatioInfo.IncludeChannelRatio,
-			EffectiveRatio:      &effectiveRatio,
-			ModelRatio:          relayInfo.PriceData.ModelRatio,
-			OtherRatios:         relayInfo.PriceData.OtherRatios(),
-			OriginModelName:     relayInfo.OriginModelName,
-			PerCallBilling:      common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
+		task.PrivateData.BillingContext = model.NewTaskBillingContext(relayInfo)
+		if reqValue, ok := c.Get("wan_request"); ok {
+			req := reqValue.(*taskdto.WanRequest)
+			task.PrivateData.BillingContext.BillingUnit = "output_seconds"
+			task.PrivateData.BillingContext.PerCallBilling = false
+			task.PrivateData.BillingContext.Resolution = req.Parameters.Resolution
+			task.PrivateData.BillingContext.InputVideoDuration = c.GetFloat64("wan_input_video_seconds")
 		}
 		task.Quota = result.Quota
 		task.Data = result.TaskData
 		task.Action = relayInfo.Action
-		if insertErr := task.Insert(); insertErr != nil {
-			common.SysError("insert task error: " + insertErr.Error())
+		if value, ok := c.Get("media_sync_result"); ok {
+			if completed, ok := value.(*relaycommon.TaskInfo); ok && completed.Status == model.TaskStatusSuccess {
+				task.Status = model.TaskStatusSuccess
+				task.Progress = "100%"
+				task.FinishTime = time.Now().Unix()
+				task.PrivateData.ResultURL = completed.Url
+			}
 		}
+		var insertErr error
+		if submissionID := c.GetInt("task_submission_id"); submissionID != 0 {
+			insertErr = model.InsertTaskForSubmission(task, submissionID)
+		} else {
+			insertErr = task.Insert()
+		}
+		if insertErr != nil {
+			common.SysError("insert task error: " + insertErr.Error())
+			respBuffer.reset()
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "task_persistence_failed"})
+		}
+
 	}
 
 	if taskErr != nil {
+		respBuffer.reset()
 		respondTaskError(c, taskErr)
 	}
 }
@@ -795,6 +827,9 @@ func respondTaskError(c *gin.Context, taskErr *taskdto.TaskError) {
 }
 
 func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *taskdto.TaskError, retryTimes int) bool {
+	if c.GetInt("minimax_resource_channel_id") != 0 || c.Request.URL.Path == taskdto.WanCreatePath || (c.GetBool("task_paid_dispatched") && !c.GetBool("task_submission_definite_failure")) {
+		return false
+	}
 	if taskErr == nil {
 		return false
 	}

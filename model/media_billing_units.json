@@ -1,0 +1,199 @@
+{
+  "MiniMax-H3": {
+    "fixed": "seconds",
+    "task": true
+  },
+  "MiniMax-Hailuo-02": {
+    "fixed": "tier",
+    "task": true
+  },
+  "MiniMax-Hailuo-2.3": {
+    "fixed": "tier",
+    "task": true
+  },
+  "MiniMax-Hailuo-2.3-Fast": {
+    "fixed": "tier",
+    "task": true
+  },
+  "doubao-asr-2.0": {
+    "fixed": "request",
+    "ratio": "seconds"
+  },
+  "doubao-seedance-2-0-260128": {
+    "fixed": "request",
+    "task": true
+  },
+  "doubao-seedance-2-0-fast-260128": {
+    "fixed": "request",
+    "task": true
+  },
+  "doubao-seedance-2-0-mini-260615": {
+    "fixed": "request",
+    "task": true
+  },
+  "doubao-seedance-2-5-260628": {
+    "fixed": "request",
+    "task": true
+  },
+  "doubao-seedream-4-0-250828": {
+    "fixed": "images"
+  },
+  "doubao-seedream-4-5-251128": {
+    "fixed": "images"
+  },
+  "doubao-seedream-5-0-260128": {
+    "fixed": "images"
+  },
+  "doubao-seedream-5-0-pro-260628": {
+    "fixed": "images"
+  },
+  "doubao-tts-2.0": {
+    "fixed": "request",
+    "ratio": "characters"
+  },
+  "happyhorse-1.0-i2v": {
+    "fixed": "seconds",
+    "task": true
+  },
+  "happyhorse-1.0-r2v": {
+    "fixed": "seconds",
+    "task": true
+  },
+  "happyhorse-1.0-t2v": {
+    "fixed": "seconds",
+    "task": true
+  },
+  "happyhorse-1.0-video-edit": {
+    "fixed": "seconds",
+    "task": true
+  },
+  "happyhorse-1.1-i2v": {
+    "fixed": "seconds",
+    "task": true
+  },
+  "happyhorse-1.1-r2v": {
+    "fixed": "seconds",
+    "task": true
+  },
+  "happyhorse-1.1-t2v": {
+    "fixed": "seconds",
+    "task": true
+  },
+  "minimax-files-upload": {
+    "fixed": "free",
+    "ratio": "free",
+    "task": true
+  },
+  "minimax-music-generation": {
+    "fixed": "request",
+    "task": true
+  },
+  "minimax-voice-clone": {
+    "fixed": "request",
+    "task": true
+  },
+  "music-2.0": {
+    "fixed": "request",
+    "task": true
+  },
+  "music-2.5": {
+    "fixed": "request",
+    "task": true
+  },
+  "music-2.5+": {
+    "fixed": "request",
+    "task": true
+  },
+  "music-2.6": {
+    "fixed": "request",
+    "task": true
+  },
+  "music-2.6-free": {
+    "fixed": "request",
+    "task": true
+  },
+  "music-cover": {
+    "fixed": "request",
+    "task": true
+  },
+  "music-cover-free": {
+    "fixed": "request",
+    "task": true
+  },
+  "speech-02-hd": {
+    "fixed": "request",
+    "ratio": "characters"
+  },
+  "speech-02-turbo": {
+    "fixed": "request",
+    "ratio": "characters"
+  },
+  "speech-2.6-hd": {
+    "fixed": "request",
+    "ratio": "characters"
+  },
+  "speech-2.6-turbo": {
+    "fixed": "request",
+    "ratio": "characters"
+  },
+  "speech-2.8-hd": {
+    "fixed": "request",
+    "ratio": "characters"
+  },
+  "speech-2.8-turbo": {
+    "fixed": "request",
+    "ratio": "characters"
+  },
+  "viapi-erase-subtitles": {
+    "fixed": "minutes",
+    "task": true
+  },
+  "viapi-segment-common": {
+    "fixed": "request",
+    "task": true
+  },
+  "viapi-super-resolve": {
+    "fixed": "minutes",
+    "task": true
+  },
+  "volc-lens-lqir": {
+    "fixed": "request",
+    "task": true
+  },
+  "volc-vod-audio-extract": {
+    "fixed": "input_minutes",
+    "task": true
+  },
+  "volc-vod-erase-subtitle-auto": {
+    "fixed": "output_minutes",
+    "task": true
+  },
+  "volc-vod-erase-subtitle-locations": {
+    "fixed": "output_minutes",
+    "task": true
+  },
+  "wan3.0-video": {
+    "fixed": "seconds",
+    "task": true
+  },
+  "wan3.0-video-prime": {
+    "fixed": "seconds",
+    "task": true
+  },
+  "seedance-2.0-time": {
+    "fixed": "seconds",
+    "task": true
+  },
+  "seedance-2.0-fast-time": {
+    "fixed": "seconds",
+    "task": true
+  },
+  "seedance-2.5-token": {
+    "fixed": "request",
+    "task": true
+  },
+  "seedance-2.0-mini-token": {
+    "fixed": "request",
+    "task": true
+  }
+}

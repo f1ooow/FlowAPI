@@ -2,12 +2,12 @@ package minimax
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/claude"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
@@ -17,7 +17,9 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/types"
 
 	"github.com/gin-gonic/gin"
-	"github.com/samber/lo"
+	"math"
+	"strings"
+	"unicode/utf8"
 )
 
 type Adaptor struct {
@@ -37,42 +39,81 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 		return nil, errors.New("unsupported audio relay mode")
 	}
 
-	voiceID := request.Voice
-	speed := lo.FromPtrOr(request.Speed, 0.0)
-	outputFormat := request.ResponseFormat
-
 	minimaxRequest := MiniMaxTTSRequest{
-		Model: info.OriginModelName,
-		Text:  request.Input,
-		VoiceSetting: VoiceSetting{
-			VoiceID: voiceID,
-			Speed:   speed,
-		},
-		AudioSetting: &AudioSetting{
-			Format: outputFormat,
-		},
-		OutputFormat: outputFormat,
+		Model: info.UpstreamModelName, Text: request.Input,
+		VoiceSetting: VoiceSetting{VoiceID: request.Voice, Speed: request.Speed},
+		AudioSetting: &AudioSetting{Format: request.ResponseFormat}, OutputFormat: "hex",
 	}
-
-	// 同步扩展字段的厂商自定义metadata
+	if minimaxRequest.Model == "" {
+		minimaxRequest.Model = info.OriginModelName
+	}
 	if len(request.Metadata) > 0 {
-		if err := json.Unmarshal(request.Metadata, &minimaxRequest); err != nil {
-			return nil, fmt.Errorf("error unmarshalling metadata to minimax request: %w", err)
+		if err := common.Unmarshal(request.Metadata, &minimaxRequest); err != nil {
+			return nil, fmt.Errorf("invalid MiniMax metadata: %w", err)
 		}
 	}
-
-	jsonData, err := json.Marshal(minimaxRequest)
+	// Metadata cannot replace the priced text or mapped model.
+	minimaxRequest.Model = info.UpstreamModelName
+	if minimaxRequest.Model == "" {
+		minimaxRequest.Model = info.OriginModelName
+	}
+	minimaxRequest.Text = request.Input
+	if strings.TrimSpace(minimaxRequest.Text) == "" || utf8.RuneCountInString(minimaxRequest.Text) > MaxSpeechCharacters {
+		return nil, fmt.Errorf("input must contain 1..%d characters", MaxSpeechCharacters)
+	}
+	if minimaxRequest.Stream != nil && *minimaxRequest.Stream {
+		return nil, fmt.Errorf("streaming MiniMax speech is not supported")
+	}
+	if len(minimaxRequest.TimbreWeights) > 4 {
+		return nil, fmt.Errorf("at most four timbre weights are supported")
+	}
+	if minimaxRequest.VoiceSetting.Speed != nil {
+		speed := *minimaxRequest.VoiceSetting.Speed
+		if math.IsNaN(speed) || math.IsInf(speed, 0) || speed < 0.5 || speed > 2 {
+			return nil, fmt.Errorf("speech speed must be 0.5..2")
+		}
+	}
+	if minimaxRequest.VoiceSource != "" && minimaxRequest.VoiceSource != "system" && minimaxRequest.VoiceSource != "custom" {
+		return nil, fmt.Errorf("voice_source must be system or custom")
+	}
+	if minimaxRequest.VoiceSource == "custom" {
+		if err := CheckResourceOwnership(info, "voice", minimaxRequest.VoiceSetting.VoiceID); err != nil {
+			return nil, err
+		}
+	}
+	minimaxRequest.VoiceSource = ""
+	if err := CheckVoiceOwnership(info, minimaxRequest.VoiceSetting.VoiceID); err != nil {
+		return nil, err
+	}
+	for _, timbre := range minimaxRequest.TimbreWeights {
+		if timbre.Weight < 1 || timbre.Weight > 100 {
+			return nil, fmt.Errorf("timbre weight must be 1..100")
+		}
+		if err := CheckVoiceOwnership(info, timbre.VoiceID); err != nil {
+			return nil, err
+		}
+	}
+	if minimaxRequest.OutputFormat != "url" && minimaxRequest.OutputFormat != "hex" {
+		return nil, fmt.Errorf("output_format must be hex or url")
+	}
+	if minimaxRequest.AudioSetting == nil {
+		minimaxRequest.AudioSetting = &AudioSetting{}
+	}
+	if minimaxRequest.AudioSetting.Format == "" {
+		minimaxRequest.AudioSetting.Format = "mp3"
+	}
+	switch minimaxRequest.AudioSetting.Format {
+	case "mp3", "wav", "flac", "aac", "pcm":
+	default:
+		return nil, fmt.Errorf("unsupported audio format")
+	}
+	c.Set("minimax_audio_format", minimaxRequest.AudioSetting.Format)
+	c.Set("response_format", minimaxRequest.OutputFormat)
+	c.Set(miniMaxTTSSubtitleEnabledContextKey, minimaxRequest.SubtitleEnable != nil && *minimaxRequest.SubtitleEnable)
+	jsonData, err := common.Marshal(minimaxRequest)
 	if err != nil {
-		return nil, fmt.Errorf("error marshalling minimax request: %w", err)
+		return nil, err
 	}
-	if outputFormat != "hex" {
-		outputFormat = "url"
-	}
-
-	c.Set("response_format", outputFormat)
-
-	// Debug: log the request structure
-	// fmt.Printf("MiniMax TTS Request: %s\n", string(jsonData))
 
 	return bytes.NewReader(jsonData), nil
 }

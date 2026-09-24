@@ -52,6 +52,7 @@ export type PricingModel = {
   group_ratio?: Record<string, number>
   /** Billing mode (e.g. "tiered_expr") used to flag dynamic pricing */
   billing_mode?: string
+  billing_unit?: string
   /** Raw expression describing dynamic / tiered billing */
   billing_expr?: string
   /** Pricing version returned by backend, useful for cache busting */

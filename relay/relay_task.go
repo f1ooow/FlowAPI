@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/channel"
+	taskfastaitoken "github.com/QuantumNous/new-api/relay/channel/task/fastaitoken"
 	"github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -172,6 +173,11 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	if err := helper.ModelMappedHelper(c, info, nil); err != nil {
 		return nil, service.TaskErrorWrapperLocal(err, "model_mapping_failed", http.StatusBadRequest)
 	}
+	if info.ChannelType == constant.ChannelTypeFastAIToken {
+		if _, _, ok := taskfastaitoken.ResolveModel(info.UpstreamModelName); !ok {
+			return nil, service.TaskErrorWrapperLocal(fmt.Errorf("unsupported FastAI video model: %s", info.UpstreamModelName), "invalid_request", http.StatusBadRequest)
+		}
+	}
 
 	// 3. 预生成公开 task ID（仅首次）
 	if info.PublicTaskID == "" {
@@ -184,6 +190,9 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	if err != nil {
 		return nil, service.TaskErrorWrapper(err, "model_price_error", http.StatusBadRequest)
 	}
+	if _, ok := c.Get("wan_request"); ok && !priceData.UsePrice {
+		return nil, service.TaskErrorWrapperLocal(fmt.Errorf("Wan requires an explicit per-second ModelPrice"), "model_price_error", http.StatusBadRequest)
+	}
 	info.PriceData = priceData
 
 	// 5. 计费估算：让适配器根据用户请求提供 OtherRatios（时长、分辨率等）
@@ -192,6 +201,16 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	if estimatedRatios := adaptor.EstimateBilling(c, info); len(estimatedRatios) > 0 {
 		for k, v := range estimatedRatios {
 			info.PriceData.AddOtherRatio(k, v)
+		}
+	}
+
+	info.BillingUnit = c.GetString("task_billing_unit")
+	if info.ChannelType == constant.ChannelTypeFastAIToken {
+		if info.BillingUnit == "seconds" && !info.PriceData.UsePrice {
+			return nil, service.TaskErrorWrapperLocal(fmt.Errorf("FastAI time models require a per-second ModelPrice"), "model_price_error", http.StatusBadRequest)
+		}
+		if info.BillingUnit == "tokens" && info.PriceData.UsePrice {
+			return nil, service.TaskErrorWrapperLocal(fmt.Errorf("FastAI token models require ModelRatio without ModelPrice"), "model_price_error", http.StatusBadRequest)
 		}
 	}
 
@@ -224,11 +243,50 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	}
 
 	// 9. 发送请求
+	if submissionID := c.GetInt("task_submission_id"); submissionID != 0 {
+		billingContext := model.NewTaskBillingContext(info)
+		if reqValue, ok := c.Get("wan_request"); ok {
+			req := reqValue.(*dto.WanRequest)
+			billingContext.BillingUnit = "output_seconds"
+			billingContext.PerCallBilling = false
+			billingContext.Resolution = req.Parameters.Resolution
+			billingContext.InputVideoDuration = c.GetFloat64("wan_input_video_seconds")
+		}
+		route := model.TaskSubmissionRoute{
+			ChannelID: info.ChannelId, ChannelType: info.ChannelType,
+			APIKey: info.ApiKey, BaseURL: info.ChannelBaseUrl,
+			UpstreamModelName: func() string {
+				if info.UpstreamModelName != "" {
+					return info.UpstreamModelName
+				}
+				return modelName
+			}(),
+			ChannelOtherSettings: info.ChannelOtherSettings,
+			BillingContext:       billingContext, ReservedQuota: info.PriceData.Quota,
+			FundingSource: info.BillingSource, SubscriptionID: info.SubscriptionId, Group: info.UsingGroup,
+		}
+		if err := model.PrepareTaskSubmissionDispatch(submissionID, info.UserId, info.TokenId, route); err != nil {
+			return nil, service.TaskErrorWrapperLocal(err, "submission_storage_failed", http.StatusInternalServerError)
+		}
+		c.Set("task_submission_dispatched", true)
+		c.Set("task_submission_uncertain", true)
+	}
+	c.Set("task_paid_dispatched", true)
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
 		return nil, service.TaskErrorWrapper(err, "do_request_failed", http.StatusInternalServerError)
 	}
-	if resp != nil && resp.StatusCode != http.StatusOK {
+	if resp != nil && (resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices) {
+		defer resp.Body.Close()
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 && resp.StatusCode != http.StatusRequestTimeout {
+			c.Set("task_submission_uncertain", false)
+			c.Set("task_submission_definite_failure", true)
+		}
+		if errorAdaptor, ok := adaptor.(channel.TaskErrorResponseAdaptor); ok {
+			if taskErr := errorAdaptor.DoErrorResponse(c, resp, info); taskErr != nil {
+				return nil, taskErr
+			}
+		}
 		responseBody, _ := io.ReadAll(resp.Body)
 		return nil, service.TaskErrorWrapper(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", resp.StatusCode)
 	}
@@ -246,6 +304,8 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	if taskErr != nil {
 		return nil, taskErr
 	}
+
+	c.Set("task_submission_uncertain", false)
 
 	// 11. 提交后计费调整：让适配器根据上游实际返回调整 OtherRatios
 	finalQuota := info.PriceData.Quota
@@ -392,6 +452,34 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 		return
 	}
 
+	if strings.HasPrefix(c.Request.URL.Path, "/api/v1/tasks/") {
+		if !dto.IsWanModel(originTask.Properties.OriginModelName) {
+			return nil, service.TaskErrorWrapperLocal(fmt.Errorf("not a Wan task"), "task_not_exist", 400)
+		}
+		out := dto.WanOutput{TaskID: originTask.TaskID, TaskStatus: "PENDING"}
+		switch originTask.Status {
+		case model.TaskStatusInProgress:
+			out.TaskStatus = "RUNNING"
+		case model.TaskStatusSuccess:
+			out.TaskStatus = "SUCCEEDED"
+			out.VideoURL = originTask.GetResultURL()
+		case model.TaskStatusFailure:
+			out.TaskStatus = "FAILED"
+			out.Code = "TaskFailed"
+			out.Message = originTask.FailReason
+		case model.TaskStatusUnknown:
+			out.TaskStatus = "UNKNOWN"
+		}
+		response := dto.WanResponse{Output: out}
+		if bc := originTask.PrivateData.BillingContext; bc != nil && originTask.Status == model.TaskStatusSuccess {
+			response.Usage = &dto.WanUsage{VideoCount: 1, InputVideoDuration: bc.InputVideoDuration, Duration: bc.OutputVideoDuration, OutputVideoDuration: bc.OutputVideoDuration}
+		}
+		data, e := common.Marshal(response)
+		if e != nil {
+			return nil, service.TaskErrorWrapper(e, "marshal_response_failed", 500)
+		}
+		return data, nil
+	}
 	isOpenAIVideoAPI := strings.HasPrefix(c.Request.RequestURI, "/v1/videos/")
 
 	// Gemini/Vertex 支持实时查询：用户 fetch 时直接从上游拉取最新状态

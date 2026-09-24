@@ -46,6 +46,10 @@ export interface ChannelTypeConfig {
  * Configuration for each channel type
  */
 export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
+  100: { id: 100, name: CHANNEL_TYPES[100], icon: 'Qwen', hints: { key: 'Format: Access Key ID|Secret Access Key' } },
+  101: { id: 101, name: CHANNEL_TYPES[101], icon: 'Volcengine', hints: { key: 'Format: Access Key ID|Secret Access Key' } },
+  102: { id: 102, name: CHANNEL_TYPES[102], icon: 'Volcengine', hints: { key: 'Format: Access Key ID|Secret Access Key' } },
+  103: { id: 103, name: CHANNEL_TYPES[103], icon: 'NewAPI', defaultBaseUrl: 'https://fastaitoken.com', hints: { key: 'Enter API key for this channel' } },
   1: {
     id: 1,
     name: CHANNEL_TYPES[1],

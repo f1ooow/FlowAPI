@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -66,12 +67,14 @@ type TaskAdaptor struct {
 	ChannelType int
 	apiKey      string
 	baseURL     string
+	wanProtocol bool
 }
 
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 	a.ChannelType = info.ChannelType
 	a.baseURL = info.ChannelBaseUrl
 	a.apiKey = info.ApiKey
+	a.wanProtocol = info.ChannelOtherSettings.VideoProtocol == dto.WanProtocolRolldek
 }
 
 func validateRemixRequest(c *gin.Context) *dto.TaskError {
@@ -88,6 +91,12 @@ func validateRemixRequest(c *gin.Context) *dto.TaskError {
 }
 
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.TaskError) {
+	if c.Request.URL.Path == dto.WanCreatePath {
+		return a.validateWan(c, info)
+	}
+	if a.wanProtocol {
+		return service.TaskErrorWrapperLocal(fmt.Errorf("Wan channel requires the official Wan endpoint"), "invalid_request", 400)
+	}
 	if info.Action == constant.TaskActionRemix {
 		return validateRemixRequest(c)
 	}
@@ -96,6 +105,10 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 
 // EstimateBilling 根据用户请求的 seconds 和 size 计算 OtherRatios。
 func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64 {
+	if a.wanProtocol {
+		req := c.MustGet("wan_request").(*dto.WanRequest)
+		return map[string]float64{"seconds": float64(*req.Parameters.Duration), "resolution": req.Parameters.ResolutionRatio()}
+	}
 	// remix 路径的 OtherRatios 已在 ResolveOriginTask 中设置
 	if info.Action == constant.TaskActionRemix {
 		return nil
@@ -144,6 +157,9 @@ func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info
 }
 
 func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayInfo) (io.Reader, error) {
+	if a.wanProtocol {
+		return a.buildWan(c, info)
+	}
 	storage, err := common.GetBodyStorage(c)
 	if err != nil {
 		return nil, errors.Wrap(err, "get_request_body_failed")
@@ -233,6 +249,9 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	}
 	_ = resp.Body.Close()
 
+	if a.wanProtocol {
+		return a.wanSubmitResponse(c, responseBody, info)
+	}
 	// Parse Sora response
 	var dResp responseTask
 	if err := common.Unmarshal(responseBody, &dResp); err != nil {
@@ -263,7 +282,7 @@ func (a *TaskAdaptor) FetchTask(baseUrl, key string, body map[string]any, proxy 
 		return nil, fmt.Errorf("invalid task_id")
 	}
 
-	uri := fmt.Sprintf("%s/v1/videos/%s", baseUrl, taskID)
+	uri := fmt.Sprintf("%s/v1/videos/%s", baseUrl, url.PathEscape(taskID))
 
 	req, err := http.NewRequest(http.MethodGet, uri, nil)
 	if err != nil {
@@ -288,6 +307,9 @@ func (a *TaskAdaptor) GetChannelName() string {
 }
 
 func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error) {
+	if a.wanProtocol {
+		return parseWanResult(respBody)
+	}
 	resTask := responseTask{}
 	if err := common.Unmarshal(respBody, &resTask); err != nil {
 		return nil, errors.Wrap(err, "unmarshal task result failed")

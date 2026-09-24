@@ -3,6 +3,15 @@ package minimax
 // https://www.minimaxi.com/document/guides/chat-model/V2?id=65e0736ab2845de20908e2dd
 
 var ModelList = []string{
+	"music-2.0",
+	"music-2.5",
+	"music-2.5+",
+	"music-2.6",
+	"minimax-music-generation",
+	"minimax-voice-clone",
+	"minimax-files-upload",
+	"speech-2.6-turbo",
+	"speech-2.6-hd",
 	"abab6.5-chat",
 	"abab6.5s-chat",
 	"abab6-chat",

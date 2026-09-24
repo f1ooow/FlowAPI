@@ -16,6 +16,7 @@ import (
 )
 
 type Pricing struct {
+	BillingUnit            string                  `json:"billing_unit,omitempty"`
 	ModelName              string                  `json:"model_name"`
 	Description            string                  `json:"description,omitempty"`
 	Icon                   string                  `json:"icon,omitempty"`
@@ -400,12 +401,13 @@ func updatePricing() {
 			audioCompletionRatio := ratio_setting.GetAudioCompletionRatio(model)
 			pricing.AudioCompletionRatio = &audioCompletionRatio
 		}
-		if billingMode := billing_setting.GetBillingMode(model); billingMode == "tiered_expr" {
+		if billingMode := billing_setting.GetBillingMode(model); billingMode == "tiered_expr" && !mediaBillingUnits[model].Task {
 			if expr, ok := billing_setting.GetBillingExpr(model); ok && strings.TrimSpace(expr) != "" {
 				pricing.BillingMode = billingMode
 				pricing.BillingExpr = expr
 			}
 		}
+		pricing.BillingUnit = MediaBillingUnit(model, findPrice, pricing.BillingMode)
 		pricingMap = append(pricingMap, pricing)
 	}
 

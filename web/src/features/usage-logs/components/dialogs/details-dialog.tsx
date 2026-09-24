@@ -61,6 +61,7 @@ import { DynamicPricingBreakdown } from '@/features/pricing/components/dynamic-p
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import { formatLogQuota, formatTokens, formatUseTime } from '@/lib/format'
+import { billingUnitLabel } from '@/lib/media-billing-unit'
 import { cn } from '@/lib/utils'
 
 import type { UsageLog } from '../../data/schema'
@@ -237,6 +238,12 @@ function BillingBreakdown(props: {
   const rows: Array<{ label: string; value: string }> = []
   const priceOpts = { digitsLarge: 4, digitsSmall: 6, abbreviate: false }
   const fmtPrice = (usd: number) => formatBillingCurrencyFromUSD(usd, priceOpts)
+  if (other.billing_unit) {
+    rows.push({
+      label: t('Billing Unit'),
+      value: billingUnitLabel(other.billing_unit, t),
+    })
+  }
   const baseInputUSD = other.model_ratio != null ? other.model_ratio * 2.0 : 0
 
   if (isTieredExpr) {

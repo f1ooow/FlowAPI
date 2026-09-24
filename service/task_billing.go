@@ -124,6 +124,12 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 	other := make(map[string]interface{})
 	if bc := task.PrivateData.BillingContext; bc != nil {
 		other["model_price"] = bc.ModelPrice
+		if bc.BillingUnit != "" {
+			other["billing_unit"] = bc.BillingUnit
+			other["output_video_duration"] = bc.OutputVideoDuration
+			other["input_video_duration"] = bc.InputVideoDuration
+			other["resolution"] = bc.Resolution
+		}
 		if bc.ModelRatio > 0 {
 			other["model_ratio"] = bc.ModelRatio
 		}

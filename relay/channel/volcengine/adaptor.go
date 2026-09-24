@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	channelconstant "github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/claude"
@@ -47,6 +48,12 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 }
 
 func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.AudioRequest) (io.Reader, error) {
+	if info.RelayMode == constant.RelayModeAudioTranscription {
+		return convertAudioRequestForASR(c, info, request)
+	}
+	if info.RelayMode == constant.RelayModeAudioSpeech && isSeedTTSV3Model(info.UpstreamModelName) {
+		return convertSeedTTSV3AudioRequest(c, info, request)
+	}
 	if info.RelayMode != constant.RelayModeAudioSpeech {
 		return nil, errors.New("unsupported audio relay mode")
 	}
@@ -86,7 +93,7 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 	}
 
 	if len(request.Metadata) > 0 {
-		if err = json.Unmarshal(request.Metadata, &volcRequest); err != nil {
+		if err = common.Unmarshal(request.Metadata, &volcRequest); err != nil {
 			return nil, fmt.Errorf("error unmarshalling metadata to volcengine request: %w", err)
 		}
 	}
@@ -97,7 +104,7 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 		info.IsStream = true
 	}
 
-	jsonData, err := json.Marshal(volcRequest)
+	jsonData, err := common.Marshal(volcRequest)
 	if err != nil {
 		return nil, fmt.Errorf("error marshalling volcengine request: %w", err)
 	}
@@ -108,7 +115,7 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.ImageRequest) (any, error) {
 	switch info.RelayMode {
 	case constant.RelayModeImagesGenerations:
-		return request, nil
+		return ConvertSeedreamImageRequest(request)
 	// 根据官方文档,并没有发现豆包生图支持表单请求:https://www.volcengine.com/docs/82379/1824121
 	//case constant.RelayModeImagesEdits:
 	//
@@ -273,7 +280,12 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 			return fmt.Sprintf("%s/api/v3/rerank", baseUrl), nil
 		case constant.RelayModeResponses:
 			return fmt.Sprintf("%s/api/v3/responses", baseUrl), nil
+		case constant.RelayModeAudioTranscription:
+			return "https://openspeech.bytedance.com/api/v3/auc/bigmodel/submit", nil
 		case constant.RelayModeAudioSpeech:
+			if isSeedTTSV3Model(info.UpstreamModelName) {
+				return "https://openspeech.bytedance.com/api/v3/tts/unidirectional", nil
+			}
 			if baseUrl == channelconstant.ChannelBaseURLs[channelconstant.ChannelTypeVolcEngine] {
 				return "wss://openspeech.bytedance.com/api/v1/tts/ws_binary", nil
 			}
@@ -285,6 +297,12 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 }
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
+	if info.RelayMode == constant.RelayModeAudioTranscription {
+		return nil
+	}
+	if info.RelayMode == constant.RelayModeAudioSpeech && isSeedTTSV3Model(info.UpstreamModelName) {
+		return setupSeedTTSV3Headers(req, info)
+	}
 	channel.SetupApiRequestHeader(info, c, req)
 
 	if info.RelayMode == constant.RelayModeAudioSpeech {
@@ -330,6 +348,12 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	if info.RelayMode == constant.RelayModeAudioTranscription {
+		return doASRRequest(c, info, defaultGetOtherInfo)
+	}
+	if info.RelayMode == constant.RelayModeAudioSpeech && isSeedTTSV3Model(info.UpstreamModelName) {
+		return channel.DoApiRequest(a, c, info, requestBody)
+	}
 	if info.RelayMode == constant.RelayModeAudioSpeech {
 		baseUrl := info.ChannelBaseUrl
 		if baseUrl == "" {
@@ -346,6 +370,12 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
+	if info.RelayMode == constant.RelayModeAudioTranscription {
+		return handleASRResponse(c, resp, info)
+	}
+	if info.RelayMode == constant.RelayModeAudioSpeech && isSeedTTSV3Model(info.UpstreamModelName) {
+		return handleSeedTTSV3Response(c, resp, info, mapEncoding(c.GetString(contextKeyResponseFormat)))
+	}
 	if info.RelayFormat == types.RelayFormatClaude {
 		if _, ok := channelconstant.ChannelSpecialBases[info.ChannelBaseUrl]; ok {
 			adaptor := claude.Adaptor{}

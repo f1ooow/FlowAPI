@@ -1292,6 +1292,12 @@ func (channel *Channel) ValidateSettings() error {
 			return err
 		}
 	}
+	if err := channelOtherSettings.TaskEndpointOverride.Validate(); err != nil {
+		return err
+	}
+	if channelOtherSettings.VideoProtocol != "" && channelOtherSettings.VideoProtocol != "wan-rolldek-v1" {
+		return fmt.Errorf("unsupported video_protocol")
+	}
 	if channel.Type == constant.ChannelTypeAdvancedCustom {
 		if channelOtherSettings.AdvancedCustom == nil {
 			return fmt.Errorf("advanced_custom is required")

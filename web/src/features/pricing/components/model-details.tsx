@@ -57,6 +57,7 @@ import {
 } from '@/features/performance-metrics/lib/format'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
+import { billingUnitLabel } from '@/lib/media-billing-unit'
 
 import { DEFAULT_TOKEN_UNIT } from '../constants'
 import { usePricingData } from '../hooks/use-pricing-data'
@@ -497,6 +498,7 @@ function PriceSection(props: {
   const { t } = useTranslation()
   const isTokenBased = isTokenBasedModel(props.model)
   const tokenUnitLabel = props.tokenUnit === 'K' ? '1K' : '1M'
+  const billingUnit = billingUnitLabel(props.model.billing_unit, t)
   const baseGroupKey = '_base'
   const baseGroupRatioMap = { [baseGroupKey]: 1 }
   const dynamicSummary = getDynamicPricingSummary(props.model, {
@@ -611,7 +613,7 @@ function PriceSection(props: {
                   <span className='text-muted-foreground font-mono text-sm tabular-nums'>
                     {entry.formatted}
                     <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
-                      / {tokenUnitLabel}
+                      / {isTokenBased ? `${tokenUnitLabel} ${t('tokens')}` : billingUnit}
                     </span>
                   </span>
                 </div>
@@ -629,7 +631,7 @@ function PriceSection(props: {
         <SectionTitle>{t('Base Price')}</SectionTitle>
         <div className='flex items-baseline justify-between'>
           <span className='text-muted-foreground text-sm'>
-            {t('Per request')}
+            {t('Per request')} / {billingUnit}
           </span>
           <span className='text-foreground font-mono text-sm font-semibold tabular-nums'>
             {formatFixedPrice(
@@ -790,7 +792,6 @@ function GroupPricingSection(props: {
 
   const isTokenBased = isTokenBasedModel(props.model)
   const tokenUnitLabel = props.tokenUnit === 'K' ? '1K' : '1M'
-
   const extraPriceTypes = useMemo(() => {
     const types: { label: string; type: PriceType }[] = []
     if (props.model.cache_ratio != null) {

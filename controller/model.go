@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -105,6 +106,21 @@ func init() {
 		adaptor := relay.GetAdaptor(apiType)
 		adaptor.Init(meta)
 		channelId2Models[i] = adaptor.GetModelList()
+	}
+	for channelType := 1; channelType < constant.ChannelTypeDummy; channelType++ {
+		adaptor := relay.GetTaskAdaptor(constant.TaskPlatform(strconv.Itoa(channelType)))
+		if adaptor == nil {
+			continue
+		}
+		channelId2Models[channelType] = lo.Uniq(append(channelId2Models[channelType], adaptor.GetModelList()...))
+		for _, name := range adaptor.GetModelList() {
+			if _, exists := openAIModelsMap[name]; exists {
+				continue
+			}
+			entry := dto.OpenAIModels{Id: name, Object: "model", Created: 1626777600, OwnedBy: adaptor.GetChannelName()}
+			openAIModels = append(openAIModels, entry)
+			openAIModelsMap[name] = entry
+		}
 	}
 	openAIModels = lo.UniqBy(openAIModels, func(m dto.OpenAIModels) string {
 		return m.Id

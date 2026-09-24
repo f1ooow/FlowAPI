@@ -34,6 +34,13 @@ type ImageRequest struct {
 	Mask              json.RawMessage `json:"mask,omitempty"`
 	InputFidelity     json.RawMessage `json:"input_fidelity,omitempty"`
 	Watermark         *bool           `json:"watermark,omitempty"`
+	// Seedream uses the generations endpoint for both text and reference images.
+	Seed                             *int64                            `json:"seed,omitempty"`
+	GuidanceScale                    *float64                          `json:"guidance_scale,omitempty"`
+	SequentialImageGeneration        *string                           `json:"sequential_image_generation,omitempty"`
+	SequentialImageGenerationOptions *SequentialImageGenerationOptions `json:"sequential_image_generation_options,omitempty"`
+	OptimizePromptOptions            json.RawMessage                   `json:"optimize_prompt_options,omitempty"`
+	LayerDecomposition               *bool                             `json:"layer_decomposition,omitempty"`
 	// zhipu 4v
 	WatermarkEnabled json.RawMessage `json:"watermark_enabled,omitempty"`
 	UserId           json.RawMessage `json:"user_id,omitempty"`
@@ -162,11 +169,15 @@ func (i *ImageRequest) GetTokenCountMeta() *types.TokenCountMeta {
 	// Keep n separate from ImagePriceRatio so size/quality and count remain
 	// independent billing dimensions. Fixed-price pre-consume stores this on
 	// PriceData, and image settlement reuses or replaces the same "n" ratio.
+	countRatio := float64(imageN)
+	if i.IsSeedreamLayerDecomposition() {
+		countRatio = MaxSeedreamLayerImages * SeedreamLayerImagePriceFactor
+	}
 	return &types.TokenCountMeta{
 		CombineText:     i.Prompt,
 		MaxTokens:       1584,
 		ImagePriceRatio: sizeRatio * qualityRatio,
-		BillingRatios:   map[string]float64{"n": float64(imageN)},
+		BillingRatios:   map[string]float64{"n": countRatio},
 	}
 }
 

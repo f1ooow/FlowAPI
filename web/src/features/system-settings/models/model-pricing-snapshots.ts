@@ -32,6 +32,7 @@ export type ModelPricingSnapshotInput = {
   audioCompletionRatio: string
   billingMode: string
   billingExpr: string
+  billingUnit?: string
 }
 
 export type ModelPricingSnapshot = {
@@ -44,6 +45,7 @@ export type ModelPricingSnapshot = {
   imageRatio?: string
   audioRatio?: string
   audioCompletionRatio?: string
+  billingUnit?: string
   billingMode?: string
   billingExpr?: string
   requestRuleExpr?: string

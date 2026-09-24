@@ -89,3 +89,36 @@ describe('New API channel', () => {
     expect(result.success).toBe(true)
   })
 })
+
+describe('media channel settings', () => {
+  test('registers media channel types and validates FastAI base URL', () => {
+    expect(CHANNEL_TYPE_OPTIONS.map((item) => item.value)).toEqual(
+      expect.arrayContaining([100, 101, 102, 103])
+    )
+    expect(
+      channelFormSchema.safeParse({
+        ...CHANNEL_FORM_DEFAULT_VALUES,
+        name: 'FastAI',
+        type: 103,
+        key: 'test-key',
+        models: 'seedance-2.0-time',
+        base_url: '',
+      }).success
+    ).toBe(false)
+  })
+
+  test('accepts a valid Wan endpoint override pair', () => {
+    expect(
+      channelFormSchema.safeParse({
+        ...CHANNEL_FORM_DEFAULT_VALUES,
+        name: 'Rolldek',
+        type: 1,
+        key: 'test-key',
+        models: 'wan3.0-video',
+        video_protocol: 'wan-rolldek-v1',
+        task_submit_path: '/v1/videos/generations',
+        task_fetch_path: '/api/v1/tasks/{task_id}',
+      }).success
+    ).toBe(true)
+  })
+})

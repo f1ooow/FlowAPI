@@ -148,6 +148,10 @@ func SetRelayRouter(router *gin.Engine) {
 			controller.Relay(c, types.RelayFormatOpenAI)
 		})
 
+		httpRouter.POST("/files/upload", controller.RelayMiniMaxExtended)
+		httpRouter.POST("/voice_clone", controller.RelayMiniMaxExtended)
+		httpRouter.POST("/music_generation", controller.RelayMiniMaxExtended)
+
 		// not implemented
 		httpRouter.POST("/images/variations", controller.RelayNotImplemented)
 		httpRouter.GET("/files", controller.RelayNotImplemented)

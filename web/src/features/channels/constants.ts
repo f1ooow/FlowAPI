@@ -81,6 +81,10 @@ export const CHANNEL_TYPES = {
   58: 'Advanced Custom',
   59: 'Sub2API',
   60: 'New API',
+  100: 'Ali Viapi',
+  101: 'VolcVOD',
+  102: 'VolcCV',
+  103: 'FastAI Video',
 } as const
 
 const CHANNEL_TYPE_DISPLAY_ORDER: number[] = [
@@ -429,6 +433,10 @@ export const TYPE_TO_KEY_PROMPT: Record<number, string> = {
   57: 'Paste Codex OAuth JSON credential (access_token / refresh_token / account_id)',
   59: 'Enter API key for this channel',
   60: 'Enter API key for this channel',
+  100: 'Format: Access Key ID|Secret Access Key',
+  101: 'Format: Access Key ID|Secret Access Key',
+  102: 'Format: Access Key ID|Secret Access Key',
+  103: 'Enter API key for this channel',
 }
 
 export const CHANNEL_TYPE_WARNINGS: Record<number, string> = {
