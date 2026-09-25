@@ -1,12 +1,12 @@
 # 流式闸门判定修复 + 可靠性设置存读一致 + 移除竞速 + 超时全局默认
 
-本任务含四个子项，均已实现并通过最终全量检查（未提交）。四者一起部署。
+本任务含四个子项，均已实现、通过最终全量检查，提交于 `d4183f2bf`（代码）与 `c59af3457`（任务文档），2026-09-26 00:18 CST 一起部署到 HK。
 
 ---
 
 ## 子项 A：流式闸门——认不出的帧不再判失败，thinking 快速放行
 
-状态：已实现（trellis-implement）并通过 trellis-check，未提交。
+状态：已实现（trellis-implement）并通过 trellis-check，已提交 `d4183f2bf`。
 
 ### Goal
 
@@ -64,7 +64,7 @@
 
 ## 子项 B：渠道可靠性设置存读一致
 
-状态：已实现（trellis-implement）并通过 trellis-check，未提交。技术方案见 `design.md`，执行清单见 `implement.md`。
+状态：已实现（trellis-implement）并通过 trellis-check，已提交 `d4183f2bf`。技术方案见 `design.md`，执行清单见 `implement.md`。
 
 ### Goal
 
@@ -114,7 +114,7 @@
 
 ## 子项 C：移除竞速功能（含首内容阈值）
 
-状态：已实现（trellis-implement）并通过最终全量检查（trellis-check），未提交。移除清单见 `research/hedge-removal.md`，方案见 `design.md`，执行清单见 `implement.md`。
+状态：已实现（trellis-implement）并通过最终全量检查（trellis-check），已提交 `d4183f2bf`。移除清单见 `research/hedge-removal.md`，方案见 `design.md`，执行清单见 `implement.md`。
 
 ### Goal
 
@@ -155,7 +155,7 @@
 
 ## 子项 D：渠道流式静默超时填 0 使用全局默认
 
-状态：已实现（trellis-implement）并通过最终全量检查（trellis-check），未提交。
+状态：已实现（trellis-implement）并通过最终全量检查（trellis-check），已提交 `d4183f2bf`。
 
 ### Goal
 
@@ -198,3 +198,13 @@
   - `service` 视频任务轮询测试；
   - `controller` 任务提交测试：收尾时写 `common.RedisEnabled`，与后台统计协程同时读写；
   - 前端 8 个密钥 / 兑换码抽屉测试：Node v25 下 `localStorage.clear is not a function`，其中还有一个断言失败。
+
+## 部署记录（2026-09-26 00:18 CST，HK）
+
+- 部署前，本地 main 已快进到生产分支 `codex/flowapi-provider-coverage` 的 `1f5bb7309`（生产 `8156149df` 加一个部署记录提交），再叠加本任务的提交。
+- 镜像：`flowapi:hk-stream-gate-c59af3457-20260926`（`sha256:71911a01b68c…`）；回滚镜像：`flowapi:rollback-stream-gate-20260925-161046`，指向 `hk-media-8156149df-20260925`。
+- 备份：`/opt/flowapi/backups/pre-stream-gate-20260925-161046/`，包含 PostgreSQL custom dump（391 条 TOC）、Compose、`.env`、容器与镜像元数据、`SHA256SUMS`，校验全部通过。
+- 只重建 app：20 秒后 healthy，重启 0 次；PostgreSQL / Redis 未变。
+- 验证：
+  - 版本正确；公网 `/api/status`、`/pricing`、`/playground` 均为 200，未鉴权的 `/v1/messages` 为 401；启动日志无 panic / fatal。
+  - 切换后 4 分钟真实请求 14 个，全部成功，0 错误，无上限放行告警。
