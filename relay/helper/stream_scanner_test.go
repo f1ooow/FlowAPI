@@ -3,6 +3,7 @@ package helper
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,8 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -463,54 +466,168 @@ func TestStreamScannerHandlerWithGate_BufferedFramesAreCounted(t *testing.T) {
 	assert.Equal(t, 2, info.ReceivedResponseCount)
 }
 
-// Keepalive heartbeats arrive on a wall-clock cadence, so counting them against
-// the event cap would fail every request whose first token takes longer than
-// cap*ping_interval — a real pattern for reasoning models behind proxies that
-// ping every ~10s. JSON events still consume the budget.
-func TestStreamScannerHandlerWithGate_HeartbeatsDoNotConsumeEventBudget(t *testing.T) {
+// heldUpstream serves head, then withholds tail until release is closed. A gate
+// that is still closed after head never receives tail: the read fails and the
+// attempt ends before commit.
+type heldUpstream struct {
+	head, tail *strings.Reader
+	release    <-chan struct{}
+}
+
+func (u *heldUpstream) Read(p []byte) (int, error) {
+	if u.head.Len() > 0 {
+		return u.head.Read(p)
+	}
+	select {
+	case <-u.release:
+		return u.tail.Read(p)
+	case <-time.After(2 * time.Second):
+		return 0, errors.New("upstream held: the gate did not open on the head frames")
+	}
+}
+
+func sseBody(frames ...string) string {
+	var b strings.Builder
+	for _, frame := range frames {
+		b.WriteString("data: " + frame + "\n\n")
+	}
+	return b.String()
+}
+
+// runHeldGatedStream streams head through the gate and releases tail only after
+// the client has received a frame, which proves that head alone opened the
+// gate. It returns the attempt state and exactly what the client received.
+func runHeldGatedStream(t *testing.T, protocol StreamProtocol, head, tail []string) (*relaycommon.RelayInfo, string, *types.NewAPIError) {
+	t.Helper()
+
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/test", nil)
+	resp := &http.Response{Body: io.NopCloser(&heldUpstream{
+		head:    strings.NewReader(sseBody(head...)),
+		tail:    strings.NewReader(sseBody(tail...)),
+		release: release,
+	})}
+	info := &relaycommon.RelayInfo{DisablePing: true, ChannelMeta: &relaycommon.ChannelMeta{}}
+
+	err := StreamScannerHandlerWithGate(c, resp, info, protocol, func(data string, sr *StreamResult) {
+		assert.NoError(t, StringData(c, data))
+		releaseOnce.Do(func() { close(release) })
+	})
+	return info, recorder.Body.String(), err
+}
+
+// neutralChatFrames returns distinct JSON frames that carry no content, the
+// shape of relay progress events the classifier cannot recognize.
+func neutralChatFrames(n int) []string {
+	frames := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		frames = append(frames, fmt.Sprintf(`{"id":"chat_1","choices":[{"index":0,"delta":{}}],"progress":%d}`, i))
+	}
+	return frames
+}
+
+// Claude Code's redact-thinking beta streams thinking_delta frames with empty
+// text for the whole reasoning phase, about one every 1.4s. They are real
+// generation progress: the gate opens on the first one, so the client gets the
+// response at once and a long think never runs into the prefix cap.
+func TestStreamScannerHandlerWithGate_EmptyThinkingDeltaOpensGate(t *testing.T) {
 	t.Parallel()
 
-	for _, tc := range []struct {
-		name         string
-		neutral      string
-		wantOverflow bool
-	}{
-		{name: "non-json heartbeat", neutral: `data: ping`},
-		{
-			name:         "json neutral frame",
-			neutral:      `data: {"choices":[{"delta":{"role":"assistant"}}]}`,
-			wantOverflow: true,
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	emptyThinking := `{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":""}}`
+	head := []string{
+		`{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant"}}`,
+		`{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}`,
+		emptyThinking,
+	}
+	tail := make([]string, 0, streamGateEventCap+8)
+	for i := 0; i <= streamGateEventCap; i++ {
+		tail = append(tail, emptyThinking)
+	}
+	tail = append(tail,
+		`{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig"}}`,
+		`{"type":"content_block_stop","index":0}`,
+		`{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}`,
+		`{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"answer"}}`,
+		`{"type":"content_block_stop","index":1}`,
+		`{"type":"message_delta","delta":{"stop_reason":"end_turn"}}`,
+		`{"type":"message_stop"}`,
+	)
+	upstream := append(append([]string(nil), head...), tail...)
 
-			frames := make([]string, 0, streamGateEventCap+3)
-			for i := 0; i < streamGateEventCap+1; i++ {
-				frames = append(frames, tc.neutral)
-			}
-			frames = append(frames, `data: {"choices":[{"delta":{"content":"hi"}}]}`, `data: [DONE]`)
+	info, body, err := runHeldGatedStream(t, StreamProtocolAnthropic, head, tail)
+
+	require.Nil(t, err, "the gate must open on the first empty thinking_delta")
+	assert.True(t, info.StreamStatus.IsCommitted())
+	assert.Equal(t, sseBody(upstream...), body)
+}
+
+// The prefix cap bounds memory, not upstream health: frames the classifier does
+// not recognize are no failure signal. Reaching the cap releases the held
+// prefix in upstream order instead of failing the attempt over, so the channel
+// is not charged a failure.
+func TestStreamScannerHandlerWithGate_PrefixCapReleasesHeldFrames(t *testing.T) {
+	t.Parallel()
+
+	head := neutralChatFrames(streamGateEventCap + 1)
+	content := `{"id":"chat_1","choices":[{"index":0,"delta":{"content":"answer"}}]}`
+
+	info, body, err := runHeldGatedStream(t, StreamProtocolOpenAIChat, head, []string{content, `[DONE]`})
+
+	require.Nil(t, err, "the gate must open once the held prefix passes the event cap")
+	assert.True(t, info.StreamStatus.IsCommitted())
+	delivered := append(head, content)
+	assert.Equal(t, sseBody(delivered...), body)
+	assert.Equal(t, len(delivered), info.ReceivedResponseCount, "every frame counts once, including the one that reached the cap")
+}
+
+// Until the gate opens, an explicit failure signal still fails the attempt
+// over: the client has received nothing and another channel may serve the
+// request. Heartbeats never consume the event budget, so even after more of
+// them than the cap the gate is still closed when an error arrives.
+func TestStreamScannerHandlerWithGate_FailureBeforeContentStaysRetryable(t *testing.T) {
+	t.Parallel()
+
+	messageStart := `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant"}}`
+	thinkingStart := `{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}`
+	heartbeats := make([]string, 0, streamGateEventCap+2)
+	for i := 0; i <= streamGateEventCap; i++ {
+		heartbeats = append(heartbeats, `ping`)
+	}
+	tests := []struct {
+		name     string
+		protocol StreamProtocol
+		frames   []string
+	}{
+		{"error after thinking block start", StreamProtocolAnthropic, []string{messageStart, thinkingStart,
+			`{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`}},
+		{"truncated thinking delta", StreamProtocolAnthropic, []string{messageStart, thinkingStart,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":""`}},
+		{"end of stream after thinking block start", StreamProtocolAnthropic, []string{messageStart, thinkingStart}},
+		{"error after heartbeats beyond the event cap", StreamProtocolOpenAIChat, append(heartbeats, `{"error":{"message":"provider failed"}}`)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
 			recorder := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(recorder)
-			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-			resp := &http.Response{Body: io.NopCloser(strings.NewReader(strings.Join(frames, "\n\n")))}
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/test", nil)
+			resp := &http.Response{Body: io.NopCloser(strings.NewReader(sseBody(tt.frames...)))}
 			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
 
-			err := StreamScannerHandlerWithGate(c, resp, info, StreamProtocolOpenAIChat, func(data string, sr *StreamResult) {
-				require.NoError(t, StringData(c, data))
+			err := StreamScannerHandlerWithGate(c, resp, info, tt.protocol, func(data string, sr *StreamResult) {
+				assert.NoError(t, StringData(c, data))
 			})
 
-			if tc.wantOverflow {
-				require.NotNil(t, err)
-				assert.Equal(t, http.StatusBadGateway, err.StatusCode)
-				assert.False(t, info.StreamStatus.IsCommitted())
-				assert.Empty(t, recorder.Body.String())
-				return
-			}
-			require.Nil(t, err)
-			assert.True(t, info.StreamStatus.IsCommitted())
-			assert.Contains(t, recorder.Body.String(), `"content":"hi"`)
+			require.NotNil(t, err)
+			assert.Equal(t, http.StatusBadGateway, err.StatusCode)
+			assert.False(t, info.StreamStatus.IsCommitted())
+			assert.Empty(t, c.Writer.Header().Get("Content-Type"))
+			assert.Empty(t, recorder.Body.String())
+			assert.True(t, service.ClassifyRelayRetry(c, err, info.StreamStatus.IsCommitted()).Retryable)
 		})
 	}
 }
@@ -807,7 +924,7 @@ func TestStreamScannerHandler_StreamStatus_Timeout(t *testing.T) {
 
 	resp := &http.Response{Body: pr}
 	timeout := 1
-	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelSetting: dto.ChannelSettings{Reliability: &dto.ChannelReliabilitySettings{StreamingIdleTimeoutSeconds: &timeout}}}}
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelOtherSettings: dto.ChannelOtherSettings{Reliability: &dto.ChannelReliabilitySettings{StreamingIdleTimeoutSeconds: &timeout}}}}
 
 	done := make(chan struct{})
 	go func() {
@@ -824,6 +941,114 @@ func TestStreamScannerHandler_StreamStatus_Timeout(t *testing.T) {
 	require.NotNil(t, info.StreamStatus)
 	assert.Equal(t, relaycommon.StreamEndReasonTimeout, info.StreamStatus.EndReason)
 	assert.False(t, info.StreamStatus.IsNormalEnd())
+}
+
+// The idle-timeout tests below change the global STREAMING_TIMEOUT, which every
+// stream reads, so they must not run in parallel with other tests.
+
+// A channel whose streaming idle timeout is 0 or unset falls back to the global
+// STREAMING_TIMEOUT, so a hung upstream is still cut off; a positive channel
+// value overrides the global one.
+func TestStreamScannerHandler_IdleTimeoutFallsBackToGlobalDefault(t *testing.T) {
+	zero, oneSecond := 0, 1
+	tests := []struct {
+		name          string
+		globalSeconds int
+		channel       *dto.ChannelReliabilitySettings
+	}{
+		{name: "channel reliability unset", globalSeconds: 1},
+		{name: "channel timeout unset", globalSeconds: 1, channel: &dto.ChannelReliabilitySettings{}},
+		{name: "channel timeout zero", globalSeconds: 1, channel: &dto.ChannelReliabilitySettings{StreamingIdleTimeoutSeconds: &zero}},
+		{name: "channel timeout overrides global", globalSeconds: 3600, channel: &dto.ChannelReliabilitySettings{StreamingIdleTimeoutSeconds: &oneSecond}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			previous := constant.StreamingTimeout
+			constant.StreamingTimeout = tt.globalSeconds
+			t.Cleanup(func() { constant.StreamingTimeout = previous })
+
+			pr, pw := io.Pipe()
+			t.Cleanup(func() { _ = pw.Close() })
+			go func() { _, _ = fmt.Fprint(pw, "data: {\"id\":1}\n") }()
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			info := &relaycommon.RelayInfo{DisablePing: true, ChannelMeta: &relaycommon.ChannelMeta{ChannelOtherSettings: dto.ChannelOtherSettings{Reliability: tt.channel}}}
+
+			done := make(chan struct{})
+			go func() {
+				StreamScannerHandler(c, &http.Response{Body: pr}, info, func(data string, sr *StreamResult) {})
+				close(done)
+			}()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("a silent upstream was not cut off by the idle timeout")
+			}
+
+			assert.Equal(t, relaycommon.StreamEndReasonTimeout, info.StreamStatus.EndReason)
+		})
+	}
+}
+
+// runSilentGatedStream serves frames through the gate and then keeps the
+// upstream open without sending anything, as a hung provider does. The global
+// STREAMING_TIMEOUT is 1s and the channel sets no timeout of its own.
+func runSilentGatedStream(t *testing.T, frames ...string) (*gin.Context, *relaycommon.RelayInfo, string, *types.NewAPIError) {
+	t.Helper()
+	previous := constant.StreamingTimeout
+	constant.StreamingTimeout = 1
+	t.Cleanup(func() { constant.StreamingTimeout = previous })
+
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { _ = pw.Close() })
+	go func() { _, _ = fmt.Fprint(pw, sseBody(frames...)) }()
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	info := &relaycommon.RelayInfo{DisablePing: true, ChannelMeta: &relaycommon.ChannelMeta{}}
+
+	var err *types.NewAPIError
+	done := make(chan struct{})
+	go func() {
+		err = StreamScannerHandlerWithGate(c, &http.Response{Body: pr}, info, StreamProtocolAnthropic, func(data string, sr *StreamResult) {
+			assert.NoError(t, StringData(c, data))
+		})
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a silent upstream was not cut off by the idle timeout")
+	}
+	return c, info, recorder.Body.String(), err
+}
+
+// An upstream that goes silent before the first content fails the attempt with
+// a retryable idle_timeout while the client has received nothing, so the
+// request moves to another channel.
+func TestStreamScannerHandlerWithGate_IdleTimeoutBeforeCommitIsRetryable(t *testing.T) {
+	c, info, body, err := runSilentGatedStream(t, `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant"}}`)
+
+	require.NotNil(t, err)
+	assert.Equal(t, http.StatusBadGateway, err.StatusCode)
+	assert.Contains(t, err.Error(), "idle_timeout")
+	assert.False(t, info.StreamStatus.IsCommitted())
+	assert.Empty(t, c.Writer.Header().Get("Content-Type"))
+	assert.Empty(t, body)
+	assert.True(t, service.ClassifyRelayRetry(c, err, info.StreamStatus.IsCommitted()).Retryable)
+}
+
+// Once content has reached the client, an idle timeout only ends the stream:
+// the attempt reports no error, so nothing is replayed on another channel.
+func TestStreamScannerHandlerWithGate_IdleTimeoutAfterCommitEndsStream(t *testing.T) {
+	content := `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"partial"}}`
+
+	_, info, body, err := runSilentGatedStream(t, content)
+
+	require.Nil(t, err)
+	assert.True(t, info.StreamStatus.IsCommitted())
+	assert.Equal(t, relaycommon.StreamEndReasonTimeout, info.StreamStatus.EndReason)
+	assert.Equal(t, sseBody(content), body)
 }
 
 func TestStreamScannerHandler_StreamStatus_SoftErrors(t *testing.T) {

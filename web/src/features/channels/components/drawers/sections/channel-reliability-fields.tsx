@@ -73,24 +73,15 @@ const RELIABILITY_FIELDS: ReliabilityField[] = [
 
 const TIMEOUT_FIELDS = [
   {
-    name: 'first_content_timeout_seconds',
-    label: 'Streaming first-content threshold (seconds)',
-    description:
-      '0: racing disabled. Range: 1-180 seconds. Loser billing follows the global routing reliability setting.',
-    max: 180,
-  },
-  {
     name: 'streaming_idle_timeout_seconds',
     label: 'Streaming idle timeout (seconds)',
-    description:
-      '0: channel idle timer disabled. Custom range: 60-600 seconds.',
+    description: '0: use the global default. Custom range: 60-600 seconds.',
     max: 600,
   },
   {
     name: 'non_streaming_timeout_seconds',
     label: 'Non-streaming total timeout (seconds)',
-    description:
-      '0: added timer disabled. Custom range: 60-1800 seconds. Transport limits still apply.',
+    description: '0: use the global default. Custom range: 60-1800 seconds.',
     max: 1800,
   },
 ] as const

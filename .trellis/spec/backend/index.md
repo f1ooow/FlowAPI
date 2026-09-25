@@ -10,7 +10,8 @@
 | [error-handling.md](./error-handling.md) | 错误类型、处理策略 | 参考模板 |
 | [quality.md](./quality.md) | 后端代码质量标准 | 参考模板 |
 | [billing-ratio-routing.md](./billing-ratio-routing.md) | 渠道选择相关倍率、预扣和异步快照合同 | 项目合同 |
-| [streaming-provider-hedge.md](./streaming-provider-hedge.md) | 超时竞速、输家计费开关、请求隔离和统计合同 | 项目合同 |
+| [channel-reliability.md](./channel-reliability.md) | 渠道可靠性设置（尝试次数、自动封禁、超时）的存储、校验与全局默认合同 | 项目合同 |
+| [stream-precommit-gate.md](./stream-precommit-gate.md) | 流式预提交闸门的帧判定、上限放行与放行前失败合同 | 项目合同 |
 | [global-passthrough.md](./global-passthrough.md) | 全局请求体/请求头透传、覆盖优先级与渠道继承 | 项目合同 |
 | [channel-list-derived-metrics.md](./channel-list-derived-metrics.md) | 渠道列表从独立日志库补充派生指标的合同 | 项目合同 |
 | [media-channel-deployment.md](./media-channel-deployment.md) | Keli 媒体渠道导入、分组、价格模式和禁用路由合同 | 项目合同 |

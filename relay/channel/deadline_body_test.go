@@ -7,7 +7,6 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
@@ -30,7 +29,7 @@ func TestNonStreamDeadlineContinuesAfterResponseHeaders(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	seconds := 1
-	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelSetting: dto.ChannelSettings{Reliability: &dto.ChannelReliabilitySettings{NonStreamingTimeoutSeconds: &seconds}}}}
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelOtherSettings: dto.ChannelOtherSettings{Reliability: &dto.ChannelReliabilitySettings{NonStreamingTimeoutSeconds: &seconds}}}}
 	req, err := http.NewRequest(http.MethodPost, server.URL, strings.NewReader(`{}`))
 	require.NoError(t, err)
 	resp, err := doRequest(c, req, info)
@@ -43,18 +42,6 @@ func TestNonStreamDeadlineContinuesAfterResponseHeaders(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("deadline did not reach upstream")
 	}
-}
-
-func TestHedgeDrainByteLimitAppliesOnlyAfterDetachment(t *testing.T) {
-	a := &relaycommon.HedgeAttempt{}
-	body := &hedgeResponseBody{ReadCloser: io.NopCloser(strings.NewReader("beforeafter")), attempt: a, drained: maxHedgeDrainBytes}
-	buf := make([]byte, 6)
-	n, err := body.Read(buf)
-	require.NoError(t, err)
-	assert.Equal(t, "before", string(buf[:n]))
-	a.Detached.Store(true)
-	_, err = body.Read(buf)
-	require.ErrorContains(t, err, "byte limit")
 }
 
 type deadlineTestTransport struct{ received chan context.Context }
@@ -80,7 +67,7 @@ func TestNonStreamDeadlineInMemoryTransport(t *testing.T) {
 			client.Transport = deadlineTestTransport{received: received}
 			client.Timeout = 0
 			seconds := 1
-			settings := dto.ChannelSettings{Reliability: &dto.ChannelReliabilitySettings{}}
+			settings := dto.ChannelOtherSettings{Reliability: &dto.ChannelReliabilitySettings{}}
 			if channelTimer {
 				settings.Reliability.NonStreamingTimeoutSeconds = &seconds
 			} else {
@@ -90,7 +77,7 @@ func TestNonStreamDeadlineInMemoryTransport(t *testing.T) {
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 			req, err := http.NewRequest(http.MethodPost, "http://deadline.test", strings.NewReader(`{}`))
 			require.NoError(t, err)
-			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelSetting: settings}}
+			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelOtherSettings: settings}}
 			resp, err := doRequest(c, req, info)
 			require.NoError(t, err)
 			defer resp.Body.Close()

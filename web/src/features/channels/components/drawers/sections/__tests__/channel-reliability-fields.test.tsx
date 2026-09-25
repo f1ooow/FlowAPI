@@ -53,13 +53,10 @@ function ReliabilityHarness() {
 }
 
 describe('ChannelReliabilityFields', () => {
-  test('defaults every timeout to zero and clearing a custom timeout disables it', async () => {
+  test('defaults every timeout to zero and clearing a custom timeout stores zero', async () => {
     const user = userEvent.setup()
     render(<ReliabilityHarness />)
     const input = screen.getByLabelText('Streaming idle timeout (seconds)')
-    expect(
-      screen.getByLabelText('Streaming first-content threshold (seconds)')
-    ).toHaveValue(0)
     expect(
       screen.getByLabelText('Non-streaming total timeout (seconds)')
     ).toHaveValue(0)
@@ -71,6 +68,21 @@ describe('ChannelReliabilityFields', () => {
     await user.clear(input)
     expect(input).toHaveValue(0)
     expect(screen.getByTestId('idle-timeout-state')).toHaveTextContent('0')
+  })
+
+  test('describes zero on both request timeouts as the global default', () => {
+    render(<ReliabilityHarness />)
+
+    expect(
+      screen.getByLabelText('Streaming idle timeout (seconds)')
+    ).toHaveAccessibleDescription(
+      '0: use the global default. Custom range: 60-600 seconds.'
+    )
+    expect(
+      screen.getByLabelText('Non-streaming total timeout (seconds)')
+    ).toHaveAccessibleDescription(
+      '0: use the global default. Custom range: 60-1800 seconds.'
+    )
   })
 
   test('never renders NaN or stores NaN when the attempts field is cleared', async () => {

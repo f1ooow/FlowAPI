@@ -22,8 +22,7 @@ type ChannelSettings struct {
 	HTTPProtocol string `json:"http_protocol,omitempty"`
 	// HTTP2ConnectionShards spreads HTTP/2 traffic across N independent transports
 	// (1-8). Zero/unset means 1. Ignored when HTTPProtocol is "http1".
-	HTTP2ConnectionShards int                         `json:"http2_connection_shards,omitempty"`
-	Reliability           *ChannelReliabilitySettings `json:"reliability,omitempty"`
+	HTTP2ConnectionShards int `json:"http2_connection_shards,omitempty"`
 }
 
 const (
@@ -95,6 +94,8 @@ type ChannelOtherSettings struct {
 	UpstreamModelUpdateLastRemovedModels  []string              `json:"upstream_model_update_last_removed_models,omitempty"`  // 上次检测到的可删除模型
 	UpstreamModelUpdateIgnoredModels      []string              `json:"upstream_model_update_ignored_models,omitempty"`       // 手动忽略的模型
 	AdvancedCustom                        *AdvancedCustomConfig `json:"advanced_custom,omitempty"`
+	// Reliability is the only source of per-channel attempt, auto-ban and timeout settings.
+	Reliability *ChannelReliabilitySettings `json:"reliability,omitempty"`
 }
 
 func (o *TaskEndpointOverride) Validate() error {

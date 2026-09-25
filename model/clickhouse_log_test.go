@@ -96,13 +96,15 @@ func TestClickHouseCreateTableHasTTL(t *testing.T) {
 	assert.False(t, clickHouseCreateTableHasTTL("CREATE TABLE logs (...)\nORDER BY (created_at, request_id)"))
 }
 
+// Rows of one request can share created_at and request_id; offset paging must
+// still return every row exactly once, in a stable order.
 func TestClickHouseLogOrder(t *testing.T) {
-	db := setupHedgeLogDB(t)
+	db := setupSQLiteLogDB(t)
 	logs := []Log{
-		{CreatedAt: 100, RequestId: "race", ChannelId: 11, UpstreamRequestId: "upstream", Other: `{"hedge":{"attempt_id":"a"}}`},
-		{CreatedAt: 100, RequestId: "race", ChannelId: 12, UpstreamRequestId: "upstream", Other: `{"hedge":{"attempt_id":"c"}}`},
-		{CreatedAt: 100, RequestId: "race", ChannelId: 11, UpstreamRequestId: "upstream", Other: `{"hedge":{"attempt_id":"b"}}`},
-		{CreatedAt: 100, RequestId: "race", ChannelId: 11, UpstreamRequestId: "upstream-z", Other: `{"hedge":{"attempt_id":"d"}}`},
+		{CreatedAt: 100, RequestId: "shared", ChannelId: 11, UpstreamRequestId: "upstream", Other: `{"note":"a"}`},
+		{CreatedAt: 100, RequestId: "shared", ChannelId: 12, UpstreamRequestId: "upstream", Other: `{"note":"c"}`},
+		{CreatedAt: 100, RequestId: "shared", ChannelId: 11, UpstreamRequestId: "upstream", Other: `{"note":"b"}`},
+		{CreatedAt: 100, RequestId: "shared", ChannelId: 11, UpstreamRequestId: "upstream-z", Other: `{"note":"d"}`},
 	}
 	require.NoError(t, db.Create(&logs).Error)
 	for _, prefix := range []string{"", "logs."} {

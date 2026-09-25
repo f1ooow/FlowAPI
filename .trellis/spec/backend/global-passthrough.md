@@ -20,7 +20,7 @@ Read when modifying global passthrough settings, channel header overrides, relay
 - Common HTTP/form/WebSocket paths use this machinery. `DoTaskApiRequest` and bespoke transports are not implicitly covered. Audit the actual dispatch path before claiming support.
 - Body passthrough in supported handlers is global OR local. It bypasses adapter conversion, parameter overrides and system prompt injection. For OpenAI-compatible text, Responses (including compact), Claude, image JSON, and rerank requests, an actual channel model redirect must still rewrite the top-level `model` to the configured target. Do not describe passthrough as compatible with arbitrary upstream protocols.
 - Model rewriting preserves unknown fields and numeric precision through raw JSON values; never round-trip arbitrary payloads through `map[string]any`. Without a matched redirect, retain original bytes and replayable storage. Nested `model` fields are not routing identities and must remain unchanged.
-- Rewritten bodies belong to the outbound attempt. Never mutate or replace inbound body storage: retries and hedged attempts must each start from the original client payload. Adapter-only suffix normalization must not change a passthrough model or reinterpret a configured redirect target.
+- Rewritten bodies belong to the outbound attempt. Never mutate or replace inbound body storage: every retry attempt must start from the original client payload. Adapter-only suffix normalization must not change a passthrough model or reinterpret a configured redirect target.
 - Multipart payloads, URL-based Gemini model handling, WebSockets and asynchronous tasks keep their existing behavior; this JSON rewrite does not extend their support.
 - Channel display reads only the two flags, not privileged system options. A globally enabled body switch appears on and disabled without changing the saved local preference; successful option mutation invalidates `['channel-passthrough']`.
 - Existing `delete_header` operations remove map entries, not individual headers later expanded from `*`. Do not claim they are wildcard exclusion filters.
@@ -47,7 +47,7 @@ Read when modifying global passthrough settings, channel header overrides, relay
 | JSON body passthrough with matched redirect | Send configured target in top-level `model`; retain unknown and nested values |
 | No matched redirect or identity mapping | Keep original body byte-for-byte |
 | Rewrite required but body is invalid or non-object JSON | Fail before contacting upstream; use existing body/conversion error classification |
-| Retry or hedge chooses another channel | Rewrite independently from original model and original body |
+| Retry chooses another channel | Rewrite independently from original model and original body |
 
 ## Good / Base / Bad Cases
 

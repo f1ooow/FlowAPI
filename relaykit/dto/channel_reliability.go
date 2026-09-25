@@ -12,7 +12,6 @@ const (
 )
 
 type ChannelReliabilitySettings struct {
-	FirstContentTimeoutSeconds  *int `json:"first_content_timeout_seconds,omitempty"`
 	StreamingIdleTimeoutSeconds *int `json:"streaming_idle_timeout_seconds,omitempty"`
 	NonStreamingTimeoutSeconds  *int `json:"non_streaming_timeout_seconds,omitempty"`
 	MaxAttempts                 int  `json:"max_attempts,omitempty"`
@@ -48,7 +47,6 @@ func (s ChannelReliabilitySettings) Validate() error {
 		value    *int
 		min, max int
 	}{
-		{"first_content_timeout_seconds", s.FirstContentTimeoutSeconds, 1, 180},
 		{"streaming_idle_timeout_seconds", s.StreamingIdleTimeoutSeconds, 60, 600},
 		{"non_streaming_timeout_seconds", s.NonStreamingTimeoutSeconds, 60, 1800},
 	} {

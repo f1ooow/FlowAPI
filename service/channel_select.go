@@ -17,7 +17,6 @@ type RetryParam struct {
 	RequestPath        string
 	Retry              *int
 	ExcludedChannelIDs map[int]struct{}
-	CandidateAllowed   func(*model.Channel) bool
 	resetNextTry       bool
 }
 
@@ -185,9 +184,7 @@ func cacheGetResilientChannel(param *RetryParam) (*model.Channel, string, error)
 		for {
 			channel, err := model.GetRandomSatisfiedChannelWithOptions(group, param.ModelName, param.RequestPath, model.ChannelSelectionOptions{
 				ExcludedChannelIDs: locallyExcluded,
-				CandidateAllowed: func(channel *model.Channel) bool {
-					return channel.Status == common.ChannelStatusEnabled && (param.CandidateAllowed == nil || param.CandidateAllowed(channel))
-				},
+				CandidateAllowed:   func(channel *model.Channel) bool { return channel.Status == common.ChannelStatusEnabled },
 			})
 			if err != nil {
 				return nil, group, err

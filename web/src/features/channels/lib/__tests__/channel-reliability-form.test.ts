@@ -46,7 +46,6 @@ describe('channel reliability form', () => {
           existing_setting: true,
           reliability: {
             future_setting: 'preserved',
-            first_content_timeout_seconds: timeout,
             streaming_idle_timeout_seconds: timeout,
             non_streaming_timeout_seconds: timeout,
           },
@@ -59,7 +58,6 @@ describe('channel reliability form', () => {
       expect(settings.existing_setting).toBe(true)
       expect(settings.reliability.future_setting).toBe('preserved')
       for (const field of [
-        'first_content_timeout_seconds',
         'streaming_idle_timeout_seconds',
         'non_streaming_timeout_seconds',
       ] as const) {
@@ -70,7 +68,7 @@ describe('channel reliability form', () => {
     }
   )
 
-  test('disabling a configured timeout persists zero without removing other reliability settings', () => {
+  test('resetting a configured timeout to zero persists zero without removing other reliability settings', () => {
     const payload = transformFormDataToCreatePayload({
       ...CHANNEL_FORM_DEFAULT_VALUES,
       settings:
@@ -81,7 +79,6 @@ describe('channel reliability form', () => {
       max_attempts: 2,
       auto_ban_threshold: 5,
       auto_ban_duration_seconds: 1800,
-      first_content_timeout_seconds: 0,
       streaming_idle_timeout_seconds: 0,
       non_streaming_timeout_seconds: 0,
       future_setting: true,
@@ -89,10 +86,6 @@ describe('channel reliability form', () => {
   })
 
   test.each([
-    ['first_content_timeout_seconds', 1, true],
-    ['first_content_timeout_seconds', 180, true],
-    ['first_content_timeout_seconds', 181, false],
-    ['first_content_timeout_seconds', -1, false],
     ['streaming_idle_timeout_seconds', 59, false],
     ['streaming_idle_timeout_seconds', 600, true],
     ['streaming_idle_timeout_seconds', 601, false],
@@ -137,7 +130,6 @@ describe('channel reliability form', () => {
       max_attempts: 3,
       auto_ban_threshold: 7,
       auto_ban_duration_seconds: 2700,
-      first_content_timeout_seconds: 0,
       streaming_idle_timeout_seconds: 0,
       non_streaming_timeout_seconds: 0,
     })

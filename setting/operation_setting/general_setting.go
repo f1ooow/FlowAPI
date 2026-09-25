@@ -11,7 +11,6 @@ const (
 )
 
 type GeneralSetting struct {
-	BillHedgeLosers     bool   `json:"bill_hedge_losers"`
 	DocsLink            string `json:"docs_link"`
 	PingIntervalEnabled bool   `json:"ping_interval_enabled"`
 	PingIntervalSeconds int    `json:"ping_interval_seconds"`
@@ -25,7 +24,6 @@ type GeneralSetting struct {
 
 // 默认配置
 var generalSetting = GeneralSetting{
-	BillHedgeLosers:            true,
 	DocsLink:                   "https://docs.newapi.pro",
 	PingIntervalEnabled:        false,
 	PingIntervalSeconds:        60,
@@ -41,13 +39,6 @@ func init() {
 
 func GetGeneralSetting() *GeneralSetting {
 	return &generalSetting
-}
-
-// SnapshotGeneralSetting freezes request policy while administrators update it.
-func SnapshotGeneralSetting() GeneralSetting {
-	var snapshot GeneralSetting
-	config.GlobalConfig.Snapshot("general_setting", &snapshot)
-	return snapshot
 }
 
 // IsCurrencyDisplay 是否以货币形式展示（美元或人民币）

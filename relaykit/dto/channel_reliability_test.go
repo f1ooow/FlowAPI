@@ -31,12 +31,6 @@ func TestChannelTimeoutOverridesPreserveOmissionAndZero(t *testing.T) {
 		require.NotNil(t, decoded.StreamingIdleTimeoutSeconds)
 		assert.Equal(t, value, *decoded.StreamingIdleTimeoutSeconds)
 	}
-	for _, value := range []int{-1, 181} {
-		require.Error(t, (ChannelReliabilitySettings{FirstContentTimeoutSeconds: &value}).Validate())
-	}
-	for _, value := range []int{0, 1, 180} {
-		require.NoError(t, (ChannelReliabilitySettings{FirstContentTimeoutSeconds: &value}).Validate())
-	}
 	for _, value := range []int{-1, 59, 601} {
 		require.Error(t, (ChannelReliabilitySettings{StreamingIdleTimeoutSeconds: &value}).Validate())
 	}

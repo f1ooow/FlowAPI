@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func newAdvancedCustomModelListChannel(baseURL string, key string, upstreamPath string, auth *dto.AdvancedCustomRouteAuth) *model.Channel {
@@ -358,6 +359,39 @@ func TestFailedAdvancedCustomDetectionDoesNotStageFullRemoval(t *testing.T) {
 	require.Empty(t, persistedSettings.UpstreamModelUpdateLastDetectedModels)
 	require.Empty(t, persistedSettings.UpstreamModelUpdateLastRemovedModels)
 	require.Equal(t, "gpt-4.1,o3", reloaded.Models)
+}
+
+// The scheduled check rewrites the whole settings column from the typed DTO, so
+// the reliability block the channel form saved there must survive it.
+func TestUpstreamModelUpdateCheckKeepsReliabilitySettings(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-4.1"},{"id":"gpt-5"}]}`))
+	}))
+	t.Cleanup(server.Close)
+
+	reliability := `{"max_attempts":3,"auto_ban_threshold":5,"auto_ban_duration_seconds":1800,"streaming_idle_timeout_seconds":0,"non_streaming_timeout_seconds":0}`
+	baseURL := server.URL
+	channel := &model.Channel{
+		Type:          constant.ChannelTypeOpenAI,
+		Name:          "scheduled upstream check",
+		Key:           "upstream-key",
+		Status:        common.ChannelStatusEnabled,
+		BaseURL:       &baseURL,
+		Models:        "gpt-4.1",
+		OtherSettings: `{"upstream_model_update_check_enabled":true,"reliability":` + reliability + `}`,
+	}
+	require.NoError(t, db.Create(channel).Error)
+
+	settings := channel.GetOtherSettings()
+	_, _, err := checkAndPersistChannelUpstreamModelUpdates(channel, &settings, false, true)
+	require.NoError(t, err)
+
+	reloaded, err := model.GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"gpt-5"}, reloaded.GetOtherSettings().UpstreamModelUpdateLastDetectedModels)
+	assert.JSONEq(t, reliability, gjson.Get(reloaded.OtherSettings, "reliability").Raw)
 }
 
 func TestFetchModelsUsesSharedChannelFetchBehavior(t *testing.T) {

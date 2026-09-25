@@ -281,12 +281,6 @@ func CalcOpenRouterCacheCreateTokens(usage dto.Usage, priceData types.PriceData)
 }
 
 func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent string) {
-	if attempt := relayInfo.Hedge; attempt != nil && !attempt.Finalizing {
-		attempt.Usage = usage
-		attempt.AudioUsage = true
-		attempt.ExtraContent = []string{extraContent}
-		return
-	}
 
 	var tieredUsedVars map[string]bool
 	if snap := relayInfo.TieredBillingSnapshot; snap != nil {
@@ -354,19 +348,12 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		logger.LogError(ctx, fmt.Sprintf("total tokens is 0, cannot consume quota, userId %d, channelId %d, "+
 			"tokenId %d, model %s， pre-consumed quota %d", relayInfo.UserId, relayInfo.ChannelId, relayInfo.TokenId, relayInfo.OriginModelName, relayInfo.FinalPreConsumedQuota))
 	} else {
-		if relayInfo.Hedge != nil && !relayInfo.Hedge.Winner.Load() {
-			model.UpdateUserUsedQuota(relayInfo.UserId, quota)
-		} else {
-			model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, quota)
-		}
+		model.UpdateUserUsedQuotaAndRequestCount(relayInfo.UserId, quota)
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, quota)
 	}
 
 	if err := SettleBilling(ctx, relayInfo, quota); err != nil {
 		logger.LogError(ctx, "error settling billing: "+err.Error())
-		if relayInfo.Hedge != nil {
-			relayInfo.Hedge.SettlementStatus = "failed"
-		}
 	}
 
 	logModel := relayInfo.OriginModelName
@@ -379,19 +366,6 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		InjectTieredBillingInfo(other, relayInfo, tieredResult)
 	}
 	attachQuotaSaturation(ctx, relayInfo, other)
-	if relayInfo.Hedge != nil {
-		other["hedge"] = relayInfo.Hedge.LogInfo()
-	}
-	recordMetrics := func() {
-		if relayInfo.Hedge == nil || relayInfo.Hedge.Winner.Load() {
-			success := relayInfo.Hedge == nil || (relayInfo.StreamStatus != nil && relayInfo.StreamStatus.IsNormalEnd() && !relayInfo.StreamStatus.HasErrors())
-			perfmetrics.RecordRelaySample(relayInfo, success, int64(usage.CompletionTokens))
-		}
-	}
-	if relayInfo.Hedge != nil {
-		recordMetrics()
-	}
-
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,
 		PromptTokens:     usage.PromptTokens,
@@ -406,9 +380,9 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 		Group:            relayInfo.UsingGroup,
 		Other:            other,
 	})
-	if relayInfo.Hedge == nil {
-		gopool.Go(recordMetrics)
-	}
+	gopool.Go(func() {
+		perfmetrics.RecordRelaySample(relayInfo, true, int64(usage.CompletionTokens))
+	})
 }
 
 func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {

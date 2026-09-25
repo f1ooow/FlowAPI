@@ -14,7 +14,6 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
-	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -81,8 +80,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 }
 
 // StreamScannerHandlerWithGate holds neutral upstream events until the first
-// protocol-valid content event. A returned error is safe for transparent
-// failover only while info.StreamStatus.IsCommitted() is false.
+// protocol-valid content event or until the held prefix reaches its cap. A
+// returned error is safe for transparent failover only while
+// info.StreamStatus.IsCommitted() is false.
 func StreamScannerHandlerWithGate(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, protocol StreamProtocol, dataHandler func(data string, sr *StreamResult)) *types.NewAPIError {
 	return streamScannerHandler(c, resp, info, protocol, dataHandler)
 }
@@ -107,9 +107,6 @@ func streamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		return nil
 	}
 	gateEnabled := protocol != ""
-	// Separate from adapter state: the scanner sees each upstream event once,
-	// including the precommit prefix, and keeps no losing answer content.
-	toolCollector := &relaycommon.RelayInfo{OriginModelName: info.OriginModelName}
 
 	// 无条件新建 StreamStatus
 	if gateEnabled {
@@ -120,11 +117,13 @@ func streamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	var streamingTimeout time.Duration
-	if settings := info.ChannelSetting.Reliability; settings != nil && settings.StreamingIdleTimeoutSeconds != nil {
+	// A positive channel value wins; 0 or unset falls back to the global
+	// STREAMING_TIMEOUT. When neither is positive, idleC stays nil and the
+	// stream has no idle timer.
+	streamingTimeout := time.Duration(constant.StreamingTimeout) * time.Second
+	if settings := info.ChannelOtherSettings.Reliability; settings != nil && settings.StreamingIdleTimeoutSeconds != nil && *settings.StreamingIdleTimeoutSeconds > 0 {
 		streamingTimeout = time.Duration(*settings.StreamingIdleTimeoutSeconds) * time.Second
 	}
-	// A stopped timer supplies a nil channel, preserving an explicit disabled override.
 	var idleC <-chan time.Time
 	var ticker *time.Ticker
 	if streamingTimeout > 0 {
@@ -145,9 +144,6 @@ func streamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		cleanupOnce sync.Once
 		stopOnce    sync.Once
 	)
-	if info.Hedge != nil {
-		scanner.Buffer(make([]byte, InitialScannerBufferSize), 1<<20)
-	}
 
 	stop := func() {
 		stopOnce.Do(func() {
@@ -313,15 +309,6 @@ func streamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		// back so far. It reports false when the request is going away and the
 		// scanner must stop.
 		commitBufferedStream := func() bool {
-			if info.Hedge != nil && info.Hedge.Commit != nil {
-				if !info.Hedge.Commit() {
-					// Metering was observed before the gate. A detached collector
-					// does not need to render or retain the losing answer.
-					buffered = nil
-					info.StreamStatus.MarkCommitted()
-					return c.Request.Context().Err() == nil
-				}
-			}
 			writeMutex.Lock()
 			copyCodexSSEHeaders(c, resp)
 			SetEventStreamHeaders(c)
@@ -363,41 +350,6 @@ func streamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			if data == "" {
 				continue
 			}
-			if info.Hedge != nil {
-				verdict := classifyStreamFrame(protocol, data)
-				if verdict == streamFrameError || verdict == streamFrameMalformed {
-					info.Hedge.ObservePrefix(false)
-				} else if resp.StatusCode >= 200 && resp.StatusCode < 300 &&
-					strings.HasPrefix(strings.ToLower(resp.Header.Get("Content-Type")), "text/event-stream") && validHedgePrefix(protocol, data) {
-					info.Hedge.ObservePrefix(true)
-				}
-				observeHedgeUsage(info.Hedge, protocol, data)
-				if protocol == StreamProtocolOpenAIResponses {
-					var event struct {
-						Type string `json:"type"`
-						Item *struct {
-							Type string `json:"type"`
-							Name string `json:"name"`
-						} `json:"item"`
-					}
-					if common.UnmarshalJsonStr(data, &event) == nil && event.Type == dto.ResponsesOutputTypeItemDone && event.Item != nil && event.Item.Type == dto.BuildInCallFunctionCall {
-						toolCollector.CountBillableToolCall(event.Item.Type, event.Item.Name)
-					}
-				}
-				if info.Hedge.Detached.Load() {
-					buffered = nil
-					info.StreamStatus.MarkCommitted()
-					if verdict == streamFrameError || verdict == streamFrameMalformed {
-						info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonHandlerStop, &StreamPrecommitFailure{Reason: "invalid_losing_stream"})
-						return
-					}
-					if verdict == streamFrameTerminal {
-						info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
-						return
-					}
-					continue
-				}
-			}
 			if gateEnabled && !info.StreamStatus.IsCommitted() {
 				verdict := classifyStreamFrame(protocol, data)
 				switch verdict {
@@ -434,17 +386,12 @@ func streamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 					}
 					// Keepalive heartbeats arrive on a wall-clock cadence, not per
 					// upstream event, so they must not consume the event budget:
-					// a 10s ping would otherwise cap every request at ~11 minutes
-					// of first-token latency. The byte caps above still bound them.
+					// a 10s ping would otherwise open the gate after ~11 minutes
+					// without content. The byte caps above still bound them.
 					if !isStreamKeepAlive(data) {
 						bufferedEvents++
 					}
-					if bufferedEvents > streamGateEventCap || bufferedBytes > streamGateByteCap || totalBufferedBytes > 2*streamGateByteCap {
-						err := &StreamPrecommitFailure{Reason: "prebuffer_overflow"}
-						setPrecommitErr(err)
-						info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonHandlerStop, err)
-						return
-					}
+					capReached := bufferedEvents > streamGateEventCap || bufferedBytes > streamGateByteCap || totalBufferedBytes > 2*streamGateByteCap
 					// Buffered events are handed to dataChan by
 					// commitBufferedStream, bypassing the accounting below, so
 					// record first-byte latency here. TTFT must keep meaning
@@ -452,6 +399,15 @@ func streamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 					// alike, otherwise perf_metrics mixes two definitions.
 					info.SetFirstResponseTime()
 					info.ReceivedResponseCount++
+					// The caps bound memory, not upstream health: a frame the
+					// classifier does not recognize is no failure signal, so a
+					// full prefix, this frame included, is released in order.
+					if capReached {
+						logger.LogWarn(c, fmt.Sprintf("stream gate opened at prefix cap without content: protocol=%s events=%d bytes=%d", protocol, bufferedEvents, totalBufferedBytes))
+						if !commitBufferedStream() {
+							return
+						}
+					}
 					continue
 				case streamFrameCompleted, streamFrameContent:
 					if !commitBufferedStream() {
@@ -461,9 +417,6 @@ func streamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			}
 
 			if !strings.HasPrefix(data, "[DONE]") {
-				if info.Hedge != nil && info.Hedge.Detached.Load() {
-					continue
-				}
 				info.SetFirstResponseTime()
 				info.ReceivedResponseCount++
 
@@ -513,9 +466,6 @@ func streamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	}
 
 	cleanup()
-	if info.Hedge != nil && protocol == StreamProtocolOpenAIResponses {
-		info.Hedge.ReportedToolUsage = toolCollector.ResponsesUsageInfo
-	}
 	if info.StreamStatus.IsNormalEnd() && !info.StreamStatus.HasErrors() {
 		logger.LogInfo(c, fmt.Sprintf("stream ended: %s", info.StreamStatus.Summary()))
 	} else {

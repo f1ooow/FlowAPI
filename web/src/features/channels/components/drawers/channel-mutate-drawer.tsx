@@ -340,7 +340,6 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.channel_max_attempts !== 2 ||
     values.auto_ban_threshold !== 5 ||
     values.auto_ban_duration_minutes !== 30 ||
-    values.first_content_timeout_seconds > 0 ||
     values.streaming_idle_timeout_seconds > 0 ||
     values.non_streaming_timeout_seconds > 0 ||
     values.proxy?.trim() ||
@@ -736,9 +735,6 @@ export function ChannelMutateDrawer({
   const currentChannelMaxAttempts = form.watch('channel_max_attempts')
   const currentAutoBanThreshold = form.watch('auto_ban_threshold')
   const currentAutoBanDurationMinutes = form.watch('auto_ban_duration_minutes')
-  const currentFirstContentTimeoutSeconds = form.watch(
-    'first_content_timeout_seconds'
-  )
   const currentStreamingIdleTimeoutSeconds = form.watch(
     'streaming_idle_timeout_seconds'
   )
@@ -1011,7 +1007,6 @@ export function ChannelMutateDrawer({
     currentChannelMaxAttempts !== 2 ||
     currentAutoBanThreshold !== 5 ||
     currentAutoBanDurationMinutes !== 30 ||
-    currentFirstContentTimeoutSeconds > 0 ||
     currentStreamingIdleTimeoutSeconds > 0 ||
     currentNonStreamingTimeoutSeconds > 0
   )

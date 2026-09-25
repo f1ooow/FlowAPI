@@ -7,6 +7,8 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+// The prefix caps bound how much the gate holds back before the first content
+// event. Reaching one releases the held prefix instead of failing the attempt.
 const (
 	streamGateEventCap = 64
 	streamGateByteCap  = 10 << 20
@@ -94,8 +96,12 @@ func classifyStreamFrame(protocol StreamProtocol, data string) streamFrameVerdic
 		if frameType == "message_stop" {
 			return streamFrameTerminal
 		}
-		if frameType == "content_block_delta" && streamAnyPathNonEmpty(data,
-			"delta.text", "delta.partial_json", "delta.thinking", "delta.signature", "delta.citation") {
+		// Redacted thinking (Claude Code's redact-thinking beta) streams
+		// thinking_delta frames with empty text for the whole reasoning
+		// phase. Each one is real generation progress, so the first one
+		// opens the gate instead of piling up toward the prefix cap.
+		if frameType == "content_block_delta" && (gjson.Get(data, "delta.type").String() == "thinking_delta" ||
+			streamAnyPathNonEmpty(data, "delta.text", "delta.partial_json", "delta.thinking", "delta.signature", "delta.citation")) {
 			return streamFrameContent
 		}
 		if frameType == "content_block_start" && streamAnyPathNonEmpty(data,
@@ -187,9 +193,10 @@ func streamResponsesContent(frameType string, data string) bool {
 // isStreamKeepAlive reports whether a buffered payload is proxy/keepalive noise
 // rather than an upstream protocol event. Some third-party proxies emit
 // `data: ping` every few seconds; counting those against streamGateEventCap
-// would make a slow-first-token reasoning request fail with prebuffer_overflow
-// purely as a function of elapsed time. They still count against the byte caps
-// so an endless heartbeat cannot grow the buffer without bound.
+// would open the gate of a slow-first-token reasoning request purely as a
+// function of elapsed time, ending transparent failover before any content.
+// They still count against the byte caps so an endless heartbeat cannot grow
+// the buffer without bound.
 func isStreamKeepAlive(data string) bool {
 	data = strings.TrimSpace(data)
 	if data == "" {

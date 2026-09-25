@@ -1269,11 +1269,6 @@ func (channel *Channel) ValidateSettings() error {
 	if err := channelParams.ValidateHTTPTransport(); err != nil {
 		return err
 	}
-	if channelParams.Reliability != nil {
-		if err := channelParams.Reliability.Validate(); err != nil {
-			return err
-		}
-	}
 	if channel.ModelMapping != nil {
 		rules, err := dto.ParseModelRedirectRules(*channel.ModelMapping)
 		if err != nil {
@@ -1297,6 +1292,11 @@ func (channel *Channel) ValidateSettings() error {
 	}
 	if channelOtherSettings.VideoProtocol != "" && channelOtherSettings.VideoProtocol != "wan-rolldek-v1" {
 		return fmt.Errorf("unsupported video_protocol")
+	}
+	if channelOtherSettings.Reliability != nil {
+		if err := channelOtherSettings.Reliability.Validate(); err != nil {
+			return err
+		}
 	}
 	if channel.Type == constant.ChannelTypeAdvancedCustom {
 		if channelOtherSettings.AdvancedCustom == nil {
@@ -1330,11 +1330,11 @@ func (channel *Channel) GetSetting() dto.ChannelSettings {
 }
 
 func (channel *Channel) GetReliabilitySettings() dto.ChannelReliabilitySettings {
-	setting := channel.GetSetting()
-	if setting.Reliability == nil {
+	reliability := channel.GetOtherSettings().Reliability
+	if reliability == nil {
 		return dto.DefaultChannelReliabilitySettings()
 	}
-	return setting.Reliability.WithDefaults()
+	return reliability.WithDefaults()
 }
 
 func (channel *Channel) SetSetting(setting dto.ChannelSettings) {

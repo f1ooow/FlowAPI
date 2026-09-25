@@ -547,7 +547,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		req = req.WithContext(c.Request.Context())
 	}
 	var cancel context.CancelFunc
-	if settings := info.ChannelSetting.Reliability; !info.IsStream && settings != nil && settings.NonStreamingTimeoutSeconds != nil && *settings.NonStreamingTimeoutSeconds > 0 {
+	if settings := info.ChannelOtherSettings.Reliability; !info.IsStream && settings != nil && settings.NonStreamingTimeoutSeconds != nil && *settings.NonStreamingTimeoutSeconds > 0 {
 		var ctx context.Context
 		ctx, cancel = context.WithTimeout(req.Context(), time.Duration(*settings.NonStreamingTimeoutSeconds)*time.Second)
 		req = req.WithContext(ctx)
@@ -602,9 +602,6 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		}
 	}
 
-	if info.Hedge != nil && info.Hedge.Dispatched != nil {
-		info.Hedge.Dispatched()
-	}
 	resp, err := relayClient.Do(req)
 	if err != nil {
 		if cancel != nil {
@@ -621,9 +618,6 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	}
 	if cancel != nil {
 		resp.Body = &deadlineResponseBody{ReadCloser: resp.Body, cancel: cancel}
-	}
-	if info.Hedge != nil {
-		resp.Body = &hedgeResponseBody{ReadCloser: resp.Body, attempt: info.Hedge}
 	}
 	if common2.DebugEnabled {
 		policy := service.NormalizeHTTPTransportPolicy(info.ChannelSetting)

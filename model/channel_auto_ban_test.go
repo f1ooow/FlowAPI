@@ -24,7 +24,7 @@ func createAutoBanTestChannel(t *testing.T, threshold int, status int) *Channel 
 		Group:   "default",
 		AutoBan: &autoBan,
 	}
-	channel.SetSetting(dto.ChannelSettings{
+	channel.SetOtherSettings(dto.ChannelOtherSettings{
 		Reliability: &dto.ChannelReliabilitySettings{
 			MaxAttempts:         2,
 			AutoBanThreshold:    threshold,
