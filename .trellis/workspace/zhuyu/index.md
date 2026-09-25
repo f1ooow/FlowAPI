@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 6
-- **Last Active**: 2026-09-18
+- **Total Sessions**: 7
+- **Last Active**: 2026-09-26
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~423 | Active |
+| `journal-1.md` | ~465 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 7 | 2026-09-26 | 流式闸门误判修复、可靠性设置存读一致、移除竞速、静默超时全局默认 | `d4183f2bf`, `c59af3457` | `main` |
 | 6 | 2026-09-18 | Preserve model redirects during body passthrough | `c99ea5f97` | `main` |
 | 5 | 2026-09-17 | 流式供应商竞速与输家计费 | `b9692d6f4` | `main` |
 | 4 | 2026-09-15 | 渠道统计与可用性页面发布 | `1995addc7`, `831f93204`, `1ddc9a65b` | `main` |

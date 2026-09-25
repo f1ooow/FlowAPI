@@ -421,3 +421,45 @@ Fixed JSON top-level model rewriting for OpenAI, Responses, Claude, image and re
 ### Status
 
 [OK] **Completed**
+
+
+## Session 7: 流式闸门误判修复、可靠性设置存读一致、移除竞速、静默超时全局默认
+
+**Date**: 2026-09-26
+**Task**: 流式闸门误判修复、可靠性设置存读一致、移除竞速、静默超时全局默认
+**Branch**: `main`
+
+### Summary
+
+排查 hx 的 Claude 老会话频繁超时：根因是 Claude Code 默认 redact-thinking，空文本 thinking_delta 被预提交闸门当中性帧计数，约 90 秒攒满 64 帧判 prebuffer_overflow 并误封渠道（CCH 同样逻辑、08-20~23 也踩过）。修复并扩展为四个子项：A 空 thinking_delta 视为内容、攒满上限放行；B 渠道可靠性设置改从 settings.reliability 读取与校验（此前一直误读 setting，max_attempts/自动封禁/超时全未生效）；C 删除从未运行过的竞速、输家计费与首内容阈值；D 静默超时填 0 回退 STREAMING_TIMEOUT(300s)。main 先快进到生产分支 1f5bb7309 后部署 HK，切换后 14/14 请求成功。
+
+### Main Changes
+
+- relay/helper：Anthropic thinking_delta（含空文本）判为内容；前缀攒满 64 事件/10MB 放行并记 warning，不再 prebuffer_overflow
+- relaykit/dto + model/channel.go：reliability 移到 ChannelOtherSettings（settings 列），保存时校验，SetOtherSettings 回写保留
+- 删除竞速控制流/计费/日志、general_setting.bill_hedge_losers、first_content_timeout_seconds 及前端表单/日志展示/文案；保留 logger 竞争修复、配置锁、ClickHouse 排序键
+- stream_scanner：渠道静默超时 0 时用 constant.StreamingTimeout；新规范 channel-reliability.md、stream-precommit-gate.md，删除 streaming-provider-hedge.md
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d4183f2bf` | (see git log) |
+| `c59af3457` | (see git log) |
+
+### Testing
+
+- [OK] go test ./... -count=1：42 包 pass / 0 fail；gofmt、go vet、go build、relaykit GOWORK=off build 通过
+- [OK] 前端 typecheck、build、i18n:sync 通过；受影响测试 pass；全量 281/289（8 个为 Node v25 localStorage 历史遗留）
+- [OK] -race：relay/helper、model 通过；relay/channel、gemini、minimax（gin.SetMode 并行）、service 视频轮询、controller 任务提交为 1f5bb7309 上即存在的历史遗留
+- [OK] HK 部署 flowapi:hk-stream-gate-c59af3457-20260926：healthy、重启 0、/api/status /pricing /playground 200、未鉴权 401、切换后 14/14 请求成功；回滚 flowapi:rollback-stream-gate-20260925-161046
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 另开任务修历史遗留测试失败（gin.SetMode 竞态、视频轮询竞态、任务提交测试竞态、前端 localStorage）
+- 另开任务处理自动封禁事务内 GetReliabilitySettings 解析失败时 channel.Save 自锁风险
+- #27、#28 丢失的 max_attempts=3 需在后台重新填写；观察 hx 老会话长思考是否恢复正常
