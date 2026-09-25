@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/backend/quality.md", "reason": "后端代码质量标准"}
+{"file": ".trellis/spec/shared/code-quality.md", "reason": "通用代码质量规范"}
+{"file": ".trellis/spec/backend/channel-reliability.md", "reason": "核对可靠性设置合同迁移完整、超时语义与静默超时全局默认"}
+{"file": ".trellis/spec/backend/stream-precommit-gate.md", "reason": "核对闸门已无竞速分支，攒满上限一律放行"}
+{"file": ".trellis/tasks/09-25-stream-gate-empty-thinking/research/other-protocols.md", "reason": "核对补发安全性与竞速语义结论"}
+{"file": ".trellis/tasks/09-25-stream-gate-empty-thinking/research/hedge-config.md", "reason": "核对可靠性设置读写点全部切换、校验与回写保留"}
+{"file": ".trellis/tasks/09-25-stream-gate-empty-thinking/research/hedge-removal.md", "reason": "核对竞速移除无遗漏、保留项未误删、合同已迁移"}
