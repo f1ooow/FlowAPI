@@ -23,22 +23,34 @@ func CloseResponseBodyGracefully(httpResponse *http.Response) {
 	}
 }
 
-// ShouldCopyUpstreamHeader checks whether a given upstream response header
-// should be copied to the client response. It returns false for Content-Length
-// (managed separately) and X-Oneapi-Request-Id (to preserve the local instance
-// ID). When the upstream header is X-Oneapi-Request-Id, the value is captured
-// into the Gin context for later logging.
+// clientVisibleUpstreamHeaders lists the only upstream response headers a
+// client may receive: the ones needed to decode the body, plus the Codex turn
+// headers the streaming path already forwards. Everything else (request ids,
+// organization ids, rate limits, CDN and CORS headers) identifies the provider
+// behind a channel and stays on this side. Content-Length is managed by the
+// writer; Content-Encoding only survives when the transport left the body
+// encoded, so it must travel with the bytes.
+var clientVisibleUpstreamHeaders = map[string]struct{}{
+	"content-type":         {},
+	"content-encoding":     {},
+	"content-disposition":  {},
+	"x-codex-turn-state":   {},
+	"x-reasoning-included": {},
+}
+
+// ShouldCopyUpstreamHeader reports whether an upstream response header may be
+// copied to the client response. When the upstream header is
+// X-Oneapi-Request-Id, the value is captured into the Gin context for later
+// logging instead of being forwarded, preserving the local instance ID.
 func ShouldCopyUpstreamHeader(c *gin.Context, k string, v []string) bool {
-	if strings.EqualFold(k, "Content-Length") {
-		return false
-	}
 	if strings.EqualFold(k, common.RequestIdKey) {
 		if c != nil && len(v) > 0 {
 			c.Set(common.UpstreamRequestIdKey, v[0])
 		}
 		return false
 	}
-	return true
+	_, ok := clientVisibleUpstreamHeaders[strings.ToLower(k)]
+	return ok
 }
 
 func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
