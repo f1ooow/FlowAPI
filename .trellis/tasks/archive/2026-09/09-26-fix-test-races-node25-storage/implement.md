@@ -5,7 +5,7 @@
 - [x] Capture video polling test upstream IDs before launching the polling worker; assert against immutable IDs.
 - [x] Restore jsdom `localStorage` in Vitest setup for Node 25.
 - [x] Run race checks for relay, controller, and service; run the full frontend test suite, typecheck, and lint of changed frontend file.
-- [ ] Review the diff for production-code changes, update task status, and commit the scoped work.
+- [x] Review the diff for production-code changes, update task status, and commit the scoped work (`a61c17b5e`).
 
 ## Verification Results
 
