@@ -12,6 +12,7 @@
 | [css-design.md](./css-design.md) | 样式约定、设计系统 | 参考模板 |
 | [quality.md](./quality.md) | 前端代码质量标准 | 参考模板 |
 | [react-pitfalls.md](./react-pitfalls.md) | React 常见陷阱 | 参考模板 |
+| [testing-environment.md](./testing-environment.md) | Vitest/jsdom 存储环境与 Node 25 兼容约定 | 项目合同 |
 
 ## 如何填写
 

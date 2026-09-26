@@ -21,6 +21,12 @@ import { cleanup } from '@testing-library/react'
 import i18next from 'i18next'
 import { initReactI18next } from 'react-i18next'
 import { afterEach, beforeAll } from 'vitest'
+import type {} from 'vitest/jsdom'
+
+Object.defineProperty(globalThis, 'localStorage', {
+  configurable: true,
+  value: jsdom.window.localStorage,
+})
 
 beforeAll(async () => {
   await i18next.use(initReactI18next).init({

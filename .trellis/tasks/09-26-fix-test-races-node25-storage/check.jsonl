@@ -1,0 +1,3 @@
+{"file":".trellis/spec/guides/bug-root-cause-thinking-guide.md","reason":"Confirm race reports map to test lifecycle and do not hide production defects"}
+{"file":".trellis/spec/backend/index.md","reason":"Check backend test changes against project conventions"}
+{"file":".trellis/spec/frontend/index.md","reason":"Check frontend test setup and required validation"}

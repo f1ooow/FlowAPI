@@ -24,7 +24,6 @@ import (
 // error body was never written at all) and destroyed pre-commit failover.
 func TestDoRequestKeepsStreamSilentBeforeCommit(t *testing.T) {
 	service.InitHttpClient()
-	gin.SetMode(gin.TestMode)
 
 	generalSettings := operation_setting.GetGeneralSetting()
 	originalEnabled := generalSettings.PingIntervalEnabled
