@@ -28,7 +28,9 @@ import React, {
 
 import { useChannelUpstreamUpdates } from '../hooks/use-channel-upstream-updates'
 import { channelsQueryKeys } from '../lib'
-import type { Channel } from '../types'
+import type { Channel, ChannelQuotaSummaryScope } from '../types'
+
+const QUOTA_SUMMARY_SCOPE_STORAGE_KEY = 'channels:quota-summary-scope'
 
 // ============================================================================
 // Types
@@ -64,6 +66,8 @@ type ChannelsContextType = {
   setBatchMode: (enabled: boolean) => void
   sensitiveVisible: boolean
   setSensitiveVisible: (visible: boolean) => void
+  quotaSummaryScope: ChannelQuotaSummaryScope
+  setQuotaSummaryScope: (scope: ChannelQuotaSummaryScope) => void
   upstream: UpstreamUpdateState
 }
 
@@ -91,6 +95,19 @@ export function ChannelsProvider({ children }: { children: React.ReactNode }) {
   })
   const [batchMode, setBatchMode] = useState(false)
   const [sensitiveVisible, setSensitiveVisible] = useState(true)
+  const [quotaSummaryScope, setQuotaSummaryScopeState] =
+    useState<ChannelQuotaSummaryScope>(() =>
+      localStorage.getItem(QUOTA_SUMMARY_SCOPE_STORAGE_KEY) === 'total'
+        ? 'total'
+        : 'today'
+    )
+  const setQuotaSummaryScope = useCallback(
+    (scope: ChannelQuotaSummaryScope) => {
+      setQuotaSummaryScopeState(scope)
+      localStorage.setItem(QUOTA_SUMMARY_SCOPE_STORAGE_KEY, scope)
+    },
+    []
+  )
 
   const queryClient = useQueryClient()
   const refreshChannels = useCallback(async () => {
@@ -117,6 +134,8 @@ export function ChannelsProvider({ children }: { children: React.ReactNode }) {
       setBatchMode,
       sensitiveVisible,
       setSensitiveVisible,
+      quotaSummaryScope,
+      setQuotaSummaryScope,
       upstream,
     }),
     [
@@ -127,6 +146,8 @@ export function ChannelsProvider({ children }: { children: React.ReactNode }) {
       idSort,
       batchMode,
       sensitiveVisible,
+      quotaSummaryScope,
+      setQuotaSummaryScope,
       upstream,
     ]
   )

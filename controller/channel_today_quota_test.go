@@ -65,30 +65,47 @@ func TestChannelTodayTimeRangeUsesUTC8DayBoundary(t *testing.T) {
 	}
 }
 
-func TestEnrichChannelsWithTodayUsedQuota(t *testing.T) {
+// Cost is the official-price amount of the channel's requests multiplied by
+// the channel's current cost ratio, for both today and all time.
+func TestEnrichChannelsWithQuotaSummary(t *testing.T) {
 	db := setupChannelTodayQuotaTestDB(t)
 	now := time.Date(2026, time.September, 15, 0, 30, 0, 0, time.FixedZone("test-utc-plus-eight", 8*60*60))
 	startTimestamp, _ := channelTodayTimeRange(now)
 	logs := []model.Log{
-		{ChannelId: 21, CreatedAt: startTimestamp, Type: model.LogTypeConsume, Quota: 9},
-		{ChannelId: 21, CreatedAt: now.Unix(), Type: model.LogTypeConsume, Quota: 6},
-		{ChannelId: 21, CreatedAt: startTimestamp - 1, Type: model.LogTypeConsume, Quota: 100},
-		{ChannelId: 21, CreatedAt: now.Unix(), Type: model.LogTypeRefund, Quota: 5},
+		{ChannelId: 21, CreatedAt: startTimestamp, Type: model.LogTypeConsume, Quota: 9, BaseQuota: 6},
+		{ChannelId: 21, CreatedAt: now.Unix(), Type: model.LogTypeConsume, Quota: 6, BaseQuota: 4},
+		{ChannelId: 21, CreatedAt: startTimestamp - 1, Type: model.LogTypeConsume, Quota: 100, BaseQuota: 50},
+		{ChannelId: 21, CreatedAt: now.Unix(), Type: model.LogTypeRefund, Quota: 5, BaseQuota: 5},
 	}
 	require.NoError(t, db.Create(&logs).Error)
-	channels := []*model.Channel{{Id: 21}, {Id: 22}}
+	costRatio := 0.5
+	channels := []*model.Channel{{Id: 21, CostRatio: &costRatio}, {Id: 22}}
 
-	enrichChannelsWithTodayUsedQuota(context.Background(), channels, now)
+	enrichChannelsWithQuotaSummary(context.Background(), channels, now)
 
-	require.NotNil(t, channels[0].TodayUsedQuota)
-	assert.Equal(t, int64(15), *channels[0].TodayUsedQuota)
-	require.NotNil(t, channels[1].TodayUsedQuota)
-	assert.Zero(t, *channels[1].TodayUsedQuota)
+	busy := channels[0]
+	require.NotNil(t, busy.TodayUsedQuota)
+	require.NotNil(t, busy.TodayCostQuota)
+	require.NotNil(t, busy.TotalUsedQuota)
+	require.NotNil(t, busy.TotalCostQuota)
+	assert.EqualValues(t, 15, *busy.TodayUsedQuota)
+	assert.EqualValues(t, 5, *busy.TodayCostQuota)
+	assert.EqualValues(t, 115, *busy.TotalUsedQuota)
+	assert.EqualValues(t, 30, *busy.TotalCostQuota)
+	idle := channels[1]
+	for _, value := range []*int64{idle.TodayUsedQuota, idle.TodayCostQuota, idle.TotalUsedQuota, idle.TotalCostQuota} {
+		require.NotNil(t, value)
+		assert.Zero(t, *value)
+	}
 
 	common.LogConsumeEnabled = false
-	enrichChannelsWithTodayUsedQuota(context.Background(), channels, now)
-	assert.Nil(t, channels[0].TodayUsedQuota)
-	assert.Nil(t, channels[1].TodayUsedQuota)
+	enrichChannelsWithQuotaSummary(context.Background(), channels, now)
+	for _, channel := range channels {
+		assert.Nil(t, channel.TodayUsedQuota)
+		assert.Nil(t, channel.TodayCostQuota)
+		assert.Nil(t, channel.TotalUsedQuota)
+		assert.Nil(t, channel.TotalCostQuota)
+	}
 }
 
 func TestChannelListEndpointsPreserveTodayQuotaAvailability(t *testing.T) {
@@ -125,12 +142,16 @@ func TestChannelListEndpointsPreserveTodayQuotaAvailability(t *testing.T) {
 				require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
 				require.True(t, response.Success)
 				require.Len(t, response.Data.Items, 1)
-				if wantAvailable {
-					require.NotNil(t, response.Data.Items[0].TodayUsedQuota)
-					assert.Zero(t, *response.Data.Items[0].TodayUsedQuota)
-					return
+				item := response.Data.Items[0]
+				summary := []*int64{item.TodayUsedQuota, item.TodayCostQuota, item.TotalUsedQuota, item.TotalCostQuota}
+				for _, value := range summary {
+					if wantAvailable {
+						require.NotNil(t, value)
+						assert.Zero(t, *value)
+						continue
+					}
+					assert.Nil(t, value)
 				}
-				assert.Nil(t, response.Data.Items[0].TodayUsedQuota)
 			})
 		}
 	}

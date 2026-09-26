@@ -112,7 +112,8 @@ function getChannelTestLabel(options?: {
 // ============================================================================
 
 /**
- * Enable a channel
+ * Enable a channel. Resolves once the channel lists have been refetched, so a
+ * status switch can hold its new position until the row catches up.
  */
 export async function handleEnableChannel(
   id: number,
@@ -123,7 +124,9 @@ export async function handleEnableChannel(
     const response = await updateChannelStatus(id, CHANNEL_STATUS.ENABLED)
     if (response.success) {
       toast.success(i18next.t(SUCCESS_MESSAGES.ENABLED))
-      queryClient?.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
+      await queryClient?.invalidateQueries({
+        queryKey: channelsQueryKeys.lists(),
+      })
       onSuccess?.()
     } else {
       toast.error(response.message || i18next.t(ERROR_MESSAGES.UPDATE_FAILED))
@@ -134,7 +137,7 @@ export async function handleEnableChannel(
 }
 
 /**
- * Disable a channel
+ * Disable a channel. Resolves once the channel lists have been refetched.
  */
 export async function handleDisableChannel(
   id: number,
@@ -148,7 +151,9 @@ export async function handleDisableChannel(
     )
     if (response.success) {
       toast.success(i18next.t(SUCCESS_MESSAGES.DISABLED))
-      queryClient?.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
+      await queryClient?.invalidateQueries({
+        queryKey: channelsQueryKeys.lists(),
+      })
       onSuccess?.()
     } else {
       toast.error(response.message || i18next.t(ERROR_MESSAGES.UPDATE_FAILED))
@@ -225,6 +230,34 @@ export async function handleUpdateChannelField(
     }
   } catch {
     toast.error(i18next.t(ERROR_MESSAGES.UPDATE_FAILED))
+  }
+}
+
+/**
+ * Replace a channel's groups. Only `group` is sent: the update endpoint skips
+ * absent fields and rebuilds abilities from the stored channel, so key and
+ * models stay untouched. The caller must pass at least one group, because an
+ * empty group string is treated as absent and would silently change nothing.
+ * Resolves true once the channel lists have been refetched.
+ */
+export async function handleUpdateChannelGroups(
+  id: number,
+  groups: string[],
+  queryClient?: QueryClient
+): Promise<boolean> {
+  try {
+    const response = await updateChannel(id, { group: groups.join(',') })
+    if (!response.success) {
+      toast.error(response.message || i18next.t(ERROR_MESSAGES.UPDATE_FAILED))
+      return false
+    }
+    await queryClient?.invalidateQueries({
+      queryKey: channelsQueryKeys.lists(),
+    })
+    return true
+  } catch {
+    toast.error(i18next.t(ERROR_MESSAGES.UPDATE_FAILED))
+    return false
   }
 }
 
@@ -521,7 +554,9 @@ export async function handleEnableTagChannels(
       toast.success(
         i18next.t('Enabled all channels with tag: {{tag}}', { tag })
       )
-      queryClient?.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
+      await queryClient?.invalidateQueries({
+        queryKey: channelsQueryKeys.lists(),
+      })
       onSuccess?.()
     } else {
       toast.error(
@@ -547,7 +582,9 @@ export async function handleDisableTagChannels(
       toast.success(
         i18next.t('Disabled all channels with tag: {{tag}}', { tag })
       )
-      queryClient?.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
+      await queryClient?.invalidateQueries({
+        queryKey: channelsQueryKeys.lists(),
+      })
       onSuccess?.()
     } else {
       toast.error(

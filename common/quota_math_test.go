@@ -128,6 +128,18 @@ func TestQuotaFromDecimalChecked(t *testing.T) {
 	}
 }
 
+// Channel totals sum many requests, so they outgrow the int32 bound of a
+// single charge; they still saturate at the JavaScript-safe bound the
+// dashboard can display exactly.
+func TestAggregateQuotaRound(t *testing.T) {
+	assert.Equal(t, int64(3_000_000_000), AggregateQuotaRound(2_999_999_999.5))
+	assert.Equal(t, int64(2), AggregateQuotaRound(2.4))
+	assert.Equal(t, int64(-3), AggregateQuotaRound(-2.5))
+	assert.Equal(t, int64(MaxWalletQuota), AggregateQuotaRound(overflowingProduct))
+	assert.Equal(t, int64(-MaxWalletQuota), AggregateQuotaRound(-overflowingProduct))
+	assert.Zero(t, AggregateQuotaRound(math.NaN()))
+}
+
 func TestWalletQuotaFromDecimalStrict(t *testing.T) {
 	quota, err := WalletQuotaFromDecimalStrict(decimal.NewFromInt(4_294_500_000))
 	require.NoError(t, err)

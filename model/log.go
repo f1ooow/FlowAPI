@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -78,6 +79,9 @@ type Log struct {
 	RequestId         string `json:"request_id,omitempty" gorm:"type:varchar(64);index:idx_logs_request_id;default:''"`
 	UpstreamRequestId string `json:"upstream_request_id,omitempty" gorm:"type:varchar(128);index:idx_logs_upstream_request_id;default:''"`
 	Other             string `json:"other"`
+	// BaseQuota is Quota before group and channel ratios: the official-price
+	// amount a channel's cost ratio applies to. Admin aggregation input only.
+	BaseQuota int64 `json:"-" gorm:"default:0"`
 }
 
 // don't use iota, avoid change log type value
@@ -92,9 +96,49 @@ const (
 	LogTypeLogin   = 7
 )
 
-const channelQuotaAggregationBatchSize = 900
+const (
+	channelQuotaAggregationBatchSize = 900
+	logBaseQuotaBackfillBatchSize    = 500
+)
 
-func SumUsedQuotaByChannelIds(ctx context.Context, channelIds []int, startTimestamp int64, endTimestamp int64) (map[int]int64, error) {
+// consumeLogBaseQuota recovers a consume log's official-price quota by
+// dividing out the effective ratio recorded in its billing snapshot, falling
+// back to the top-level group_ratio of logs written before that snapshot
+// existed. It returns 0 when no usable ratio was recorded, since the charge
+// alone cannot tell what the request cost at official price.
+func consumeLogBaseQuota(quota int, other map[string]interface{}) int64 {
+	if quota <= 0 || other == nil {
+		return 0
+	}
+	ratio, _ := other["group_ratio"].(float64)
+	if adminInfo, ok := other["admin_info"].(map[string]interface{}); ok {
+		if billingRatios, ok := adminInfo["billing_ratios"].(map[string]interface{}); ok {
+			if effectiveRatio, ok := billingRatios["effective_ratio"].(float64); ok {
+				ratio = effectiveRatio
+			}
+		}
+	}
+	if ratio <= 0 || math.IsNaN(ratio) || math.IsInf(ratio, 0) {
+		return 0
+	}
+	return int64(common.QuotaRound(float64(quota) / ratio))
+}
+
+// ChannelQuotaUsage totals a channel's consume logs over a time range:
+// UsedQuota is what users were charged, BaseQuota the same requests at
+// official price.
+type ChannelQuotaUsage struct {
+	UsedQuota int64
+	BaseQuota int64
+}
+
+// CostQuota prices the usage at the channel's cost ratio, i.e. what the
+// upstream charges for these requests.
+func (usage ChannelQuotaUsage) CostQuota(costRatio float64) int64 {
+	return common.AggregateQuotaRound(float64(usage.BaseQuota) * costRatio)
+}
+
+func SumChannelQuotaUsage(ctx context.Context, channelIds []int, startTimestamp int64, endTimestamp int64) (map[int]ChannelQuotaUsage, error) {
 	uniqueIds := make([]int, 0, len(channelIds))
 	seen := make(map[int]struct{}, len(channelIds))
 	for _, channelId := range channelIds {
@@ -108,16 +152,19 @@ func SumUsedQuotaByChannelIds(ctx context.Context, channelIds []int, startTimest
 		uniqueIds = append(uniqueIds, channelId)
 	}
 
-	quotaByChannel := make(map[int]int64, len(uniqueIds))
+	usageByChannel := make(map[int]ChannelQuotaUsage, len(uniqueIds))
 	for start := 0; start < len(uniqueIds); start += channelQuotaAggregationBatchSize {
 		end := min(start+channelQuotaAggregationBatchSize, len(uniqueIds))
+		// Aliases differ from the column names: ClickHouse resolves an alias
+		// that shadows a column inside the aggregate itself.
 		var rows []struct {
-			ChannelId int   `gorm:"column:channel_id"`
-			Quota     int64 `gorm:"column:quota"`
+			ChannelId    int   `gorm:"column:channel_id"`
+			UsedQuotaSum int64 `gorm:"column:used_quota_sum"`
+			BaseQuotaSum int64 `gorm:"column:base_quota_sum"`
 		}
 		err := LOG_DB.WithContext(ctx).
 			Table("logs").
-			Select("channel_id, SUM(quota) AS quota").
+			Select("channel_id, SUM(quota) AS used_quota_sum, SUM(base_quota) AS base_quota_sum").
 			Where("channel_id IN ?", uniqueIds[start:end]).
 			Where("created_at >= ? AND created_at <= ?", startTimestamp, endTimestamp).
 			Where("type = ?", LogTypeConsume).
@@ -127,11 +174,67 @@ func SumUsedQuotaByChannelIds(ctx context.Context, channelIds []int, startTimest
 			return nil, err
 		}
 		for _, row := range rows {
-			quotaByChannel[row.ChannelId] += row.Quota
+			usage := usageByChannel[row.ChannelId]
+			usage.UsedQuota += row.UsedQuotaSum
+			usage.BaseQuota += row.BaseQuotaSum
+			usageByChannel[row.ChannelId] = usage
 		}
 	}
 
-	return quotaByChannel, nil
+	return usageByChannel, nil
+}
+
+// BackfillLogBaseQuota fills base_quota for consume logs written before the
+// column existed, from each log's stored billing snapshot, so channel cost
+// totals cover history. It returns how many logs were updated; logs whose
+// snapshot carries no usable ratio stay at zero. ClickHouse log stores are
+// skipped because row updates there are asynchronous whole-part mutations.
+func BackfillLogBaseQuota(ctx context.Context) (int, error) {
+	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
+		return 0, nil
+	}
+	updated := 0
+	lastId := 0
+	for {
+		var rows []struct {
+			Id    int
+			Quota int
+			Other string
+		}
+		err := LOG_DB.WithContext(ctx).
+			Table("logs").
+			Select("id, quota, other").
+			Where("type = ? AND base_quota = 0 AND quota > 0 AND id > ?", LogTypeConsume, lastId).
+			Order("id").
+			Limit(logBaseQuotaBackfillBatchSize).
+			Scan(&rows).Error
+		if err != nil {
+			return updated, err
+		}
+		if len(rows) == 0 {
+			return updated, nil
+		}
+		lastId = rows[len(rows)-1].Id
+		batchUpdated := 0
+		err = LOG_DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			for _, row := range rows {
+				other, _ := common.StrToMap(row.Other)
+				baseQuota := consumeLogBaseQuota(row.Quota, other)
+				if baseQuota == 0 {
+					continue
+				}
+				if err := tx.Table("logs").Where("id = ?", row.Id).Update("base_quota", baseQuota).Error; err != nil {
+					return err
+				}
+				batchUpdated++
+			}
+			return nil
+		})
+		if err != nil {
+			return updated, err
+		}
+		updated += batchUpdated
+	}
 }
 
 func ensureLogRequestId(log *Log) {
@@ -520,6 +623,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		TokenName:        params.TokenName,
 		ModelName:        params.ModelName,
 		Quota:            params.Quota,
+		BaseQuota:        consumeLogBaseQuota(params.Quota, params.Other),
 		ChannelId:        params.ChannelId,
 		TokenId:          params.TokenId,
 		UseTime:          params.UseTimeSeconds,
@@ -593,6 +697,9 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 		TokenId:   params.TokenId,
 		Group:     params.Group,
 		Other:     common.MapToJsonStr(params.Other),
+	}
+	if params.LogType == LogTypeConsume {
+		log.BaseQuota = consumeLogBaseQuota(params.Quota, params.Other)
 	}
 	err := createLog(log)
 	if err != nil {

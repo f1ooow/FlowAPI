@@ -102,6 +102,9 @@ var channelReadOnlyFields = map[string]struct{}{
 	"balance_updated_time": {},
 	"used_quota":           {},
 	"today_used_quota":     {},
+	"today_cost_quota":     {},
+	"total_used_quota":     {},
+	"total_cost_quota":     {},
 }
 
 func clearChannelReadOnlyFields(channel *PatchChannel, requestData map[string]any) {
@@ -125,6 +128,15 @@ func clearChannelReadOnlyFields(channel *PatchChannel, requestData map[string]an
 	}
 	if _, ok := requestData["today_used_quota"]; ok {
 		channel.TodayUsedQuota = nil
+	}
+	if _, ok := requestData["today_cost_quota"]; ok {
+		channel.TodayCostQuota = nil
+	}
+	if _, ok := requestData["total_used_quota"]; ok {
+		channel.TotalUsedQuota = nil
+	}
+	if _, ok := requestData["total_cost_quota"]; ok {
+		channel.TotalCostQuota = nil
 	}
 }
 

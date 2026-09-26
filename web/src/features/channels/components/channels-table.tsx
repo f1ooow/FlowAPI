@@ -62,6 +62,7 @@ import {
 } from '../lib'
 import type { Channel, ChannelSortBy } from '../types'
 import { ChannelCard } from './channel-card'
+import { ChannelGroupFilterBar } from './channel-group-filter-bar'
 import { useChannelsColumns } from './channels-columns'
 import { useChannels } from './channels-provider'
 import { DataTableBulkActions } from './data-table-bulk-actions'
@@ -76,7 +77,6 @@ const CHANNEL_SORTABLE_COLUMNS = new Set<ChannelSortBy>([
   'id',
   'name',
   'priority',
-  'balance',
   'response_time',
   'test_time',
 ])
@@ -120,7 +120,7 @@ export function ChannelsTable() {
     globalFilter: { enabled: true, key: 'filter' },
     columnFilters: [
       {
-        columnId: 'status',
+        columnId: 'channel_status',
         searchKey: 'status',
         type: 'array',
         deserialize: (value) => {
@@ -131,8 +131,8 @@ export function ChannelsTable() {
           return stored === 'enabled' || stored === 'disabled' ? [stored] : []
         },
       },
-      { columnId: 'type', searchKey: 'type', type: 'array' },
-      { columnId: 'group', searchKey: 'group', type: 'array' },
+      { columnId: 'channel_type', searchKey: 'type', type: 'array' },
+      { columnId: 'channel_group', searchKey: 'group', type: 'array' },
       { columnId: 'model', searchKey: 'model', type: 'string' },
     ],
   })
@@ -142,7 +142,7 @@ export function ChannelsTable() {
   ) => {
     onColumnFiltersChange((previous) => {
       const next = typeof updater === 'function' ? updater(previous) : updater
-      const status = next.find((f) => f.id === 'status')?.value as
+      const status = next.find((f) => f.id === 'channel_status')?.value as
         | string[]
         | undefined
       localStorage.setItem(
@@ -155,13 +155,21 @@ export function ChannelsTable() {
 
   // Extract filters from column filters
   const statusFilter =
-    (columnFilters.find((f) => f.id === 'status')?.value as string[]) || []
+    (columnFilters.find((f) => f.id === 'channel_status')?.value as string[]) ||
+    []
   const typeFilter = useMemo(
-    () => (columnFilters.find((f) => f.id === 'type')?.value as string[]) || [],
+    () =>
+      (columnFilters.find((f) => f.id === 'channel_type')?.value as string[]) ||
+      [],
     [columnFilters]
   )
   const groupFilter =
-    (columnFilters.find((f) => f.id === 'group')?.value as string[]) || []
+    (columnFilters.find((f) => f.id === 'channel_group')?.value as string[]) ||
+    []
+  const selectedGroup =
+    groupFilter.length > 0 && !groupFilter.includes('all')
+      ? groupFilter[0]
+      : undefined
   const {
     value: modelFilter,
     inputValue: modelFilterInput,
@@ -209,14 +217,15 @@ export function ChannelsTable() {
     queryFn: getGroups,
   })
 
-  const groupOptions = useMemo(
-    () =>
-      (groupsData?.data || []).map((g) => ({
-        label: g,
-        value: g,
-      })),
-    [groupsData]
-  )
+  // A group selected through the URL stays visible even when the group list
+  // no longer contains it, so the active filter can always be seen and cleared.
+  const groups = useMemo(() => {
+    const available = groupsData?.data || []
+    if (selectedGroup === undefined || available.includes(selectedGroup)) {
+      return available
+    }
+    return [...available, selectedGroup]
+  }, [groupsData, selectedGroup])
 
   // Fetch channels data
   // eslint-disable-next-line @tanstack/query/exhaustive-deps
@@ -224,10 +233,7 @@ export function ChannelsTable() {
     queryKey: channelsQueryKeys.list({
       keyword: globalFilter,
       model: modelFilter,
-      group:
-        groupFilter.length > 0 && !groupFilter.includes('all')
-          ? groupFilter[0]
-          : undefined,
+      group: selectedGroup,
       status:
         statusFilter.length > 0 && !statusFilter.includes('all')
           ? statusFilter[0]
@@ -247,10 +253,7 @@ export function ChannelsTable() {
         return searchChannels({
           keyword: globalFilter,
           model: modelFilter,
-          group:
-            groupFilter.length > 0 && !groupFilter.includes('all')
-              ? groupFilter[0]
-              : undefined,
+          group: selectedGroup,
           status:
             statusFilter.length > 0 && !statusFilter.includes('all')
               ? statusFilter[0]
@@ -267,10 +270,7 @@ export function ChannelsTable() {
         })
       } else {
         return getChannels({
-          group:
-            groupFilter.length > 0 && !groupFilter.includes('all')
-              ? groupFilter[0]
-              : undefined,
+          group: selectedGroup,
           status:
             statusFilter.length > 0 && !statusFilter.includes('all')
               ? statusFilter[0]
@@ -316,6 +316,9 @@ export function ChannelsTable() {
     initialColumnVisibility: {
       models: false,
       tag: false,
+      channel_type: false,
+      channel_status: false,
+      channel_group: false,
     },
     columnVisibilityStorageKey: CHANNELS_COLUMN_VISIBILITY_STORAGE_KEY,
     columnSizingStorageKey: isMobile
@@ -399,14 +402,6 @@ export function ChannelsTable() {
     ]
   }, [t, typeCounts, typeFilter])
 
-  const groupFilterOptions = [
-    { label: t('All Groups'), value: 'all' },
-    ...groupOptions.map((option) => ({
-      ...option,
-      label: sensitiveVisible ? option.label : '••••',
-    })),
-  ]
-
   return (
     <DataTablePage
       table={table}
@@ -443,24 +438,29 @@ export function ChannelsTable() {
         ),
         filters: [
           {
-            columnId: 'status',
+            columnId: 'channel_status',
             title: t('Status'),
             options: [...CHANNEL_STATUS_OPTIONS],
             singleSelect: true,
           },
           {
-            columnId: 'type',
+            columnId: 'channel_type',
             title: t('Type'),
             options: typeFilterOptions,
             singleSelect: true,
           },
-          {
-            columnId: 'group',
-            title: t('Group'),
-            options: groupFilterOptions,
-            singleSelect: true,
-          },
         ],
+        leftActions: (
+          <ChannelGroupFilterBar
+            groups={groups}
+            selectedGroup={selectedGroup}
+            onSelectedGroupChange={(group) =>
+              table
+                .getColumn('channel_group')
+                ?.setFilterValue(group === undefined ? undefined : [group])
+            }
+          />
+        ),
         preActions: (
           <Tooltip>
             <TooltipTrigger

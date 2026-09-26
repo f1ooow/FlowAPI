@@ -83,11 +83,20 @@ func TestClickHouseLogCreateTableSQL(t *testing.T) {
 	assert.Contains(t, withoutTTL, "ENGINE = MergeTree()")
 	assert.Contains(t, withoutTTL, "PARTITION BY toYYYYMM(toDateTime(created_at))")
 	assert.Contains(t, withoutTTL, "ORDER BY (created_at, request_id)")
+	assert.Contains(t, withoutTTL, "base_quota Int64 DEFAULT 0")
 	assert.NotContains(t, withoutTTL, "TTL ")
 
 	withTTL := clickHouseLogCreateTableSQL(30)
 	assert.Contains(t, withTTL, "ORDER BY (created_at, request_id)")
 	assert.Contains(t, withTTL, "TTL toDateTime(created_at) + INTERVAL 30 DAY DELETE")
+}
+
+// Tables created before a column existed only learn it through ALTER, since
+// CREATE TABLE IF NOT EXISTS leaves them untouched.
+func TestClickHouseLogAddMissingColumnsSQL(t *testing.T) {
+	assert.Equal(t,
+		[]string{"ALTER TABLE logs ADD COLUMN IF NOT EXISTS base_quota Int64 DEFAULT 0"},
+		clickHouseLogAddMissingColumnsSQL())
 }
 
 func TestClickHouseCreateTableHasTTL(t *testing.T) {

@@ -270,7 +270,8 @@ func TestGetChannelMonitoringSummaryReadsChannelMetrics(t *testing.T) {
 	db := setupChannelMonitoringTestDB(t)
 	overridePerfMetricsSetting(t, "5min", 5)
 
-	require.NoError(t, model.DB.Create(&model.Channel{Id: 11, Name: "flaky"}).Error)
+	flakyCostRatio := 0.5
+	require.NoError(t, model.DB.Create(&model.Channel{Id: 11, Name: "flaky", CostRatio: &flakyCostRatio}).Error)
 	require.NoError(t, model.DB.Create(&model.Channel{Id: 33, Name: "idle"}).Error)
 
 	// Land the samples in the middle of the rendered window so the assertions
@@ -284,10 +285,10 @@ func TestGetChannelMonitoringSummaryReadsChannelMetrics(t *testing.T) {
 	}))
 	todayStart, _ := channelTodayTimeRange(time.Now())
 	require.NoError(t, db.Create(&[]model.Log{
-		{ChannelId: 11, CreatedAt: todayStart, Type: model.LogTypeConsume, Quota: 9},
-		{ChannelId: 11, CreatedAt: todayStart + 1, Type: model.LogTypeConsume, Quota: 6},
-		{ChannelId: 11, CreatedAt: todayStart - 1, Type: model.LogTypeConsume, Quota: 100},
-		{ChannelId: 11, CreatedAt: todayStart + 1, Type: model.LogTypeRefund, Quota: 50},
+		{ChannelId: 11, CreatedAt: todayStart, Type: model.LogTypeConsume, Quota: 9, BaseQuota: 6},
+		{ChannelId: 11, CreatedAt: todayStart + 1, Type: model.LogTypeConsume, Quota: 6, BaseQuota: 4},
+		{ChannelId: 11, CreatedAt: todayStart - 1, Type: model.LogTypeConsume, Quota: 100, BaseQuota: 100},
+		{ChannelId: 11, CreatedAt: todayStart + 1, Type: model.LogTypeRefund, Quota: 50, BaseQuota: 50},
 	}).Error)
 
 	recorder := httptest.NewRecorder()
@@ -312,6 +313,9 @@ func TestGetChannelMonitoringSummaryReadsChannelMetrics(t *testing.T) {
 	assert.Len(t, flaky.Buckets, 48)
 	require.NotNil(t, flaky.TodayUsedQuota)
 	assert.EqualValues(t, 15, *flaky.TodayUsedQuota)
+	// (6 + 4) official-price quota at the channel's current 0.5 cost ratio.
+	require.NotNil(t, flaky.TodayCostQuota)
+	assert.EqualValues(t, 5, *flaky.TodayCostQuota)
 
 	// The cache metrics travel flat in the same JSON object and keep their own
 	// caliber: 600 / 2000 read, 2 of 4 settled requests with a signal.
@@ -328,6 +332,8 @@ func TestGetChannelMonitoringSummaryReadsChannelMetrics(t *testing.T) {
 	assert.False(t, idle.CacheHasData)
 	require.NotNil(t, idle.TodayUsedQuota)
 	assert.Zero(t, *idle.TodayUsedQuota)
+	require.NotNil(t, idle.TodayCostQuota)
+	assert.Zero(t, *idle.TodayCostQuota)
 
 	assert.True(t, payload.Data.Overall.HasData)
 	assert.EqualValues(t, 25, payload.Data.Overall.AvailabilityRate)
@@ -351,4 +357,5 @@ func TestGetChannelMonitoringSummaryLeavesTodayQuotaNullWhenConsumeLoggingIsDisa
 	require.True(t, payload.Success, payload.Message)
 	require.Len(t, payload.Data.Channels, 1)
 	assert.Nil(t, payload.Data.Channels[0].TodayUsedQuota)
+	assert.Nil(t, payload.Data.Channels[0].TodayCostQuota)
 }

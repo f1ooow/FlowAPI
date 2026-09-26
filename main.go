@@ -328,6 +328,20 @@ func InitResources() error {
 	if err != nil {
 		return err
 	}
+	if common.IsMasterNode {
+		// Channel cost totals read base_quota; logs written before the column
+		// existed get it from their billing snapshot, off the startup path.
+		gopool.Go(func() {
+			updated, backfillErr := model.BackfillLogBaseQuota(context.Background())
+			if backfillErr != nil {
+				common.SysError("failed to backfill log base quota: " + backfillErr.Error())
+				return
+			}
+			if updated > 0 {
+				common.SysLog(fmt.Sprintf("backfilled base quota for %d consume logs", updated))
+			}
+		})
+	}
 
 	// Initialize Redis
 	err = common.InitRedisClient()

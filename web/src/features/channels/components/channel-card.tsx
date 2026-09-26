@@ -20,11 +20,9 @@ import { flexRender, type Row } from '@tanstack/react-table'
 import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { GroupBadge } from '@/components/group-badge'
 import { cn } from '@/lib/utils'
 
-import { CHANNEL_STATUS } from '../constants'
-import { isTagAggregateRow, parseGroupsList } from '../lib'
+import { getChannelQuotaSummaryTitle, isTagAggregateRow } from '../lib'
 import type { Channel } from '../types'
 import { ChannelRowActionsLayoutContext } from './channel-row-actions-context'
 import { useChannels } from './channels-provider'
@@ -35,9 +33,9 @@ const SENSITIVE_MASK = '••••'
  * Bespoke channel card for the card view. Reuses every column's existing cell
  * renderer via `flexRender`, so the table's information and interactions are
  * preserved: row selection, provider/multi-key/IO.NET type badge, id,
- * name/remark + warning icons, status (with tooltips), groups, inline
- * priority/weight spinners, balance refresh, response/test times, tag
- * expand-collapse, and the per-row (or per-tag) actions menu.
+ * name/remark + warning icons, editable group capsules, the status switch,
+ * priority/weight/cost-ratio chips, cost/consumption/profit, response/test
+ * times, tag expand-collapse, and the per-row (or per-tag) actions menu.
  */
 function ChannelCardComponent({
   row,
@@ -47,7 +45,7 @@ function ChannelCardComponent({
   isSelected: boolean
 }) {
   const { t } = useTranslation()
-  const { sensitiveVisible } = useChannels()
+  const { sensitiveVisible, quotaSummaryScope } = useChannels()
   const isTagRow = isTagAggregateRow(row.original)
   const cells = row.getAllCells()
 
@@ -59,38 +57,20 @@ function ChannelCardComponent({
     return flexRender(cell.column.columnDef.cell, cell.getContext())
   }
 
-  const fieldLabels: Record<string, string> = {
-    balance: t('Used / Remaining'),
-    today_used_quota: t('Consumed today'),
-    response_time: t('Response'),
-    test_time: t('Last Tested'),
-    cost_ratio: t('Channel cost ratio'),
-  }
-
-  const groups = parseGroupsList(row.original.group ?? '')
+  // The quota cell follows the scope picked in the table header, so the
+  // label names that scope too.
+  const quotaSummaryLabel = getChannelQuotaSummaryTitle(quotaSummaryScope, t)
 
   const selectCell = renderCell('select')
-  const typeCell = renderCell('type')
+  const typeCell = renderCell('channel_type')
   const nameCell = renderCell('name')
-  const statusCell = renderCell('status')
   const actionsCell = renderCell('actions')
-  const priorityCell = renderCell('priority')
-  const weightCell = renderCell('weight')
-  const costRatioCell = renderCell('cost_ratio')
-  const balanceCell = renderCell('balance')
-  const todayUsedQuotaCell = renderCell('today_used_quota')
+  const routingCell = renderCell('priority')
+  const quotaSummaryCell = renderCell('quota_summary')
   const responseCell = renderCell('response_time')
   const testCell = renderCell('test_time')
 
   const labelClass = 'text-muted-foreground text-[11px] font-medium select-none'
-
-  // In card view the enable/disable state is already conveyed by the inline
-  // power toggle, so the plain "Enabled"/"Disabled" badge is redundant. Keep
-  // only the informative states (e.g. auto-disabled, unknown) and tag rows.
-  const showStatusBadge =
-    isTagRow ||
-    (row.original.status !== CHANNEL_STATUS.ENABLED &&
-      row.original.status !== CHANNEL_STATUS.MANUAL_DISABLED)
 
   return (
     <ChannelRowActionsLayoutContext.Provider value='card'>
@@ -98,7 +78,7 @@ function ChannelCardComponent({
         data-state={isSelected ? 'selected' : undefined}
         className='flex flex-col gap-3'
       >
-        {/* Row 1: selection + type, with status badge + actions menu */}
+        {/* Row 1: selection + type, with the status switch + actions menu */}
         <div className='flex items-center justify-between gap-2'>
           <div className='flex min-w-0 flex-1 items-center gap-2'>
             {!isTagRow && selectCell && (
@@ -107,93 +87,43 @@ function ChannelCardComponent({
             <div className='min-w-0 overflow-hidden'>{typeCell}</div>
           </div>
           <div className='flex shrink-0 items-center gap-1.5'>
-            {showStatusBadge && statusCell}
             {actionsCell}
           </div>
         </div>
 
-        {/* Body: left column (id/name + usage) paired with a right-aligned
-          column (priority/weight + response/test time). */}
+        {/* Identity: id, name, remark and the editable group capsules */}
+        <div className='min-w-0 text-sm'>
+          {!isTagRow && (
+            <div className={labelClass}>
+              #{sensitiveVisible ? row.original.id : SENSITIVE_MASK}
+            </div>
+          )}
+          {nameCell}
+        </div>
+
+        {/* Routing chips: priority, weight and cost ratio */}
+        {routingCell}
+
+        {/* Usage paired with the response and last-tested times */}
         <div className='flex items-start justify-between gap-3'>
-          {/* Left column */}
-          <div className='flex min-w-0 flex-1 flex-col gap-3 overflow-hidden'>
-            <div className='min-w-0 text-sm'>
-              {!isTagRow && (
-                <div className={labelClass}>
-                  #{sensitiveVisible ? row.original.id : SENSITIVE_MASK}
-                </div>
+          <div className='min-w-0 flex-1 overflow-hidden'>
+            <div className={cn('mb-1', labelClass)}>{quotaSummaryLabel}</div>
+            <div className='min-w-0 overflow-hidden text-sm'>
+              {quotaSummaryCell ?? (
+                <span className='text-muted-foreground'>--</span>
               )}
-              {nameCell}
-            </div>
-            <div className='min-w-0'>
-              <div className={cn('mb-1', labelClass)}>
-                {fieldLabels.balance}
-              </div>
-              <div className='min-w-0 overflow-hidden text-sm'>
-                {balanceCell ?? (
-                  <span className='text-muted-foreground'>-</span>
-                )}
-              </div>
-            </div>
-            <div className='min-w-0'>
-              <div className={cn('mb-1', labelClass)}>
-                {fieldLabels.today_used_quota}
-              </div>
-              <div className='min-w-0 overflow-hidden text-sm'>
-                {todayUsedQuotaCell ?? (
-                  <span className='text-muted-foreground'>--</span>
-                )}
-              </div>
             </div>
           </div>
-
-          {/* Right column (sits on the right, content left-aligned). A single
-            grid with content-sized columns keeps Priority/Weight and
-            Response/Last Tested aligned without wasting horizontal space. */}
           <div className='grid shrink-0 grid-cols-[auto_auto] items-center gap-x-3 gap-y-1'>
-            <span className={labelClass}>{t('Priority')}</span>
-            <span className={labelClass}>{t('Weight')}</span>
-            <div className='flex justify-start'>{priorityCell}</div>
-            <div className='flex justify-start'>{weightCell}</div>
-            <span className={cn('mt-2', labelClass)}>
-              {fieldLabels.response_time}
-            </span>
-            <span className={cn('mt-2', labelClass)}>
-              {fieldLabels.test_time}
-            </span>
+            <span className={labelClass}>{t('Response')}</span>
+            <span className={labelClass}>{t('Last Tested')}</span>
             <div className='overflow-hidden text-sm'>
               {responseCell ?? <span className='text-muted-foreground'>-</span>}
             </div>
             <div className='overflow-hidden text-sm'>
               {testCell ?? <span className='text-muted-foreground'>-</span>}
             </div>
-            <span className={cn('mt-2', labelClass)}>
-              {fieldLabels.cost_ratio}
-            </span>
-            <div className='overflow-hidden text-sm'>
-              {costRatioCell ?? (
-                <span className='text-muted-foreground'>-</span>
-              )}
-            </div>
           </div>
-        </div>
-
-        {/* Last row: groups span the full width, showing every group (no label) */}
-        <div className='min-w-0'>
-          {groups.length > 0 ? (
-            <div className='-ml-1.5 flex flex-wrap gap-1'>
-              {groups.map((g) => (
-                <GroupBadge
-                  key={g}
-                  group={g}
-                  label={sensitiveVisible ? undefined : SENSITIVE_MASK}
-                  size='sm'
-                />
-              ))}
-            </div>
-          ) : (
-            <span className='text-muted-foreground text-sm'>-</span>
-          )}
         </div>
       </div>
     </ChannelRowActionsLayoutContext.Provider>

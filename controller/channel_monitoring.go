@@ -93,6 +93,7 @@ type channelMonitoringChannelSummary struct {
 	ChannelId        int     `json:"channel_id"`
 	ChannelName      string  `json:"channel_name"`
 	TodayUsedQuota   *int64  `json:"today_used_quota"`
+	TodayCostQuota   *int64  `json:"today_cost_quota"`
 	HasData          bool    `json:"has_data"`
 	State            string  `json:"state"`
 	AvailabilityRate float64 `json:"availability_rate"`
@@ -366,10 +367,22 @@ func GetChannelMonitoringSummary(c *gin.Context) {
 	for index := range channels {
 		channelIds[index] = channels[index].ChannelId
 	}
-	quotaByChannel := channelTodayUsedQuotaById(c.Request.Context(), channelIds, now)
-	if quotaByChannel != nil {
+	todayStart, todayEnd := channelTodayTimeRange(now)
+	usageByChannel := channelQuotaUsageById(c.Request.Context(), channelIds, todayStart, todayEnd)
+	if usageByChannel != nil {
+		costRatioByChannel := make(map[int]float64, len(identities))
+		for _, identity := range identities {
+			costRatioByChannel[identity.Id] = identity.GetCostRatio()
+		}
 		for index := range channels {
-			channels[index].TodayUsedQuota = common.GetPointer(quotaByChannel[channels[index].ChannelId])
+			channelId := channels[index].ChannelId
+			costRatio, ok := costRatioByChannel[channelId]
+			if !ok {
+				costRatio = 1
+			}
+			usage := usageByChannel[channelId]
+			channels[index].TodayUsedQuota = common.GetPointer(usage.UsedQuota)
+			channels[index].TodayCostQuota = common.GetPointer(usage.CostQuota(costRatio))
 		}
 	}
 	response := channelMonitoringSummaryResponse{

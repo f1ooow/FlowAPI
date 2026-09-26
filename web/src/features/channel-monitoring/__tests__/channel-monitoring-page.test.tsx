@@ -36,6 +36,7 @@ function channel(
     channel_id: 1,
     channel_name: 'Primary',
     today_used_quota: 500_000,
+    today_cost_quota: 200_000,
     has_data: true,
     state: 'healthy',
     availability_rate: 100,

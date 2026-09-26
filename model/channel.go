@@ -43,6 +43,9 @@ type Channel struct {
 	Group              string   `json:"group" gorm:"type:varchar(64);default:'default'"`
 	UsedQuota          int64    `json:"used_quota" gorm:"bigint;default:0"`
 	TodayUsedQuota     *int64   `json:"today_used_quota" gorm:"-"`
+	TodayCostQuota     *int64   `json:"today_cost_quota" gorm:"-"`
+	TotalUsedQuota     *int64   `json:"total_used_quota" gorm:"-"`
+	TotalCostQuota     *int64   `json:"total_cost_quota" gorm:"-"`
 	ModelMapping       *string  `json:"model_mapping" gorm:"type:text"`
 	//MaxInputTokens     *int    `json:"max_input_tokens" gorm:"default:0"`
 	StatusCodeMapping *string `json:"status_code_mapping" gorm:"type:varchar(1024);default:''"`
@@ -64,14 +67,23 @@ type Channel struct {
 }
 
 func (channel *Channel) GetCostRatio() float64 {
-	if channel == nil || channel.CostRatio == nil {
+	if channel == nil {
 		return 1
 	}
-	ratio := *channel.CostRatio
-	if math.IsNaN(ratio) || math.IsInf(ratio, 0) || ratio <= 0 || ratio > constant.MaxChannelCostRatio {
+	return effectiveChannelCostRatio(channel.CostRatio)
+}
+
+// effectiveChannelCostRatio returns the configured cost ratio, or 1 when it is
+// unset or outside the accepted range.
+func effectiveChannelCostRatio(ratio *float64) float64 {
+	if ratio == nil {
 		return 1
 	}
-	return ratio
+	value := *ratio
+	if math.IsNaN(value) || math.IsInf(value, 0) || value <= 0 || value > constant.MaxChannelCostRatio {
+		return 1
+	}
+	return value
 }
 
 func ValidateChannelCostRatio(ratio *float64) error {

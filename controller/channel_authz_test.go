@@ -118,6 +118,9 @@ func TestChannelHasSensitiveChanges(t *testing.T) {
 
 func TestClearChannelReadOnlyFields(t *testing.T) {
 	todayUsedQuota := int64(77)
+	todayCostQuota := int64(78)
+	totalUsedQuota := int64(79)
+	totalCostQuota := int64(80)
 	channel := PatchChannel{Channel: model.Channel{
 		CreatedTime:        11,
 		TestTime:           22,
@@ -126,6 +129,9 @@ func TestClearChannelReadOnlyFields(t *testing.T) {
 		BalanceUpdatedTime: 55,
 		UsedQuota:          66,
 		TodayUsedQuota:     &todayUsedQuota,
+		TodayCostQuota:     &todayCostQuota,
+		TotalUsedQuota:     &totalUsedQuota,
+		TotalCostQuota:     &totalCostQuota,
 		Models:             "gpt-4o",
 		Group:              "default",
 	}}
@@ -138,9 +144,15 @@ func TestClearChannelReadOnlyFields(t *testing.T) {
 		"balance_updated_time": channel.BalanceUpdatedTime,
 		"used_quota":           channel.UsedQuota,
 		"today_used_quota":     channel.TodayUsedQuota,
+		"today_cost_quota":     channel.TodayCostQuota,
+		"total_used_quota":     channel.TotalUsedQuota,
+		"total_cost_quota":     channel.TotalCostQuota,
 		"models":               channel.Models,
 		"group":                channel.Group,
 	})
+	assert.Nil(t, channel.TodayCostQuota)
+	assert.Nil(t, channel.TotalUsedQuota)
+	assert.Nil(t, channel.TotalCostQuota)
 
 	assert.Zero(t, channel.CreatedTime)
 	assert.Zero(t, channel.TestTime)

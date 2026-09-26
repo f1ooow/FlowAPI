@@ -167,6 +167,15 @@ func QuotaFromDecimalStrict(d decimal.Decimal) (int, error) {
 	return strictQuota(QuotaFromDecimalChecked(d))
 }
 
+// AggregateQuotaRound rounds (half away from zero) a quota computed over many
+// requests, such as a channel's cost across its history. Sums like these
+// legitimately outgrow the int32 bound of a single charge, so they saturate at
+// the JavaScript-safe bound shared with wallets instead.
+func AggregateQuotaRound(value float64) int64 {
+	quota, _ := saturateQuotaBounded(math.Round(value), "AggregateQuotaRound", MaxWalletQuota, -MaxWalletQuota)
+	return int64(quota)
+}
+
 // WalletQuotaFromDecimalStrict converts wallet and top-up values within the
 // JavaScript-safe integer range, which is also exactly representable by float64.
 func WalletQuotaFromDecimalStrict(d decimal.Decimal) (int, error) {

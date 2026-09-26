@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { describe, expect, test } from 'vitest'
 
 import type {
@@ -44,6 +44,7 @@ const healthyChannel: ChannelMonitoringChannelSummary = {
   channel_id: 12,
   channel_name: 'FAST CODEX',
   today_used_quota: 1_250_000,
+  today_cost_quota: 500_000,
   has_data: true,
   state: 'healthy',
   availability_rate: 99.53,
@@ -73,6 +74,14 @@ function timelineOf(name: string) {
   })
 }
 
+function dailyQuotaValue(label: string) {
+  const metric = screen.getByText(label).parentElement
+  if (!metric) {
+    throw new Error(`Missing daily quota metric ${label}`)
+  }
+  return within(metric).getByRole('definition')
+}
+
 describe('ChannelAvailabilityRow', () => {
   test('renders one timeline slot per returned bucket', () => {
     render(<ChannelAvailabilityRow channel={healthyChannel} />)
@@ -89,23 +98,68 @@ describe('ChannelAvailabilityRow', () => {
     expect(screen.getByText('1840 ms')).not.toHaveClass('truncate')
   })
 
-  test('shows today consumption as a full-width formatted metric', () => {
+  test('shows today cost, consumption and profit side by side below the metrics', () => {
     render(<ChannelAvailabilityRow channel={healthyChannel} />)
 
-    const label = screen.getByText('Consumed today')
-    expect(label.parentElement).toHaveClass('col-span-2', 'border-t')
-    expect(screen.getByText('$2.5')).toHaveAttribute('title', '$2.5')
+    expect(screen.getByText('Cost today').closest('dl')).toHaveClass(
+      'grid-cols-3',
+      'border-t'
+    )
+    expect(dailyQuotaValue('Cost today')).toHaveTextContent('$1')
+    expect(dailyQuotaValue('Consumed today')).toHaveTextContent('$2.5')
+    expect(dailyQuotaValue('Profit today')).toHaveTextContent('$1.5')
+    expect(dailyQuotaValue('Profit today')).toHaveClass('text-success')
   })
 
-  test('shows a placeholder when today consumption is unavailable', () => {
+  test('marks a loss-making day in the danger colour', () => {
+    render(
+      <ChannelAvailabilityRow
+        channel={{ ...healthyChannel, today_cost_quota: 2_000_000 }}
+      />
+    )
+
+    expect(dailyQuotaValue('Profit today')).toHaveTextContent('-$1.5')
+    expect(dailyQuotaValue('Profit today')).toHaveClass('text-destructive')
+  })
+
+  test('shows placeholders for cost and profit when the cost is unavailable', () => {
+    render(
+      <ChannelAvailabilityRow
+        channel={{ ...healthyChannel, today_cost_quota: null }}
+      />
+    )
+
+    expect(dailyQuotaValue('Cost today')).toHaveTextContent('--')
+    expect(dailyQuotaValue('Consumed today')).toHaveTextContent('$2.5')
+    expect(dailyQuotaValue('Profit today')).toHaveTextContent('--')
+    expect(dailyQuotaValue('Profit today')).not.toHaveClass('text-success')
+    expect(dailyQuotaValue('Profit today')).not.toHaveClass('text-destructive')
+  })
+
+  test('shows placeholders for consumption and profit when consumption is unavailable', () => {
     render(
       <ChannelAvailabilityRow
         channel={{ ...healthyChannel, today_used_quota: null }}
       />
     )
 
-    const label = screen.getByText('Consumed today')
-    expect(label.parentElement).toHaveTextContent('--')
+    expect(dailyQuotaValue('Cost today')).toHaveTextContent('$1')
+    expect(dailyQuotaValue('Consumed today')).toHaveTextContent('--')
+    expect(dailyQuotaValue('Profit today')).toHaveTextContent('--')
+  })
+
+  test('compacts a long amount and keeps the precise value in the title', () => {
+    render(
+      <ChannelAvailabilityRow
+        channel={{ ...healthyChannel, today_used_quota: 5_000_000_000_000 }}
+      />
+    )
+
+    expect(dailyQuotaValue('Consumed today')).toHaveTextContent('$10M')
+    expect(dailyQuotaValue('Consumed today')).toHaveAttribute(
+      'title',
+      '$10,000,000'
+    )
   })
 
   test('follows the bucket count when the range uses a finer step', () => {

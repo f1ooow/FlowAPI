@@ -74,6 +74,11 @@ export type ChannelMonitoringChannelSummary = ChannelMonitoringCacheStats & {
   channel_name: string
   /** UTC+8 calendar-day consumption; null when consume logs are unavailable. */
   today_used_quota: number | null
+  /**
+   * Upstream cost of the same consumption at the channel's current cost ratio;
+   * null when consume logs are unavailable.
+   */
+  today_cost_quota: number | null
   has_data: boolean
   state: ChannelMonitoringState
   /** Percentage in [0, 100]. Only meaningful when `has_data` is true. */

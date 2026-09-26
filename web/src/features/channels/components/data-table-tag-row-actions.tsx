@@ -36,10 +36,11 @@ import {
 
 import { handleEnableTagChannels, handleDisableTagChannels } from '../lib'
 import type { Channel } from '../types'
+import { TagStatusSwitch } from './channel-status-switch'
 import { useChannels } from './channels-provider'
 
 interface DataTableTagRowActionsProps {
-  row: Row<Channel & { tag?: string }>
+  row: Row<Channel & { tag?: string; children?: Channel[] }>
 }
 
 export function DataTableTagRowActions({ row }: DataTableTagRowActionsProps) {
@@ -70,6 +71,9 @@ export function DataTableTagRowActions({ row }: DataTableTagRowActionsProps) {
 
   return (
     <div className='-ml-1.5 flex items-center gap-1'>
+      <TagStatusSwitch
+        row={{ ...row.original, tag, children: row.original.children ?? [] }}
+      />
       <Tooltip>
         <TooltipTrigger
           render={

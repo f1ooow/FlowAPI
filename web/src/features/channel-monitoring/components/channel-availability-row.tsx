@@ -37,7 +37,34 @@ import type {
 } from '../types'
 
 const NO_VALUE = '--'
-const MAX_DAILY_QUOTA_CHARS = 14
+// Three amounts share one card row, so long values switch to compact notation
+// sooner than a full-width row would need to.
+const MAX_DAILY_QUOTA_CHARS = 10
+
+/** Inline text plus the precise value for the hover title. */
+function formatDailyQuota(
+  quota: number | null | undefined,
+  locale: string | undefined
+): { display: string; title: string } {
+  if (quota == null) {
+    return { display: NO_VALUE, title: NO_VALUE }
+  }
+  const tokenSuffix = getCurrencyLabel() === 'Tokens' ? ' Tokens' : ''
+  const fullValue = `${formatQuotaWithCurrency(quota, {
+    digitsLarge: 2,
+    digitsSmall: 4,
+    abbreviate: false,
+    locale,
+  })}${tokenSuffix}`
+  if (fullValue.length <= MAX_DAILY_QUOTA_CHARS) {
+    return { display: fullValue, title: fullValue }
+  }
+  const compactValue = formatQuotaWithCurrency(quota, {
+    compact: true,
+    locale,
+  })
+  return { display: `${compactValue}${tokenSuffix}`, title: fullValue }
+}
 
 function bucketTitle(
   bucket: ChannelMonitoringBucket,
@@ -74,32 +101,30 @@ export function ChannelAvailabilityRow(props: {
   const displayName = isDeleted
     ? `#${props.channel.channel_id}`
     : props.channel.channel_name
-  let todayUsedQuota = NO_VALUE
-  let todayUsedQuotaTitle = NO_VALUE
-  if (props.channel.today_used_quota != null) {
-    const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
-    const tokenSuffix = getCurrencyLabel() === 'Tokens' ? ' Tokens' : ''
-    const fullValue = `${formatQuotaWithCurrency(
-      props.channel.today_used_quota,
-      {
-        digitsLarge: 2,
-        digitsSmall: 4,
-        abbreviate: false,
-        locale,
-      }
-    )}${tokenSuffix}`
-    todayUsedQuota = fullValue
-    todayUsedQuotaTitle = fullValue
-    if (fullValue.length > MAX_DAILY_QUOTA_CHARS) {
-      todayUsedQuota = `${formatQuotaWithCurrency(
-        props.channel.today_used_quota,
-        {
-          compact: true,
-          locale,
-        }
-      )}${tokenSuffix}`
-    }
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  const todayCostQuota = props.channel.today_cost_quota
+  const todayUsedQuota = props.channel.today_used_quota
+  // Profit is consumption minus cost, and only known when both sides are.
+  const todayProfitQuota =
+    todayCostQuota != null && todayUsedQuota != null
+      ? todayUsedQuota - todayCostQuota
+      : null
+  let profitClassName: string | undefined
+  if (todayProfitQuota != null && todayProfitQuota < 0) {
+    profitClassName = 'text-destructive'
+  } else if (todayProfitQuota != null && todayProfitQuota > 0) {
+    profitClassName = 'text-success'
   }
+  const dailyQuotaMetrics = [
+    { key: 'cost', label: t('Cost today'), quota: todayCostQuota },
+    { key: 'used', label: t('Consumed today'), quota: todayUsedQuota },
+    {
+      key: 'profit',
+      label: t('Profit today'),
+      quota: todayProfitQuota,
+      className: profitClassName,
+    },
+  ]
 
   return (
     <Card size='sm' className='rounded-lg' role='listitem'>
@@ -188,17 +213,28 @@ export function ChannelAvailabilityRow(props: {
                 : NO_VALUE}
             </dd>
           </div>
-          <div className='col-span-2 flex min-w-0 items-baseline justify-between gap-3 border-t pt-3'>
-            <dt className='text-muted-foreground shrink-0 text-[11px] leading-4'>
-              {t('Consumed today')}
-            </dt>
-            <dd
-              className='min-w-0 truncate font-mono text-base leading-none font-semibold tabular-nums'
-              title={todayUsedQuotaTitle}
-            >
-              {todayUsedQuota}
-            </dd>
-          </div>
+        </dl>
+
+        <dl className='mt-3 grid grid-cols-3 gap-x-3 border-t pt-3'>
+          {dailyQuotaMetrics.map((metric) => {
+            const value = formatDailyQuota(metric.quota, locale)
+            return (
+              <div key={metric.key} className='min-w-0'>
+                <dt className='text-muted-foreground truncate text-[11px] leading-4'>
+                  {metric.label}
+                </dt>
+                <dd
+                  className={cn(
+                    'mt-1 truncate font-mono text-sm leading-none font-semibold tabular-nums',
+                    metric.className
+                  )}
+                  title={value.title}
+                >
+                  {value.display}
+                </dd>
+              </div>
+            )
+          })}
         </dl>
 
         <div

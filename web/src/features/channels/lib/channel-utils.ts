@@ -27,7 +27,12 @@ import {
   RESPONSE_TIME_THRESHOLDS,
   TYPE_TO_KEY_PROMPT,
 } from '../constants'
-import type { Channel, ChannelSettings, ChannelOtherSettings } from '../types'
+import type {
+  Channel,
+  ChannelOtherSettings,
+  ChannelQuotaSummaryScope,
+  ChannelSettings,
+} from '../types'
 
 // ============================================================================
 // Channel Type Utilities
@@ -351,24 +356,6 @@ export function formatBalance(balance: number | null | undefined): string {
   })
 }
 
-/**
- * Get balance status color
- */
-export function getBalanceVariant(
-  balance: number
-): 'success' | 'warning' | 'danger' | 'neutral' {
-  if (balance === 0) {
-    return 'neutral'
-  }
-  if (balance < 1) {
-    return 'danger'
-  }
-  if (balance < 10) {
-    return 'warning'
-  }
-  return 'success'
-}
-
 // ============================================================================
 // Response Time Utilities
 // ============================================================================
@@ -508,6 +495,19 @@ export function formatQuota(quota: number): string {
   })
 }
 
+/**
+ * Names the window of the cost / consumption / profit figures. Shared by the
+ * table header and the card label so both views state the same scope.
+ */
+export function getChannelQuotaSummaryTitle(
+  scope: ChannelQuotaSummaryScope,
+  t: TFunction
+): string {
+  return scope === 'today'
+    ? t('Cost / Consumption / Profit · Today')
+    : t('Cost / Consumption / Profit · All time')
+}
+
 // ============================================================================
 // Priority & Weight Utilities
 // ============================================================================
@@ -641,6 +641,18 @@ export function getChannelTableRowId(row: Channel | TagRow): string {
 }
 
 /**
+ * Quota figures the backend derives from consume logs. A tag total is only
+ * known when every child's figure is, so one unavailable child makes the whole
+ * tag unavailable rather than silently undercounting it.
+ */
+const LOG_DERIVED_QUOTA_FIELDS = [
+  'today_cost_quota',
+  'today_used_quota',
+  'total_cost_quota',
+  'total_used_quota',
+] as const
+
+/**
  * Aggregate channels by tag for tag mode display
  * Converts flat array into tree structure grouped by tag
  */
@@ -665,7 +677,6 @@ export function aggregateChannelsByTag(
         status: undefined as unknown as number,
         group: '',
         used_quota: 0,
-        today_used_quota: null,
         response_time: 0,
         priority: -1 as unknown as number | null,
         weight: -1 as unknown as number | null,
@@ -692,16 +703,17 @@ export function aggregateChannelsByTag(
     // Aggregate used_quota (sum)
     tagRow.used_quota += channel.used_quota
 
-    // Aggregate today's quota while preserving unavailable child values.
-    if (childCount === 1) {
-      tagRow.today_used_quota = channel.today_used_quota ?? null
-    } else if (
-      tagRow.today_used_quota !== null &&
-      channel.today_used_quota != null
-    ) {
-      tagRow.today_used_quota += channel.today_used_quota
-    } else {
-      tagRow.today_used_quota = null
+    // Aggregate log-derived quotas while preserving unavailable child values.
+    for (const field of LOG_DERIVED_QUOTA_FIELDS) {
+      const tagQuota = tagRow[field]
+      const childQuota = channel[field]
+      if (childCount === 1) {
+        tagRow[field] = childQuota ?? null
+      } else if (tagQuota != null && childQuota != null) {
+        tagRow[field] = tagQuota + childQuota
+      } else {
+        tagRow[field] = null
+      }
     }
 
     // Aggregate response_time (average)

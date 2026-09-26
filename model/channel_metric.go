@@ -134,13 +134,18 @@ func GetChannelMetricBuckets(startTs int64, endTs int64, stepSeconds int64) ([]C
 // names are resolved with a separate query and mapped back in Go rather than
 // joined, matching how GetAllLogs enriches channel names.
 type ChannelIdentity struct {
-	Id   int    `json:"id" gorm:"column:id"`
-	Name string `json:"name" gorm:"column:name"`
+	Id        int      `json:"id" gorm:"column:id"`
+	Name      string   `json:"name" gorm:"column:name"`
+	CostRatio *float64 `json:"-" gorm:"column:cost_ratio"`
+}
+
+func (identity ChannelIdentity) GetCostRatio() float64 {
+	return effectiveChannelCostRatio(identity.CostRatio)
 }
 
 func GetChannelIdentities() ([]ChannelIdentity, error) {
 	identities := make([]ChannelIdentity, 0)
-	err := DB.Table("channels").Select("id, name").Order("id ASC").Find(&identities).Error
+	err := DB.Table("channels").Select("id, name, cost_ratio").Order("id ASC").Find(&identities).Error
 	return identities, err
 }
 

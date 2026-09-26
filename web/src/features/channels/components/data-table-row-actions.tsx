@@ -27,8 +27,6 @@ import {
   DollarSign,
   Download,
   Copy,
-  Power,
-  PowerOff,
   Key,
   Trash2,
   RefreshCw,
@@ -64,13 +62,12 @@ import {
   channelsQueryKeys,
   handleDeleteChannel,
   handleTestChannel,
-  handleToggleChannelStatus,
-  isChannelEnabled,
   isMultiKeyChannel,
 } from '../lib'
 import { parseUpstreamUpdateMeta } from '../lib/upstream-update-utils'
 import type { Channel } from '../types'
 import { ChannelRowActionsLayoutContext } from './channel-row-actions-context'
+import { ChannelStatusSwitch } from './channel-status-switch'
 import { useChannels } from './channels-provider'
 
 interface DataTableRowActionsProps {
@@ -86,9 +83,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const currentUser = useAuthStore((s) => s.auth.user)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
-  const [isTogglingStatus, setIsTogglingStatus] = useState(false)
 
-  const isEnabled = isChannelEnabled(channel)
   const isMultiKey = isMultiKeyChannel(channel)
   const canEditSensitive = hasPermission(
     currentUser,
@@ -143,27 +138,10 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
     setOpen('multi-key-manage')
   }
 
-  const handleToggleStatus = async (
-    e?: React.MouseEvent<HTMLButtonElement>
-  ) => {
-    e?.stopPropagation()
-    setIsTogglingStatus(true)
-    try {
-      await handleToggleChannelStatus(channel.id, channel.status, queryClient)
-    } finally {
-      setIsTogglingStatus(false)
-    }
-  }
-
-  let statusIcon = <Power className='size-4' />
-  if (isTogglingStatus) {
-    statusIcon = <Loader2 className='size-4 animate-spin' />
-  } else if (isEnabled) {
-    statusIcon = <PowerOff className='size-4' />
-  }
-
   return (
     <div className='-ml-1.5 flex items-center gap-1'>
+      <ChannelStatusSwitch channel={channel} />
+
       {layout !== 'card' && (
         <Tooltip>
           <TooltipTrigger
@@ -226,30 +204,6 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           <TooltipContent>{t('Test Channel Connection')}</TooltipContent>
         </Tooltip>
       )}
-
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant='ghost'
-              size='icon-sm'
-              onClick={handleToggleStatus}
-              disabled={isTogglingStatus}
-              aria-label={isEnabled ? t('Disable') : t('Enable')}
-              className={
-                isEnabled
-                  ? 'text-destructive hover:text-destructive'
-                  : 'text-success hover:text-success'
-              }
-            />
-          }
-        >
-          {statusIcon}
-        </TooltipTrigger>
-        <TooltipContent>
-          {isEnabled ? t('Disable') : t('Enable')}
-        </TooltipContent>
-      </Tooltip>
 
       <DropdownMenu>
         <DropdownMenuTrigger

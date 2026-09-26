@@ -79,38 +79,55 @@ func channelTodayTimeRange(now time.Time) (int64, int64) {
 	return start.Unix(), now.Unix()
 }
 
-func channelTodayUsedQuotaById(ctx context.Context, channelIds []int, now time.Time) map[int]int64 {
+// channelQuotaUsageById totals the channels' consume logs in a time range. It
+// returns nil when consume logging is off or the query fails, so callers can
+// report the figures as unavailable instead of zero.
+func channelQuotaUsageById(ctx context.Context, channelIds []int, startTimestamp int64, endTimestamp int64) map[int]model.ChannelQuotaUsage {
 	if len(channelIds) == 0 || !common.LogConsumeEnabled {
 		return nil
 	}
 
-	startTimestamp, endTimestamp := channelTodayTimeRange(now)
-	quotaByChannel, err := model.SumUsedQuotaByChannelIds(ctx, channelIds, startTimestamp, endTimestamp)
+	usageByChannel, err := model.SumChannelQuotaUsage(ctx, channelIds, startTimestamp, endTimestamp)
 	if err != nil {
-		common.SysError("failed to query today's channel consumption: " + err.Error())
+		common.SysError("failed to query channel consumption: " + err.Error())
 		return nil
 	}
-	return quotaByChannel
+	return usageByChannel
 }
 
-func enrichChannelsWithTodayUsedQuota(ctx context.Context, channels []*model.Channel, now time.Time) {
+// enrichChannelsWithQuotaSummary fills the channel list's money figures for
+// today and all time: what users were charged, and what the upstream costs at
+// each channel's current cost ratio.
+func enrichChannelsWithQuotaSummary(ctx context.Context, channels []*model.Channel, now time.Time) {
 	channelIds := make([]int, 0, len(channels))
 	for _, channel := range channels {
 		if channel == nil {
 			continue
 		}
 		channel.TodayUsedQuota = nil
+		channel.TodayCostQuota = nil
+		channel.TotalUsedQuota = nil
+		channel.TotalCostQuota = nil
 		channelIds = append(channelIds, channel.Id)
 	}
-	quotaByChannel := channelTodayUsedQuotaById(ctx, channelIds, now)
-	if quotaByChannel == nil {
-		return
-	}
+	todayStart, todayEnd := channelTodayTimeRange(now)
+	todayUsage := channelQuotaUsageById(ctx, channelIds, todayStart, todayEnd)
+	totalUsage := channelQuotaUsageById(ctx, channelIds, 0, todayEnd)
 	for _, channel := range channels {
 		if channel == nil {
 			continue
 		}
-		channel.TodayUsedQuota = common.GetPointer(quotaByChannel[channel.Id])
+		costRatio := channel.GetCostRatio()
+		if todayUsage != nil {
+			usage := todayUsage[channel.Id]
+			channel.TodayUsedQuota = common.GetPointer(usage.UsedQuota)
+			channel.TodayCostQuota = common.GetPointer(usage.CostQuota(costRatio))
+		}
+		if totalUsage != nil {
+			usage := totalUsage[channel.Id]
+			channel.TotalUsedQuota = common.GetPointer(usage.UsedQuota)
+			channel.TotalCostQuota = common.GetPointer(usage.CostQuota(costRatio))
+		}
 	}
 }
 
@@ -226,7 +243,7 @@ func GetAllChannels(c *gin.Context) {
 	for _, r := range results {
 		typeCounts[r.Type] = r.Count
 	}
-	enrichChannelsWithTodayUsedQuota(c.Request.Context(), channelData, time.Now())
+	enrichChannelsWithQuotaSummary(c.Request.Context(), channelData, time.Now())
 	common.ApiSuccess(c, gin.H{
 		"items":       channelData,
 		"total":       total,
@@ -425,7 +442,7 @@ func SearchChannels(c *gin.Context) {
 	for _, datum := range pagedData {
 		clearChannelInfo(datum)
 	}
-	enrichChannelsWithTodayUsedQuota(c.Request.Context(), pagedData, time.Now())
+	enrichChannelsWithQuotaSummary(c.Request.Context(), pagedData, time.Now())
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

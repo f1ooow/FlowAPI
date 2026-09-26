@@ -54,7 +54,11 @@ export const channelSchema = z.object({
   models: z.string().default(''),
   group: z.string().default('default'),
   used_quota: z.number().default(0),
+  // Log-derived quota figures; null when the backend could not compute them.
   today_used_quota: z.number().nullable().default(null),
+  today_cost_quota: z.number().nullable().default(null),
+  total_used_quota: z.number().nullable().default(null),
+  total_cost_quota: z.number().nullable().default(null),
   model_mapping: z.string().nullish(),
   status_code_mapping: z.string().nullish(),
   priority: z.number().nullish(),
@@ -76,6 +80,12 @@ export const channelSchema = z.object({
 })
 
 export type Channel = z.infer<typeof channelSchema>
+
+/**
+ * Statistics window of the cost / consumption / profit column: the UTC+8
+ * calendar day so far, or everything the logs hold for the channel.
+ */
+export type ChannelQuotaSummaryScope = 'today' | 'total'
 
 // ============================================================================
 // Channel Settings Types
