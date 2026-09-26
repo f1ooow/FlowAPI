@@ -463,3 +463,35 @@ Fixed JSON top-level model rewriting for OpenAI, Responses, Claude, image and re
 - 另开任务修历史遗留测试失败（gin.SetMode 竞态、视频轮询竞态、任务提交测试竞态、前端 localStorage）
 - 另开任务处理自动封禁事务内 GetReliabilitySettings 解析失败时 channel.Save 自锁风险
 - #27、#28 丢失的 max_attempts=3 需在后台重新填写；观察 hx 老会话长思考是否恢复正常
+
+
+## Session 8: 修复测试竞态与 Node 25 存储环境
+
+**Date**: 2026-09-26
+**Task**: 修复测试竞态与 Node 25 存储环境
+**Branch**: `main`
+
+### Summary
+
+修复 relay Gin 全局模式、controller 异步统计收尾、service 轮询测试共享指针竞态和 Node 25 的 Vitest localStorage。
+
+### Main Changes
+
+- 三个 relay 包各自只在 TestMain 设置 Gin TestMode
+- controller fixture 等待 gopool，service 测试使用不可变 upstream ID
+- Vitest setup 使用 jsdom localStorage，并同步 Trellis 测试规范
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a61c17b5e` | (see git log) |
+
+### Testing
+
+- [OK] go test -race ./relay/... ./controller ./service -count=1（分别执行，均通过）
+- [OK] web: bun run test（64 文件/289 测试）、bun run typecheck、oxlint 均通过
+
+### Status
+
+[OK] **Completed**
