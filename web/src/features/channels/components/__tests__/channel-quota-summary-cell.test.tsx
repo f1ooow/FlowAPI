@@ -115,9 +115,11 @@ describe('ChannelQuotaSummaryCell', () => {
       channel({ today_cost_quota: 500_000, today_used_quota: 1_250_000 })
     )
 
-    expect(screen.getByTitle('Cost: $1')).toHaveTextContent('$1')
-    expect(screen.getByTitle('Consumption: $2.5')).toHaveTextContent('$2.5')
-    expect(screen.getByTitle('Profit: $1.5')).toHaveTextContent('$1.5')
+    expect(screen.getByTitle('Cost: $1')).toHaveTextContent(/^\$1\.00$/)
+    expect(screen.getByTitle('Consumption: $2.5')).toHaveTextContent(
+      /^\$2\.50$/
+    )
+    expect(screen.getByTitle('Profit: $1.5')).toHaveTextContent(/^\$1\.50$/)
     expect(screen.getByTitle('Profit: $1.5')).toHaveClass('text-success')
   })
 
@@ -132,10 +134,12 @@ describe('ChannelQuotaSummaryCell', () => {
       'total'
     )
 
-    expect(screen.getByTitle('Cost: $10')).toBeInTheDocument()
-    expect(screen.getByTitle('Consumption: $15')).toBeInTheDocument()
-    expect(screen.getByTitle('Profit: $5')).toBeInTheDocument()
-    expect(screen.queryByText('$2.5')).not.toBeInTheDocument()
+    expect(screen.getByTitle('Cost: $10')).toHaveTextContent(/^\$10\.00$/)
+    expect(screen.getByTitle('Consumption: $15')).toHaveTextContent(
+      /^\$15\.00$/
+    )
+    expect(screen.getByTitle('Profit: $5')).toHaveTextContent(/^\$5\.00$/)
+    expect(screen.queryByText('$2.50')).not.toBeInTheDocument()
   })
 
   test('marks a loss in the danger colour', () => {
@@ -143,15 +147,40 @@ describe('ChannelQuotaSummaryCell', () => {
       channel({ today_cost_quota: 2_000_000, today_used_quota: 1_250_000 })
     )
 
-    expect(screen.getByTitle('Profit: -$1.5')).toHaveTextContent('-$1.5')
+    expect(screen.getByTitle('Profit: -$1.5')).toHaveTextContent(/^-\$1\.50$/)
     expect(screen.getByTitle('Profit: -$1.5')).toHaveClass('text-destructive')
   })
 
-  test('keeps zero as a valid amount', () => {
+  test('keeps zero as a valid amount in the neutral colour', () => {
     renderCell(channel({ today_cost_quota: 0, today_used_quota: 0 }))
 
-    expect(screen.getAllByText('$0')).toHaveLength(3)
+    expect(screen.getAllByText('$0.00')).toHaveLength(3)
     expect(screen.queryByText('--')).not.toBeInTheDocument()
+    expect(screen.getByTitle('Profit: $0')).not.toHaveClass('text-success')
+    expect(screen.getByTitle('Profit: $0')).not.toHaveClass('text-destructive')
+  })
+
+  test('rounds every amount to two decimals, keeping the precise value in the title', () => {
+    // The production report: $0.8282 consumed against a $0.0001 cost.
+    renderCell(channel({ today_cost_quota: 50, today_used_quota: 414_100 }))
+
+    expect(screen.getByTitle('Cost: $0.0001')).toHaveTextContent(/^\$0\.00$/)
+    expect(screen.getByTitle('Consumption: $0.8282')).toHaveTextContent(
+      /^\$0\.83$/
+    )
+    expect(screen.getByTitle('Profit: $0.8281')).toHaveTextContent(/^\$0\.83$/)
+  })
+
+  test('colours a profit that rounds to 0.00 by its real sign', () => {
+    // A $0.0001 loss: shown as zero, still marked as a loss.
+    renderCell(
+      channel({ today_cost_quota: 414_150, today_used_quota: 414_100 })
+    )
+
+    expect(screen.getByTitle('Profit: -$0.0001')).toHaveTextContent(/^\$0\.00$/)
+    expect(screen.getByTitle('Profit: -$0.0001')).toHaveClass(
+      'text-destructive'
+    )
   })
 
   test.each([
@@ -177,13 +206,13 @@ describe('ChannelQuotaSummaryCell', () => {
     expect(screen.getByTitle('Profit: --')).toBeInTheDocument()
   })
 
-  test('compacts long amounts and keeps the precise value in the title', () => {
+  test('shows large amounts in full with thousands separators', () => {
     renderCell(
       channel({ today_cost_quota: 0, today_used_quota: 500_000_000_000 })
     )
 
     expect(screen.getByTitle('Consumption: $1,000,000')).toHaveTextContent(
-      '$1M'
+      /^\$1,000,000\.00$/
     )
   })
 
@@ -196,7 +225,7 @@ describe('ChannelQuotaSummaryCell', () => {
     await user.click(screen.getByRole('button', { name: 'Hide values' }))
 
     expect(screen.getAllByText('••••')).toHaveLength(3)
-    expect(screen.queryByText('-$1.5')).not.toBeInTheDocument()
+    expect(screen.queryByText('-$1.50')).not.toBeInTheDocument()
     expect(screen.getByTitle('Profit: ••••')).not.toHaveClass(
       'text-destructive'
     )
@@ -221,8 +250,8 @@ describe('ChannelQuotaSummaryCell', () => {
     expect(
       screen.getByText('Cost / Consumption / Profit · Today')
     ).toBeInTheDocument()
-    expect(screen.getByTitle('Cost: 1')).toBeInTheDocument()
-    expect(screen.getByTitle('Consumption: 2.5')).toBeInTheDocument()
-    expect(screen.getByTitle('Profit: 1.5')).toBeInTheDocument()
+    expect(screen.getByTitle('Cost: 1')).toHaveTextContent(/^1\.00$/)
+    expect(screen.getByTitle('Consumption: 2.5')).toHaveTextContent(/^2\.50$/)
+    expect(screen.getByTitle('Profit: 1.5')).toHaveTextContent(/^1\.50$/)
   })
 })

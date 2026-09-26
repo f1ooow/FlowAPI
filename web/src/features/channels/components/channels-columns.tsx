@@ -270,7 +270,12 @@ function ChannelNameCell(props: {
   return (
     <div className='flex max-w-full min-w-0 items-center gap-2'>
       <div className='flex max-w-full min-w-0 flex-col gap-1'>
-        <div className='flex max-w-full min-w-0 items-center gap-1.5'>
+        {/* The name, its markers and the group capsules share one row that
+          wraps when the groups do not fit. */}
+        <div
+          data-slot='channel-name-row'
+          className='flex max-w-full min-w-0 flex-wrap items-center gap-1.5'
+        >
           {showTypeMarkers && (
             <TooltipProvider delay={300}>
               <Tooltip>
@@ -345,6 +350,7 @@ function ChannelNameCell(props: {
             </TooltipProvider>
           )}
           <UpstreamUpdateTags channel={props.channel} />
+          <ChannelGroupCapsules channel={props.channel} />
         </div>
         {props.channel.remark && (
           <TooltipProvider delay={200}>
@@ -360,7 +366,6 @@ function ChannelNameCell(props: {
             </Tooltip>
           </TooltipProvider>
         )}
-        <ChannelGroupCapsules channel={props.channel} />
       </div>
     </div>
   )
@@ -647,7 +652,8 @@ export function useChannelsColumns(
             scope={quotaSummaryScope}
           />
         ),
-        size: 260,
+        // Three monospace slots wide enough for five-digit all-time totals.
+        size: 320,
         enableSorting: false,
         enableHiding: false,
       },

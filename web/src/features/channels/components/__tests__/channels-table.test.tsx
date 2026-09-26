@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { api } from '@/lib/api'
 
+import { createGroupCapsuleClassName } from '../../lib'
 import { channelSchema, type Channel } from '../../types'
 import { ChannelsProvider } from '../channels-provider'
 import { ChannelsTable } from '../channels-table'
@@ -510,7 +511,9 @@ describe('ChannelsTable row layout', () => {
     await screen.findByText('OpenAI main')
 
     await user.click(
-      within(rowOf('OpenAI main')).getByRole('button', { name: 'Edit groups' })
+      within(rowOf('OpenAI main')).getByRole('button', {
+        name: 'Edit groups: default',
+      })
     )
     expect(
       await screen.findByRole('textbox', { name: 'Search groups...' })
@@ -528,13 +531,39 @@ describe('ChannelsTable row layout', () => {
     )
   })
 
+  test('keeps the popover open after unticking the capsule that opened it', async () => {
+    const user = userEvent.setup()
+    channels = channels.map((channel) =>
+      channel.id === 1 ? { ...channel, group: 'default,vip' } : channel
+    )
+    const { put } = renderTable()
+    await screen.findByText('OpenAI main')
+
+    await user.click(
+      within(rowOf('OpenAI main')).getByRole('button', {
+        name: 'Edit groups: vip',
+      })
+    )
+    await user.click(await screen.findByRole('checkbox', { name: 'vip' }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('checkbox', { name: 'vip' })).not.toBeChecked()
+    )
+    expect(put.mock.calls[0][1]).toEqual({ id: 1, group: 'default' })
+    await user.click(screen.getByRole('checkbox', { name: 'vip' }))
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(2))
+    expect(put.mock.calls[1][1]).toEqual({ id: 1, group: 'default,vip' })
+  })
+
   test('filters the group grid by the search text', async () => {
     const user = userEvent.setup()
     renderTable()
     await screen.findByText('OpenAI main')
 
     await user.click(
-      within(rowOf('OpenAI main')).getByRole('button', { name: 'Edit groups' })
+      within(rowOf('OpenAI main')).getByRole('button', {
+        name: 'Edit groups: default',
+      })
     )
     await user.type(
       await screen.findByRole('textbox', { name: 'Search groups...' }),
@@ -553,7 +582,9 @@ describe('ChannelsTable row layout', () => {
     await screen.findByText('Claude vip')
 
     await user.click(
-      within(rowOf('Claude vip')).getByRole('button', { name: 'Edit groups' })
+      within(rowOf('Claude vip')).getByRole('button', {
+        name: 'Edit groups: vip',
+      })
     )
     await user.click(await screen.findByRole('checkbox', { name: 'vip' }))
 
@@ -567,7 +598,7 @@ describe('ChannelsTable row layout', () => {
     await screen.findByText('Orphan')
     const row = rowOf('Orphan')
     expect(
-      within(row).queryByRole('button', { name: 'Edit groups' })
+      within(row).queryByRole('button', { name: /^Edit groups/ })
     ).not.toBeInTheDocument()
 
     await user.click(within(row).getByRole('button', { name: 'Add group' }))
@@ -575,5 +606,212 @@ describe('ChannelsTable row layout', () => {
 
     await waitFor(() => expect(put).toHaveBeenCalledTimes(1))
     expect(put.mock.calls[0][1]).toEqual({ id: 5, group: 'vip' })
+  })
+})
+
+describe('ChannelsTable group colours', () => {
+  test('colours a group the same in every row and apart from the others', async () => {
+    renderTable()
+    await screen.findByText('OpenAI main')
+    const capsuleClassName = createGroupCapsuleClassName(['default', 'vip'])
+
+    // Three rows carry the default group; one carries vip.
+    await waitFor(() =>
+      expect(within(rowOf('OpenAI main')).getByText('default')).toHaveClass(
+        capsuleClassName('default')
+      )
+    )
+    expect(within(rowOf('Legacy relay')).getByText('default')).toHaveClass(
+      capsuleClassName('default')
+    )
+    expect(within(rowOf('Flaky pool')).getByText('default')).toHaveClass(
+      capsuleClassName('default')
+    )
+    expect(within(rowOf('Claude vip')).getByText('vip')).toHaveClass(
+      capsuleClassName('vip')
+    )
+    expect(capsuleClassName('default')).not.toBe(capsuleClassName('vip'))
+  })
+})
+
+describe('ChannelsTable card view', () => {
+  test('shows groups as the same solid capsules next to the name', async () => {
+    localStorage.setItem('channels:view-mode', 'card')
+    renderTable()
+    await screen.findByText('Claude vip')
+
+    const capsule = screen.getByRole('button', { name: 'Edit groups: vip' })
+    const nameRow = capsule.closest('[data-slot="channel-name-row"]')
+    expect(nameRow).not.toBeNull()
+    expect(nameRow).toHaveTextContent('Claude vip')
+    // Coloured from the group list the page loaded (default, vip).
+    const capsuleClassName = createGroupCapsuleClassName(['default', 'vip'])
+    await waitFor(() =>
+      expect(within(capsule).getByText('vip')).toHaveClass(
+        capsuleClassName('vip'),
+        'text-white'
+      )
+    )
+    expect(capsuleClassName('vip')).not.toBe(capsuleClassName('default'))
+  })
+
+  test('leaves card values at their natural width', async () => {
+    localStorage.setItem('channels:view-mode', 'card')
+    renderTable()
+    await screen.findByText('OpenAI main')
+
+    for (const slot of screen
+      .getAllByTitle(/^(Cost|Consumption|Profit): /)
+      .filter((node) => node.dataset.slot === 'aligned-value')) {
+      expect(slot.style.minWidth).toBe('')
+    }
+  })
+
+  test('shows today amounts with two decimals', async () => {
+    localStorage.setItem('channels:view-mode', 'card')
+    renderTable()
+    await screen.findByText('OpenAI main')
+
+    // Card view drops the currency symbol.
+    expect(screen.getByTitle('Cost: 1')).toHaveTextContent(/^1\.00$/)
+    expect(screen.getByTitle('Consumption: 2.5')).toHaveTextContent(/^2\.50$/)
+    expect(screen.getByTitle('Profit: 1.5')).toHaveTextContent(/^1\.50$/)
+  })
+})
+
+describe('ChannelsTable column alignment', () => {
+  // Amount and chip value slots of one row, in column order.
+  function amountSlots(name: string): HTMLElement[] {
+    return within(rowOf(name))
+      .getAllByTitle(/^(Cost|Consumption|Profit): /)
+      .filter((slot) => slot.dataset.slot === 'aligned-value')
+  }
+
+  function chipSlots(name: string): HTMLElement[] {
+    const row = rowOf(name)
+    return ['Priority', 'Weight', 'Cost ratio'].map((label) => {
+      const chip = within(row)
+        .getAllByText(label)
+        .map((node) => node.parentElement)
+        .find((node) => node !== null)
+      const slot = chip?.querySelector<HTMLElement>(
+        '[data-slot="aligned-value"]'
+      )
+      if (!slot) {
+        throw new Error(`Missing ${label} slot in ${name}`)
+      }
+      return slot
+    })
+  }
+
+  test('gives each amount slot the same right-aligned width on every row', async () => {
+    channels = channels.map((channel) =>
+      channel.id === 2
+        ? {
+            ...channel,
+            // $2,823.47 against the $1.00 / $2.50 of OpenAI main.
+            today_cost_quota: 2823.47 * 500_000,
+            today_used_quota: 3000 * 500_000,
+          }
+        : channel
+    )
+    renderTable()
+    await screen.findByText('OpenAI main')
+
+    const small = amountSlots('OpenAI main')
+    const large = amountSlots('Claude vip')
+    const unavailable = amountSlots('Legacy relay')
+    expect(small).toHaveLength(3)
+    for (const [index, slot] of small.entries()) {
+      expect(slot).toHaveClass('text-right', 'tabular-nums')
+      expect(slot.style.minWidth).toBe(large[index].style.minWidth)
+      expect(slot.style.minWidth).toBe(unavailable[index].style.minWidth)
+    }
+    expect(small[0]).toHaveTextContent('$1.00')
+    expect(large[0]).toHaveTextContent('$2,823.47')
+    expect(small[0].style.minWidth).toBe(`${'$2,823.47'.length}ch`)
+    expect(unavailable[0]).toHaveTextContent('--')
+  })
+
+  test('gives each routing chip the same right-aligned width on every row', async () => {
+    channels = channels.map((channel) => {
+      if (channel.id === 1) {
+        return { ...channel, priority: 5, weight: 1, cost_ratio: 0.2 }
+      }
+      if (channel.id === 2) {
+        return { ...channel, priority: 100, weight: 25, cost_ratio: 12.5 }
+      }
+      return channel
+    })
+    renderTable()
+    await screen.findByText('OpenAI main')
+
+    const narrow = chipSlots('OpenAI main')
+    const wide = chipSlots('Claude vip')
+    for (const [index, slot] of narrow.entries()) {
+      expect(slot).toHaveClass('text-right', 'tabular-nums')
+      expect(slot.style.minWidth).toBe(wide[index].style.minWidth)
+    }
+    expect(narrow.map((slot) => slot.textContent)).toEqual(['5', '1', '0.20x'])
+    expect(narrow.map((slot) => slot.style.minWidth)).toEqual([
+      '3ch',
+      '2ch',
+      `${'12.50x'.length}ch`,
+    ])
+  })
+
+  test('recomputes the amount widths when the scope switches to all time', async () => {
+    const user = userEvent.setup()
+    channels = channels.map((channel) =>
+      channel.id === 1
+        ? { ...channel, total_used_quota: 23_456 * 500_000 }
+        : channel
+    )
+    renderTable()
+    await screen.findByText('OpenAI main')
+    expect(amountSlots('OpenAI main')[1].style.minWidth).toBe(
+      `${'$2.50'.length}ch`
+    )
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Cost / Consumption / Profit · Today',
+      })
+    )
+    await user.click(
+      await screen.findByRole('menuitemradio', { name: 'All time' })
+    )
+
+    await waitFor(() =>
+      expect(amountSlots('OpenAI main')[1]).toHaveTextContent('$23,456.00')
+    )
+    expect(amountSlots('OpenAI main')[1].style.minWidth).toBe(
+      `${'$23,456.00'.length}ch`
+    )
+    expect(amountSlots('Claude vip')[1].style.minWidth).toBe(
+      `${'$23,456.00'.length}ch`
+    )
+  })
+
+  test('sizes the slots to the masked text when values are hidden', async () => {
+    const user = userEvent.setup()
+    renderTable()
+    await screen.findByText('OpenAI main')
+
+    await user.click(screen.getByRole('button', { name: 'Hide' }))
+
+    // Hiding also masks channel names, so read the slots by title instead.
+    await waitFor(() =>
+      expect(screen.getAllByTitle('Consumption: ••••').length).toBeGreaterThan(
+        0
+      )
+    )
+    const cost = screen
+      .getAllByTitle(/^Cost: /)
+      .filter((slot) => slot.dataset.slot === 'aligned-value')
+    for (const slot of cost) {
+      // Masked amounts show "••••"; unavailable ones keep "--".
+      expect(slot.style.minWidth).toBe('4ch')
+    }
   })
 })

@@ -37,11 +37,11 @@ import type {
 } from '../types'
 
 const NO_VALUE = '--'
-// Three amounts share one card row, so long values switch to compact notation
-// sooner than a full-width row would need to.
-const MAX_DAILY_QUOTA_CHARS = 10
 
-/** Inline text plus the precise value for the hover title. */
+/**
+ * Inline text with exactly two decimals, so the three amounts line up across
+ * cards, plus the precise value (up to four decimals) for the hover title.
+ */
 function formatDailyQuota(
   quota: number | null | undefined,
   locale: string | undefined
@@ -50,20 +50,17 @@ function formatDailyQuota(
     return { display: NO_VALUE, title: NO_VALUE }
   }
   const tokenSuffix = getCurrencyLabel() === 'Tokens' ? ' Tokens' : ''
-  const fullValue = `${formatQuotaWithCurrency(quota, {
+  const display = `${formatQuotaWithCurrency(quota, {
+    fixedFractionDigits: 2,
+    locale,
+  })}${tokenSuffix}`
+  const title = `${formatQuotaWithCurrency(quota, {
     digitsLarge: 2,
     digitsSmall: 4,
     abbreviate: false,
     locale,
   })}${tokenSuffix}`
-  if (fullValue.length <= MAX_DAILY_QUOTA_CHARS) {
-    return { display: fullValue, title: fullValue }
-  }
-  const compactValue = formatQuotaWithCurrency(quota, {
-    compact: true,
-    locale,
-  })
-  return { display: `${compactValue}${tokenSuffix}`, title: fullValue }
+  return { display, title }
 }
 
 function bucketTitle(

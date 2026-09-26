@@ -105,9 +105,9 @@ describe('ChannelAvailabilityRow', () => {
       'grid-cols-3',
       'border-t'
     )
-    expect(dailyQuotaValue('Cost today')).toHaveTextContent('$1')
-    expect(dailyQuotaValue('Consumed today')).toHaveTextContent('$2.5')
-    expect(dailyQuotaValue('Profit today')).toHaveTextContent('$1.5')
+    expect(dailyQuotaValue('Cost today')).toHaveTextContent(/^\$1\.00$/)
+    expect(dailyQuotaValue('Consumed today')).toHaveTextContent(/^\$2\.50$/)
+    expect(dailyQuotaValue('Profit today')).toHaveTextContent(/^\$1\.50$/)
     expect(dailyQuotaValue('Profit today')).toHaveClass('text-success')
   })
 
@@ -118,7 +118,7 @@ describe('ChannelAvailabilityRow', () => {
       />
     )
 
-    expect(dailyQuotaValue('Profit today')).toHaveTextContent('-$1.5')
+    expect(dailyQuotaValue('Profit today')).toHaveTextContent(/^-\$1\.50$/)
     expect(dailyQuotaValue('Profit today')).toHaveClass('text-destructive')
   })
 
@@ -130,7 +130,7 @@ describe('ChannelAvailabilityRow', () => {
     )
 
     expect(dailyQuotaValue('Cost today')).toHaveTextContent('--')
-    expect(dailyQuotaValue('Consumed today')).toHaveTextContent('$2.5')
+    expect(dailyQuotaValue('Consumed today')).toHaveTextContent(/^\$2\.50$/)
     expect(dailyQuotaValue('Profit today')).toHaveTextContent('--')
     expect(dailyQuotaValue('Profit today')).not.toHaveClass('text-success')
     expect(dailyQuotaValue('Profit today')).not.toHaveClass('text-destructive')
@@ -143,23 +143,71 @@ describe('ChannelAvailabilityRow', () => {
       />
     )
 
-    expect(dailyQuotaValue('Cost today')).toHaveTextContent('$1')
+    expect(dailyQuotaValue('Cost today')).toHaveTextContent(/^\$1\.00$/)
     expect(dailyQuotaValue('Consumed today')).toHaveTextContent('--')
     expect(dailyQuotaValue('Profit today')).toHaveTextContent('--')
   })
 
-  test('compacts a long amount and keeps the precise value in the title', () => {
+  test('shows a large amount in full with thousands separators', () => {
     render(
       <ChannelAvailabilityRow
         channel={{ ...healthyChannel, today_used_quota: 5_000_000_000_000 }}
       />
     )
 
-    expect(dailyQuotaValue('Consumed today')).toHaveTextContent('$10M')
-    expect(dailyQuotaValue('Consumed today')).toHaveAttribute(
-      'title',
-      '$10,000,000'
+    expect(dailyQuotaValue('Consumed today')).toHaveTextContent(
+      /^\$10,000,000\.00$/
     )
+  })
+
+  test('rounds a small amount to two decimals and keeps the precise value in the title', () => {
+    // 0.0001 USD of cost against 0.8282 USD of consumption.
+    render(
+      <ChannelAvailabilityRow
+        channel={{
+          ...healthyChannel,
+          today_cost_quota: 50,
+          today_used_quota: 414_100,
+        }}
+      />
+    )
+
+    expect(dailyQuotaValue('Cost today')).toHaveTextContent(/^\$0\.00$/)
+    expect(dailyQuotaValue('Cost today')).toHaveAttribute('title', '$0.0001')
+    expect(dailyQuotaValue('Consumed today')).toHaveTextContent(/^\$0\.83$/)
+    expect(dailyQuotaValue('Profit today')).toHaveTextContent(/^\$0\.83$/)
+  })
+
+  test('keeps a profit that rounds to 0.00 in its real colour', () => {
+    // A 0.0001 USD loss: displayed as zero, coloured by the true sign.
+    render(
+      <ChannelAvailabilityRow
+        channel={{
+          ...healthyChannel,
+          today_cost_quota: 414_150,
+          today_used_quota: 414_100,
+        }}
+      />
+    )
+
+    expect(dailyQuotaValue('Profit today')).toHaveTextContent(/^\$0\.00$/)
+    expect(dailyQuotaValue('Profit today')).toHaveClass('text-destructive')
+  })
+
+  test('shows an exact zero profit in the neutral colour', () => {
+    render(
+      <ChannelAvailabilityRow
+        channel={{
+          ...healthyChannel,
+          today_cost_quota: 414_100,
+          today_used_quota: 414_100,
+        }}
+      />
+    )
+
+    expect(dailyQuotaValue('Profit today')).toHaveTextContent(/^\$0\.00$/)
+    expect(dailyQuotaValue('Profit today')).not.toHaveClass('text-success')
+    expect(dailyQuotaValue('Profit today')).not.toHaveClass('text-destructive')
   })
 
   test('follows the bucket count when the range uses a finer step', () => {

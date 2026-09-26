@@ -44,14 +44,16 @@ import {
 } from '@/components/ui/tooltip'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
+import { toIntlLocale } from '@/i18n/languages'
 import { getLobeIcon } from '@/lib/lobe-icon'
 
-import { getChannels, searchChannels, getGroups } from '../api'
+import { getChannels, searchChannels } from '../api'
 import {
   DEFAULT_PAGE_SIZE,
   CHANNEL_STATUS,
   CHANNEL_STATUS_OPTIONS,
 } from '../constants'
+import { useChannelGroups } from '../hooks/use-channel-groups'
 import {
   channelsQueryKeys,
   aggregateChannelsByTag,
@@ -60,8 +62,10 @@ import {
   getChannelTypeIcon,
   getChannelTypeLabel,
 } from '../lib'
+import { getChannelColumnSlotWidths } from '../lib/channel-column-slots'
 import type { Channel, ChannelSortBy } from '../types'
 import { ChannelCard } from './channel-card'
+import { ChannelColumnSlotsContext } from './channel-column-slots-context'
 import { ChannelGroupFilterBar } from './channel-group-filter-bar'
 import { useChannelsColumns } from './channels-columns'
 import { useChannels } from './channels-provider'
@@ -88,13 +92,14 @@ function isDisabledChannelRow(channel: Channel) {
 }
 
 export function ChannelsTable() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const {
     enableTagMode,
     idSort,
     batchMode,
     sensitiveVisible,
     setSensitiveVisible,
+    quotaSummaryScope,
   } = useChannels()
   const isMobile = useMediaQuery('(max-width: 640px)')
 
@@ -212,10 +217,7 @@ export function ChannelsTable() {
   }
 
   // Fetch groups for filter
-  const { data: groupsData } = useQuery({
-    queryKey: ['groups'],
-    queryFn: getGroups,
-  })
+  const { data: groupsData } = useChannelGroups()
 
   // A group selected through the URL stays visible even when the group list
   // no longer contains it, so the active filter can always be seen and cleared.
@@ -300,6 +302,19 @@ export function ChannelsTable() {
 
     return rawChannels
   }, [data, enableTagMode])
+
+  // One width per value slot across the page, so the quota and routing
+  // columns line up; recomputed whenever the page, scope or masking changes.
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  const columnSlotWidths = useMemo(
+    () =>
+      getChannelColumnSlotWidths(channels, quotaSummaryScope, {
+        sensitiveVisible,
+        showSymbol: true,
+        locale,
+      }),
+    [channels, quotaSummaryScope, sensitiveVisible, locale]
+  )
 
   const totalCount = data?.data?.total || 0
   const typeCounts = data?.data?.type_counts
@@ -403,95 +418,97 @@ export function ChannelsTable() {
   }, [t, typeCounts, typeFilter])
 
   return (
-    <DataTablePage
-      table={table}
-      columns={columns}
-      isLoading={isLoading}
-      isFetching={isFetching}
-      emptyTitle={t('No Channels Found')}
-      emptyDescription={t(
-        'No channels available. Create your first channel to get started.'
-      )}
-      skeletonKeyPrefix='channel-skeleton'
-      enableCardView
-      viewModeStorageKey={CHANNELS_VIEW_MODE_STORAGE_KEY}
-      renderCard={(row, { isSelected }) => (
-        <ChannelCard row={row} isSelected={isSelected} />
-      )}
-      cardGridClassName='grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-3'
-      applyHeaderSize
-      toolbarProps={{
-        searchPlaceholder: t('Filter by name, ID, or key...'),
-        searchDebounceMs: 500,
-        onReset: () => {
-          resetModelFilterInput()
-        },
-        additionalSearch: (
-          <Input
-            placeholder={t('Filter by model...')}
-            value={modelFilterInput}
-            onChange={onModelFilterInputChange}
-            onCompositionStart={onModelFilterCompositionStart}
-            onCompositionEnd={onModelFilterCompositionEnd}
-            className='w-full sm:w-[150px] lg:w-[180px]'
-          />
-        ),
-        filters: [
-          {
-            columnId: 'channel_status',
-            title: t('Status'),
-            options: [...CHANNEL_STATUS_OPTIONS],
-            singleSelect: true,
+    <ChannelColumnSlotsContext.Provider value={columnSlotWidths}>
+      <DataTablePage
+        table={table}
+        columns={columns}
+        isLoading={isLoading}
+        isFetching={isFetching}
+        emptyTitle={t('No Channels Found')}
+        emptyDescription={t(
+          'No channels available. Create your first channel to get started.'
+        )}
+        skeletonKeyPrefix='channel-skeleton'
+        enableCardView
+        viewModeStorageKey={CHANNELS_VIEW_MODE_STORAGE_KEY}
+        renderCard={(row, { isSelected }) => (
+          <ChannelCard row={row} isSelected={isSelected} />
+        )}
+        cardGridClassName='grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-3'
+        applyHeaderSize
+        toolbarProps={{
+          searchPlaceholder: t('Filter by name, ID, or key...'),
+          searchDebounceMs: 500,
+          onReset: () => {
+            resetModelFilterInput()
           },
-          {
-            columnId: 'channel_type',
-            title: t('Type'),
-            options: typeFilterOptions,
-            singleSelect: true,
-          },
-        ],
-        leftActions: (
-          <ChannelGroupFilterBar
-            groups={groups}
-            selectedGroup={selectedGroup}
-            onSelectedGroupChange={(group) =>
-              table
-                .getColumn('channel_group')
-                ?.setFilterValue(group === undefined ? undefined : [group])
-            }
-          />
-        ),
-        preActions: (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant='ghost'
-                  size='icon'
-                  onClick={() => setSensitiveVisible(!sensitiveVisible)}
-                  aria-label={sensitiveVisible ? t('Hide') : t('Show')}
-                  className='text-muted-foreground hover:text-foreground size-8'
-                />
+          additionalSearch: (
+            <Input
+              placeholder={t('Filter by model...')}
+              value={modelFilterInput}
+              onChange={onModelFilterInputChange}
+              onCompositionStart={onModelFilterCompositionStart}
+              onCompositionEnd={onModelFilterCompositionEnd}
+              className='w-full sm:w-[150px] lg:w-[180px]'
+            />
+          ),
+          filters: [
+            {
+              columnId: 'channel_status',
+              title: t('Status'),
+              options: [...CHANNEL_STATUS_OPTIONS],
+              singleSelect: true,
+            },
+            {
+              columnId: 'channel_type',
+              title: t('Type'),
+              options: typeFilterOptions,
+              singleSelect: true,
+            },
+          ],
+          leftActions: (
+            <ChannelGroupFilterBar
+              groups={groups}
+              selectedGroup={selectedGroup}
+              onSelectedGroupChange={(group) =>
+                table
+                  .getColumn('channel_group')
+                  ?.setFilterValue(group === undefined ? undefined : [group])
               }
-            >
-              {sensitiveVisible ? <Eye /> : <EyeOff />}
-            </TooltipTrigger>
-            <TooltipContent>
-              {sensitiveVisible ? t('Hide') : t('Show')}
-            </TooltipContent>
-          </Tooltip>
-        ),
-      }}
-      getRowClassName={(row, { isMobile }) => {
-        if (!isDisabledChannelRow(row.original)) {
-          return undefined
-        }
-        if (isMobile) {
-          return DISABLED_ROW_MOBILE
-        }
-        return DISABLED_ROW_DESKTOP
-      }}
-      bulkActions={batchMode ? <DataTableBulkActions table={table} /> : null}
-    />
+            />
+          ),
+          preActions: (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant='ghost'
+                    size='icon'
+                    onClick={() => setSensitiveVisible(!sensitiveVisible)}
+                    aria-label={sensitiveVisible ? t('Hide') : t('Show')}
+                    className='text-muted-foreground hover:text-foreground size-8'
+                  />
+                }
+              >
+                {sensitiveVisible ? <Eye /> : <EyeOff />}
+              </TooltipTrigger>
+              <TooltipContent>
+                {sensitiveVisible ? t('Hide') : t('Show')}
+              </TooltipContent>
+            </Tooltip>
+          ),
+        }}
+        getRowClassName={(row, { isMobile }) => {
+          if (!isDisabledChannelRow(row.original)) {
+            return undefined
+          }
+          if (isMobile) {
+            return DISABLED_ROW_MOBILE
+          }
+          return DISABLED_ROW_DESKTOP
+        }}
+        bulkActions={batchMode ? <DataTableBulkActions table={table} /> : null}
+      />
+    </ChannelColumnSlotsContext.Provider>
   )
 }

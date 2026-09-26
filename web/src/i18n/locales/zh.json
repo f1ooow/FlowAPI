@@ -1659,7 +1659,7 @@
     "Each timeline bar covers this much time. Buckets narrower than the global perf metrics bucket ({{minutes}} minutes) cannot be served and are disabled.": "时间线上每根色条覆盖的时长。窄于全局性能指标桶宽（{{minutes}} 分钟）的档位无法提供，已禁用。",
     "Earn rewards when users join through your referral link. Transfer accumulated rewards to your balance anytime.": "用户通过您的推荐链接注册后，您即可获得奖励。可随时将累计奖励转入余额。",
     "Edit": "编辑",
-    "Edit groups": "编辑分组",
+    "Edit groups: {{group}}": "编辑分组：{{group}}",
     "Edit {{title}}": "编辑{{title}}",
     "Edit again": "再次编辑",
     "Edit all channels with tag:": "编辑所有带有标签的渠道：",

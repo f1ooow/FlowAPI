@@ -20,15 +20,27 @@ import { useRef, useState } from 'react'
 
 import { cn } from '@/lib/utils'
 
+import { MIXED_ROUTING_VALUE } from '../lib/channel-routing-text'
+import { AlignedValue } from './aligned-value'
+
 const CHIP_CLASS_NAME =
   'inline-flex h-6 shrink-0 items-center gap-1 rounded-md border px-1.5 text-xs leading-none whitespace-nowrap'
 
-/** Read-only "label value" chip. */
-export function ValueChip(props: { label: string; value: string }) {
+/**
+ * Read-only "label value" chip. `valueWidth` (in `ch`) gives the value a
+ * fixed, right-aligned slot so chips line up across table rows.
+ */
+export function ValueChip(props: {
+  label: string
+  value: string
+  valueWidth?: number
+}) {
   return (
     <span className={cn(CHIP_CLASS_NAME, 'bg-muted/40')}>
       <span className='text-muted-foreground'>{props.label}</span>
-      <span className='font-mono font-medium tabular-nums'>{props.value}</span>
+      <AlignedValue width={props.valueWidth} className='font-medium'>
+        {props.value}
+      </AlignedValue>
     </span>
   )
 }
@@ -42,6 +54,8 @@ type InlineNumberChipProps = {
   max?: number
   /** An integer step only accepts integers; a fractional one accepts decimals. */
   step?: number
+  /** Width of the value slot in `ch`; see {@link ValueChip}. */
+  valueWidth?: number
   /** Omit to render the chip read-only. */
   onCommit?: (value: number) => void
 }
@@ -57,11 +71,17 @@ export function InlineNumberChip(props: InlineNumberChipProps) {
   const step = props.step ?? 1
   const display =
     props.value == null
-      ? '-'
+      ? MIXED_ROUTING_VALUE
       : (props.formatValue?.(props.value) ?? String(props.value))
 
   if (!props.onCommit) {
-    return <ValueChip label={props.label} value={display} />
+    return (
+      <ValueChip
+        label={props.label}
+        value={display}
+        valueWidth={props.valueWidth}
+      />
+    )
   }
 
   const onCommit = props.onCommit
@@ -106,7 +126,9 @@ export function InlineNumberChip(props: InlineNumberChipProps) {
         )}
       >
         <span className='text-muted-foreground'>{props.label}</span>
-        <span className='font-mono font-medium tabular-nums'>{display}</span>
+        <AlignedValue width={props.valueWidth} className='font-medium'>
+          {display}
+        </AlignedValue>
       </button>
     )
   }
@@ -146,7 +168,13 @@ export function InlineNumberChip(props: InlineNumberChipProps) {
           }
         }}
         onBlur={finishEditing}
-        className='w-12 bg-transparent font-mono font-medium tabular-nums outline-none'
+        // Keeps the slot's footprint so the chip does not shift while editing.
+        style={
+          props.valueWidth
+            ? { width: `max(3rem, ${props.valueWidth}ch)` }
+            : undefined
+        }
+        className='w-12 bg-transparent text-right font-mono font-medium tabular-nums outline-none'
       />
     </span>
   )

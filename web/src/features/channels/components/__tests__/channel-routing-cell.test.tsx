@@ -68,7 +68,7 @@ describe('ChannelRoutingCell', () => {
 
     expect(screen.getByRole('button', { name: 'Priority 1' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Weight 2' })).toBeVisible()
-    expect(screen.getByText('0.2x')).toBeVisible()
+    expect(screen.getByText('0.20x')).toBeVisible()
   })
 
   test('keeps the cost ratio read-only for an admin below super admin', () => {
@@ -76,7 +76,7 @@ describe('ChannelRoutingCell', () => {
     renderCell(channel(1, 0.2))
 
     expect(
-      screen.queryByRole('button', { name: 'Cost ratio 0.2x' })
+      screen.queryByRole('button', { name: 'Cost ratio 0.20x' })
     ).not.toBeInTheDocument()
   })
 
@@ -88,7 +88,7 @@ describe('ChannelRoutingCell', () => {
       .mockResolvedValue({ data: { success: true } })
     renderCell(channel(1, 0.2))
 
-    await user.click(screen.getByRole('button', { name: 'Cost ratio 0.2x' }))
+    await user.click(screen.getByRole('button', { name: 'Cost ratio 0.20x' }))
     const input = screen.getByRole('textbox', { name: 'Cost ratio' })
     await user.clear(input)
     await user.type(input, '0.25{Enter}')
@@ -111,7 +111,7 @@ describe('ChannelRoutingCell', () => {
       throw new Error('Missing tag row')
     }
     renderCell(row)
-    expect(screen.getByText('0.2x-0.5x')).toBeVisible()
+    expect(screen.getByText('0.20x-0.50x')).toBeVisible()
 
     await user.click(screen.getByRole('button', { name: 'Weight 2' }))
     const input = screen.getByRole('textbox', { name: 'Weight' })

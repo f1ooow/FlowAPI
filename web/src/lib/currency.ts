@@ -99,6 +99,13 @@ export interface CurrencyFormatOptions {
    * "$280K" in en). The currency symbol is preserved.
    */
   compact?: boolean
+  /**
+   * Always print exactly this many fraction digits, padding with zeros, so
+   * amounts in a column line up. Overrides digitsLarge/digitsSmall and the
+   * minimumNonZero floor, and ignores compact notation. A value that rounds
+   * to zero prints without a minus sign. Token displays are unchanged.
+   */
+  fixedFractionDigits?: number
   /** Whether to include the currency/custom symbol. Token displays are unchanged. */
   showSymbol?: boolean
   /** Locale used for number formatting (defaults to the runtime locale) */
@@ -107,9 +114,10 @@ export interface CurrencyFormatOptions {
 
 type ResolvedCurrencyFormatOptions = Omit<
   Required<CurrencyFormatOptions>,
-  'locale'
+  'locale' | 'fixedFractionDigits'
 > & {
   locale: Intl.LocalesArgument | undefined
+  fixedFractionDigits: number | undefined
 }
 
 type DisplayMeta =
@@ -136,6 +144,7 @@ const DEFAULT_FORMAT_OPTIONS: ResolvedCurrencyFormatOptions = {
   abbreviate: true,
   minimumNonZero: 0,
   compact: false,
+  fixedFractionDigits: undefined,
   showSymbol: true,
   locale: undefined,
 }
@@ -239,6 +248,7 @@ function mergeOptions(
     minimumNonZero:
       options.minimumNonZero ?? DEFAULT_FORMAT_OPTIONS.minimumNonZero,
     compact: options.compact ?? DEFAULT_FORMAT_OPTIONS.compact,
+    fixedFractionDigits: options.fixedFractionDigits,
     showSymbol: options.showSymbol ?? DEFAULT_FORMAT_OPTIONS.showSymbol,
     locale: options.locale ?? DEFAULT_FORMAT_OPTIONS.locale,
   }
@@ -315,6 +325,32 @@ function formatCurrencyValue(
       options.digitsSmall,
       options.abbreviate
     )
+  }
+
+  if (options.fixedFractionDigits !== undefined) {
+    const fixedDigits = options.fixedFractionDigits
+    const numberOptions: Intl.NumberFormatOptions = {
+      minimumFractionDigits: fixedDigits,
+      maximumFractionDigits: fixedDigits,
+    }
+    // A loss that rounds to zero reads as 0.00, not as "-0.00".
+    const scale = 10 ** fixedDigits
+    const fixedValue = Math.round(Math.abs(value) * scale) === 0 ? 0 : value
+    if (meta.kind === 'currency' && options.showSymbol) {
+      return new Intl.NumberFormat(options.locale, {
+        ...numberOptions,
+        style: 'currency',
+        currency: meta.currencyCode,
+        currencyDisplay: 'narrowSymbol',
+      }).format(fixedValue)
+    }
+    const fixedDecimal = new Intl.NumberFormat(
+      options.locale,
+      numberOptions
+    ).format(fixedValue)
+    return meta.kind === 'custom' && options.showSymbol
+      ? `${meta.symbol} ${fixedDecimal}`
+      : fixedDecimal
   }
 
   const digits = getFractionDigits(

@@ -30,11 +30,14 @@ import {
 import { formatChannelCostRatio } from '../channel-utils'
 
 describe('channel cost ratio form contract', () => {
-  test('formats channel cost ratios with at most two decimal places', () => {
-    expect(formatChannelCostRatio(undefined)).toBe('1x')
-    expect(formatChannelCostRatio(1)).toBe('1x')
-    expect(formatChannelCostRatio(0.55)).toBe('0.55x')
-    expect(formatChannelCostRatio(1.5)).toBe('1.5x')
+  test('formats channel cost ratios with exactly two decimal places', () => {
+    expect(formatChannelCostRatio(undefined)).toBe('1.00x')
+    expect(formatChannelCostRatio(1)).toBe('1.00x')
+    expect(formatChannelCostRatio(0.2)).toBe('0.20x')
+    expect(formatChannelCostRatio(0.24)).toBe('0.24x')
+    expect(formatChannelCostRatio(0.3)).toBe('0.30x')
+    expect(formatChannelCostRatio(1.5)).toBe('1.50x')
+    expect(formatChannelCostRatio(1000)).toBe('1000.00x')
   })
 
   test('uses hundredth increments from a hundredth minimum', () => {
