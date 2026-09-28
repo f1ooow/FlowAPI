@@ -493,8 +493,8 @@ export function formatQuota(quota: number): string {
 }
 
 /**
- * Names the window of the cost / consumption / profit figures. Shared by the
- * table header and the card label so both views state the same scope.
+ * Names the window of the cost / consumption / profit figures as one label,
+ * for the card, which shows the three figures together.
  */
 export function getChannelQuotaSummaryTitle(
   scope: ChannelQuotaSummaryScope,
@@ -503,6 +503,26 @@ export function getChannelQuotaSummaryTitle(
   return scope === 'today'
     ? t('Cost / Consumption / Profit · Today')
     : t('Cost / Consumption / Profit · All time')
+}
+
+/**
+ * Header of one of the table's cost, consumption and profit columns. Each
+ * title carries the window, so the three columns state their scope on their
+ * own and the cost amount never reads like the cost ratio column next to it.
+ */
+export function getChannelQuotaColumnTitle(
+  field: 'cost' | 'used' | 'profit',
+  scope: ChannelQuotaSummaryScope,
+  t: TFunction
+): string {
+  const today = scope === 'today'
+  if (field === 'cost') {
+    return today ? t('Cost today') : t('Total cost')
+  }
+  if (field === 'used') {
+    return today ? t('Consumed today') : t('Total consumed')
+  }
+  return today ? t('Profit today') : t('Total profit')
 }
 
 // ============================================================================

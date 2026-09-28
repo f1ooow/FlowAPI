@@ -32,7 +32,6 @@ import {
 } from '../lib'
 import { getChannelRoutingText } from '../lib/channel-routing-text'
 import type { Channel } from '../types'
-import { ChannelColumnSlotsContext } from './channel-column-slots-context'
 import { ChannelRowActionsLayoutContext } from './channel-row-actions-context'
 import { InlineNumberChip } from './inline-number-chip'
 
@@ -43,15 +42,16 @@ type TagFieldUpdate = { field: 'priority' | 'weight'; value: number }
 
 /**
  * Priority, weight or cost ratio of a channel as one editable chip, sized for
- * one table column. The three fields are separate columns whose widths the
- * table fixes, so a chip never shares a cell with its neighbours and never
- * wraps. A tag row edits priority and weight for every channel in the tag
- * after confirmation; its cost ratio is the range of its channels. Only super
- * admins may change a cost ratio, matching the backend rule, so for everyone
- * else the chip is read-only.
+ * one table column. Each field is a column whose width the table fixes and
+ * whose figures are right-aligned under a right-aligned header, so the numbers
+ * of every row end on the same x without the cells measuring each other. The
+ * header names the field, so in the table the chip shows only the number; the
+ * card view has no headers and keeps the label in the chip.
  *
- * The confirming dialog is owned by the row, not by a column, so a tag edit
- * shows one dialog rather than one per column.
+ * A tag row edits priority and weight for every channel in the tag after
+ * confirmation; its cost ratio is the range of its channels. Only super admins
+ * may change a cost ratio, matching the backend rule, so for everyone else the
+ * chip is read-only.
  */
 export function ChannelRoutingValueCell(props: {
   channel: Channel
@@ -62,15 +62,11 @@ export function ChannelRoutingValueCell(props: {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const layout = useContext(ChannelRowActionsLayoutContext)
-  const slotWidths = useContext(ChannelColumnSlotsContext)
   const isRoot = useAuthStore(
     (state) => state.auth.user?.role === ROLE.SUPER_ADMIN
   )
   const channel = props.channel
-  // In edit mode the chip overlays its value box instead of growing, so the
-  // shared slot widths only decide how wide each value box is; without them
-  // (cards) the box hugs its own text.
-  const widths = layout === 'table' ? slotWidths : null
+  const labelVisible = layout === 'card'
   const isTagRow = isTagAggregateRow(channel)
   const routing = getChannelRoutingText(channel)
 
@@ -78,12 +74,12 @@ export function ChannelRoutingValueCell(props: {
     return (
       <InlineNumberChip
         label={t('Cost ratio')}
+        labelVisible={labelVisible}
         // A tag row shows the range of its channels; a channel shows its own
-        // ratio. Both texts come from the same helper the slot width uses.
+        // ratio.
         value={isTagRow ? null : (channel.cost_ratio ?? 1)}
         formatValue={formatChannelCostRatio}
         displayText={isTagRow ? routing.costRatio : undefined}
-        valueWidth={widths?.costRatio}
         min={0.01}
         max={1000}
         step={0.01}
@@ -125,8 +121,8 @@ export function ChannelRoutingValueCell(props: {
   return (
     <InlineNumberChip
       label={label}
+      labelVisible={labelVisible}
       value={value}
-      valueWidth={widths?.[props.field]}
       min={props.field === 'priority' ? -999 : 0}
       onCommit={onCommit}
     />
@@ -135,9 +131,12 @@ export function ChannelRoutingValueCell(props: {
 
 /**
  * Priority, weight and cost ratio of a channel as three editable chips, laid
- * out to sit in one row of the card view. The table renders one
- * {@link ChannelRoutingValueCell} per column instead, which fixes each chip's
- * width and keeps the numbers aligned down the column.
+ * out to sit in one row. The table renders one {@link ChannelRoutingValueCell}
+ * per column instead, which fixes each chip's width and keeps the numbers
+ * aligned down the column.
+ *
+ * The confirming dialog is owned by the row, not by a column, so a tag edit
+ * shows one dialog rather than one per column.
  */
 export function ChannelRoutingCell(props: { channel: Channel }) {
   const { t } = useTranslation()

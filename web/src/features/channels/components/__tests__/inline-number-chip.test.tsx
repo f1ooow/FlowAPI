@@ -144,7 +144,7 @@ describe('InlineNumberChip', () => {
     )
 
     const chip = screen.getByRole('button', { name: 'Weight 0' })
-    const slot = chip.querySelector('[data-slot="aligned-value"]')
+    const slot = chip.querySelector('[data-slot="aligned-number"]')
     // One-digit values still keep a roomy, aligned box.
     expect(slot?.parentElement?.style.minWidth).toBe('3ch')
 
@@ -194,6 +194,33 @@ describe('InlineNumberChip', () => {
     // chip keeps its box and its neighbours keep theirs.
     expect(screen.getByRole('textbox', { name: 'Weight' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Weight 3' })).toBe(chip)
+  })
+
+  test('shows the bare number by default, for a column whose header names it', () => {
+    render(
+      <InlineNumberChip label='Weight' value={12} min={0} onCommit={vi.fn()} />
+    )
+
+    const chip = screen.getByRole('button', { name: 'Weight 12' })
+    expect(chip).toHaveTextContent(/^12$/)
+    // It fills the column, so the value ends on the column's right edge.
+    expect(chip).toHaveClass('w-full', 'justify-end')
+  })
+
+  test('shows the label beside the number when asked, for chips side by side', () => {
+    render(
+      <InlineNumberChip
+        label='Weight'
+        labelVisible
+        value={12}
+        min={0}
+        onCommit={vi.fn()}
+      />
+    )
+
+    const chip = screen.getByRole('button', { name: 'Weight 12' })
+    expect(chip).toHaveTextContent(/^Weight12$/)
+    expect(chip).not.toHaveClass('w-full')
   })
 
   test('leaves the chip read-only when the value is a range', () => {

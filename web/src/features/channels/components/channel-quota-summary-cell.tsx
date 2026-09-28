@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Fragment, useContext } from 'react'
+import { useContext } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { textColorMap, type StatusVariant } from '@/components/status-badge'
@@ -34,31 +34,24 @@ import {
   type QuotaSummaryText,
 } from '../lib/channel-quota-summary'
 import type { Channel, ChannelQuotaSummaryScope } from '../types'
-import { AlignedValue } from './aligned-value'
-import { ChannelColumnSlotsContext } from './channel-column-slots-context'
 import { ChannelRowActionsLayoutContext } from './channel-row-actions-context'
 import { useChannels } from './channels-provider'
 
-type QuotaSummaryEntry = QuotaSummaryText & {
-  key: 'cost' | 'used' | 'profit'
-  label: string
-  variant: StatusVariant
-  width: number | undefined
-}
-
 /**
- * Cost, consumption and profit (consumption minus cost) of a channel or tag
- * over the selected scope. In the table each figure sits in a right-aligned
- * slot whose width the table shares across its rows, so the amounts and the
- * separators line up down the column.
+ * Cost, consumption or profit (consumption minus cost) of a channel or tag over
+ * the selected scope, as one column of its own. The table sizes the column and
+ * right-aligns it, so the tabular figure ends on the same x on every row and
+ * the decimal points line up, and the precise value stays in the tooltip. With
+ * one figure per column nothing reserves room for its neighbours, so no row
+ * measures the page.
  */
-export function ChannelQuotaSummaryCell(props: {
+export function ChannelQuotaValueCell(props: {
   channel: Channel
   scope: ChannelQuotaSummaryScope
+  field: 'cost' | 'used' | 'profit'
 }) {
   const { t, i18n } = useTranslation()
   const layout = useContext(ChannelRowActionsLayoutContext)
-  const slotWidths = useContext(ChannelColumnSlotsContext)
   const { sensitiveVisible } = useChannels()
   const summary = getChannelQuotaSummary(props.channel, props.scope, {
     sensitiveVisible,
@@ -67,80 +60,42 @@ export function ChannelQuotaSummaryCell(props: {
   })
 
   // Colour would give away a hidden loss, so masked values stay neutral.
-  let profitVariant: StatusVariant = 'neutral'
-  if (sensitiveVisible && summary.profitQuota != null) {
-    if (summary.profitQuota < 0) {
-      profitVariant = 'danger'
-    } else if (summary.profitQuota > 0) {
-      profitVariant = 'success'
+  let variant: StatusVariant = 'neutral'
+  if (props.field === 'profit' && sensitiveVisible) {
+    if (summary.profitQuota != null && summary.profitQuota < 0) {
+      variant = 'danger'
+    } else if (summary.profitQuota != null && summary.profitQuota > 0) {
+      variant = 'success'
     }
   }
 
-  // Cards are laid out one by one, so only the table aligns its slots.
-  const alignedWidths = layout === 'table' ? slotWidths : null
-  const entries: QuotaSummaryEntry[] = [
-    {
-      key: 'cost',
-      label: t('Cost:'),
-      variant: 'neutral',
-      width: alignedWidths?.cost,
-      ...summary.cost,
-    },
-    {
-      key: 'used',
-      label: t('Consumption:'),
-      variant: 'neutral',
-      width: alignedWidths?.used,
-      ...summary.used,
-    },
-    {
-      key: 'profit',
-      label: t('Profit:'),
-      variant: profitVariant,
-      width: alignedWidths?.profit,
-      ...summary.profit,
-    },
-  ]
+  const entry: QuotaSummaryText = summary[props.field]
+  let label = t('Profit:')
+  if (props.field === 'cost') {
+    label = t('Cost:')
+  } else if (props.field === 'used') {
+    label = t('Consumption:')
+  }
 
   return (
     <TooltipProvider>
       <Tooltip>
-        <TooltipTrigger
-          render={
-            // Overflow is hidden and the separators never shrink, so a tight
-            // column clips the tail instead of squeezing the figures into a
-            // second line. The full numbers stay in the tooltip.
-            <div className='flex max-w-full min-w-0 cursor-help flex-nowrap items-center gap-1 overflow-hidden text-sm font-medium' />
-          }
-        >
-          {entries.map((entry, index) => (
-            <Fragment key={entry.key}>
-              {index > 0 && (
-                <span
-                  aria-hidden='true'
-                  className='text-muted-foreground/60 shrink-0 text-xs'
-                >
-                  /
-                </span>
-              )}
-              <AlignedValue
-                width={entry.width}
-                className={cn('shrink-0', textColorMap[entry.variant])}
-                title={`${entry.label} ${entry.full}`}
-              >
-                {entry.display}
-              </AlignedValue>
-            </Fragment>
-          ))}
+        <TooltipTrigger render={<span className='inline-block cursor-help' />}>
+          <span
+            data-slot='aligned-number'
+            title={`${label} ${entry.full}`}
+            className={cn(
+              'inline-block text-right font-mono font-medium tabular-nums whitespace-nowrap',
+              textColorMap[variant]
+            )}
+          >
+            {entry.display}
+          </span>
         </TooltipTrigger>
         <TooltipContent>
-          <div className='grid gap-0.5'>
-            {entries.map((entry) => (
-              <p key={entry.key}>
-                {entry.label} {entry.full}
-              </p>
-            ))}
-          </div>
+          <p>
+            {label} {entry.full}
+          </p>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

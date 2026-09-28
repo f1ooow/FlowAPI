@@ -24,8 +24,10 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 
 import { channelSchema, type Channel } from '../../types'
 import { ChannelCard } from '../channel-card'
-import { ChannelQuotaSummaryCell } from '../channel-quota-summary-cell'
+import { ChannelQuotaValueCell } from '../channel-quota-summary-cell'
 import { ChannelsProvider, useChannels } from '../channels-provider'
+
+const QUOTA_FIELDS = ['cost', 'used', 'profit'] as const
 
 type QuotaFields = Partial<
   Pick<
@@ -65,12 +67,20 @@ function VisibilityToggle() {
   )
 }
 
+// The table renders the three figures as three columns of one row.
 function renderCell(target: Channel, scope: 'today' | 'total' = 'today'): void {
   render(
     <QueryClientProvider client={new QueryClient()}>
       <ChannelsProvider>
         <VisibilityToggle />
-        <ChannelQuotaSummaryCell channel={target} scope={scope} />
+        {QUOTA_FIELDS.map((field) => (
+          <ChannelQuotaValueCell
+            key={field}
+            channel={target}
+            scope={scope}
+            field={field}
+          />
+        ))}
       </ChannelsProvider>
     </QueryClientProvider>
   )
@@ -79,17 +89,22 @@ function renderCell(target: Channel, scope: 'today' | 'total' = 'today'): void {
 function renderCard(target: Channel): void {
   const row = {
     original: target,
-    getAllCells: () => [
-      {
+    getAllCells: () =>
+      QUOTA_FIELDS.map((field) => ({
         column: {
-          id: 'quota_summary',
+          id: `quota_${field}`,
           columnDef: {
-            cell: <ChannelQuotaSummaryCell channel={target} scope='today' />,
+            cell: (
+              <ChannelQuotaValueCell
+                channel={target}
+                scope='today'
+                field={field}
+              />
+            ),
           },
         },
         getContext: () => ({}),
-      },
-    ],
+      })),
   } as unknown as Row<Channel>
 
   render(
@@ -109,7 +124,7 @@ afterEach(() => {
   localStorage.clear()
 })
 
-describe('ChannelQuotaSummaryCell', () => {
+describe('ChannelQuotaValueCell', () => {
   test('shows today cost, consumption and their difference as profit', () => {
     renderCell(
       channel({ today_cost_quota: 500_000, today_used_quota: 1_250_000 })

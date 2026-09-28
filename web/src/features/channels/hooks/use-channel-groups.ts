@@ -17,15 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { useMemo } from 'react'
 
 import { getGroups } from '../api'
-import { createGroupCapsuleClassName } from '../lib/group-capsule-color'
 
 /**
  * The full group list. Every channel-page reader shares this query key, so the
- * group filter, the capsules and the edit popover make one request between
- * them.
+ * group filter and the group edit popover make one request between them.
  */
 export function useChannelGroups(options: { enabled?: boolean } = {}) {
   return useQuery({
@@ -33,11 +30,4 @@ export function useChannelGroups(options: { enabled?: boolean } = {}) {
     queryFn: getGroups,
     enabled: options.enabled,
   })
-}
-
-/** Capsule fill for any group, assigned from the full group list. */
-export function useGroupCapsuleClassName(): (group: string) => string {
-  const { data } = useChannelGroups()
-  const groups = data?.data
-  return useMemo(() => createGroupCapsuleClassName(groups ?? []), [groups])
 }

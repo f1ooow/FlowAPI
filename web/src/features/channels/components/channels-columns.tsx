@@ -51,6 +51,7 @@ import { useChannelPassthrough } from '../hooks/use-channel-passthrough'
 import {
   formatRelativeTime,
   formatResponseTime,
+  getChannelQuotaColumnTitle,
   getChannelTypeIcon,
   getChannelTypeLabel,
   getResponseTimeConfig,
@@ -62,8 +63,8 @@ import {
 } from '../lib'
 import { parseUpstreamUpdateMeta } from '../lib/upstream-update-utils'
 import type { Channel } from '../types'
-import { ChannelGroupCapsules } from './channel-group-capsules'
-import { ChannelQuotaSummaryCell } from './channel-quota-summary-cell'
+import { ChannelGroupsCell } from './channel-groups-cell'
+import { ChannelQuotaValueCell } from './channel-quota-summary-cell'
 import { ChannelQuotaSummaryHeader } from './channel-quota-summary-header'
 import { ChannelRoutingValueCell } from './channel-routing-cell'
 import { ChannelRowActionsLayoutContext } from './channel-row-actions-context'
@@ -270,13 +271,9 @@ function ChannelNameCell(props: {
   return (
     <div className='flex max-w-full min-w-0 flex-nowrap items-center gap-2'>
       <div className='flex max-w-full min-w-0 flex-col gap-1'>
-        {/* The name, its markers and the group capsules share one row that
-          never wraps: the name truncates and the capsules give way, so a long
-          group list cannot push the row to two lines. */}
-        <div
-          data-slot='channel-name-row'
-          className='flex max-w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden'
-        >
+        {/* The name and its few fixed-size markers share one row that never
+          wraps; the groups live in a column of their own. */}
+        <div className='flex max-w-full min-w-0 flex-nowrap items-center gap-1.5'>
           {showTypeMarkers && (
             <TooltipProvider delay={300}>
               <Tooltip>
@@ -351,13 +348,6 @@ function ChannelNameCell(props: {
             </TooltipProvider>
           )}
           <UpstreamUpdateTags channel={props.channel} />
-          {/* The capsules take the space that is left and truncate inside it,
-              so they never push the name or wrap the row. A single very long
-              group name is capped so it cannot eat the whole column. */}
-          <ChannelGroupCapsules
-            channel={props.channel}
-            className='min-w-0 shrink [&>[data-slot=group-capsule]]:max-w-40'
-          />
         </div>
         {props.channel.remark && (
           <TooltipProvider delay={200}>
@@ -499,8 +489,27 @@ export function useChannelsColumns(
             />
           )
         },
-        size: 280,
-        minSize: 200,
+        size: 240,
+        minSize: 160,
+      },
+
+      // Groups of a channel, editable from the cell. The cell's width is a
+      // constant, so this column is exactly as wide with one group as with a
+      // hundred. A tag row has no groups of its own. A new id keeps a
+      // visibility state saved for the old "group" column from applying.
+      {
+        id: 'groups',
+        accessorKey: 'group',
+        header: t('Groups'),
+        meta: { mobileHidden: true },
+        cell: ({ row }) =>
+          isTagAggregateRow(row.original) ? null : (
+            <ChannelGroupsCell channel={row.original} />
+          ),
+        enableSorting: false,
+        size: 160,
+        // The cell's constant `w-24` plus the cell padding.
+        minSize: 112,
       },
 
       // Channel type. Never shown as a table column (the name cell carries the
@@ -566,9 +575,9 @@ export function useChannelsColumns(
         enableHiding: false,
       },
 
-      // Status and groups are shown by the row switch and the name cell's
-      // capsules; these hidden columns only back the toolbar filters. New
-      // ids keep saved visibility of the old columns from reviving them.
+      // Status and groups are shown by the row switch and the groups column;
+      // these hidden columns only back the toolbar filters. New ids keep saved
+      // visibility of the old columns from reviving them.
       {
         id: 'channel_status',
         accessorKey: 'status',
@@ -635,9 +644,10 @@ export function useChannelsColumns(
       },
 
       // Priority, weight and cost ratio as one inline-editable chip each. A
-      // column of their own, so a chip never shares its cell with its
-      // neighbours and never wraps. Keyed on priority so the server-side
-      // priority sort keeps working.
+      // column of their own, right-aligned under a right-aligned header (see
+      // the table's numeric column classes), so a chip never shares its cell
+      // with its neighbours and never wraps. Keyed on priority so the
+      // server-side priority sort keeps working.
       {
         accessorKey: 'priority',
         header: t('Priority'),
@@ -645,8 +655,9 @@ export function useChannelsColumns(
         cell: ({ row }) => (
           <ChannelRoutingValueCell channel={row.original} field='priority' />
         ),
-        size: 72,
-        minSize: 56,
+        // Room for the sort icon beside the title.
+        size: 96,
+        minSize: 80,
       },
       {
         id: 'weight',
@@ -673,9 +684,12 @@ export function useChannelsColumns(
         minSize: 72,
       },
 
-      // Cost / consumption / profit over the scope picked in the header menu
+      // Cost, consumption and profit over the scope picked in the cost header
+      // menu, one right-aligned column each. The table sizes each column, so
+      // the figures of every row end on the same x without the cells
+      // measuring each other.
       {
-        id: 'quota_summary',
+        id: 'quota_cost',
         header: () => (
           <ChannelQuotaSummaryHeader
             scope={quotaSummaryScope}
@@ -683,13 +697,45 @@ export function useChannelsColumns(
           />
         ),
         cell: ({ row }) => (
-          <ChannelQuotaSummaryCell
+          <ChannelQuotaValueCell
             channel={row.original}
             scope={quotaSummaryScope}
+            field='cost'
           />
         ),
-        // Three monospace slots wide enough for five-digit all-time totals.
-        size: 320,
+        // Room for the range menu icon beside the title.
+        size: 120,
+        minSize: 96,
+        enableSorting: false,
+        enableHiding: false,
+      },
+      {
+        id: 'quota_used',
+        header: getChannelQuotaColumnTitle('used', quotaSummaryScope, t),
+        cell: ({ row }) => (
+          <ChannelQuotaValueCell
+            channel={row.original}
+            scope={quotaSummaryScope}
+            field='used'
+          />
+        ),
+        size: 104,
+        minSize: 80,
+        enableSorting: false,
+        enableHiding: false,
+      },
+      {
+        id: 'quota_profit',
+        header: getChannelQuotaColumnTitle('profit', quotaSummaryScope, t),
+        cell: ({ row }) => (
+          <ChannelQuotaValueCell
+            channel={row.original}
+            scope={quotaSummaryScope}
+            field='profit'
+          />
+        ),
+        size: 104,
+        minSize: 80,
         enableSorting: false,
         enableHiding: false,
       },
@@ -703,13 +749,18 @@ export function useChannelsColumns(
           const responseTime = row.getValue('response_time') as number
           const config = getResponseTimeConfig(responseTime)
 
+          // `max-w-none`: the badge is pulled left by its own padding, so the
+          // table sizes the column from a box 6px narrower than the badge. A
+          // `max-w-full` cap would then clip the tail ("24.15…") whenever the
+          // column sits at its minimum width; uncapped, the badge still ends
+          // inside the cell.
           return (
             <StatusBadge
               label={formatResponseTime(responseTime, t)}
               variant={config.variant}
               size='sm'
               copyable={false}
-              className='-ml-1.5'
+              className='-ml-1.5 max-w-none'
             />
           )
         },
@@ -738,12 +789,13 @@ export function useChannelsColumns(
               <Tooltip>
                 <TooltipTrigger
                   render={
+                    // Uncapped for the same reason as the response badge.
                     <StatusBadge
                       label={timeText}
                       variant='neutral'
                       size='sm'
                       copyable={false}
-                      className='-ml-1.5 cursor-pointer'
+                      className='-ml-1.5 max-w-none cursor-pointer'
                     />
                   }
                 />

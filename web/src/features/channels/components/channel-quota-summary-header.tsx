@@ -29,13 +29,15 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
-import { getChannelQuotaSummaryTitle } from '../lib'
+import { getChannelQuotaColumnTitle } from '../lib'
 import type { ChannelQuotaSummaryScope } from '../types'
 
 /**
- * Header of the cost / consumption / profit column. The figures come from
- * consume logs and cannot be sorted server-side, so the menu offers the
- * statistics window instead of sort directions.
+ * Header of the cost column, the first of the cost / consumption / profit
+ * columns. The figures come from consume logs and cannot be sorted
+ * server-side, so the menu offers the statistics window of all three columns
+ * instead of sort directions. It is shaped like the table's sort header (title,
+ * then icon), so the numeric column header class aligns both the same way.
  */
 export function ChannelQuotaSummaryHeader(props: {
   scope: ChannelQuotaSummaryScope
@@ -54,10 +56,10 @@ export function ChannelQuotaSummaryHeader(props: {
           />
         }
       >
-        <span>{getChannelQuotaSummaryTitle(props.scope, t)}</span>
+        <span>{getChannelQuotaColumnTitle('cost', props.scope, t)}</span>
         <ChevronDown className='ms-2 h-4 w-4' />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align='start'>
+      <DropdownMenuContent align='end'>
         <DropdownMenuRadioGroup
           value={props.scope}
           onValueChange={(value) =>

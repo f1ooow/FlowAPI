@@ -44,7 +44,6 @@ import {
 } from '@/components/ui/tooltip'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
-import { toIntlLocale } from '@/i18n/languages'
 import { getLobeIcon } from '@/lib/lobe-icon'
 
 import { getChannels, searchChannels } from '../api'
@@ -62,10 +61,8 @@ import {
   getChannelTypeIcon,
   getChannelTypeLabel,
 } from '../lib'
-import { getChannelColumnSlotWidths } from '../lib/channel-column-slots'
 import type { Channel, ChannelSortBy } from '../types'
 import { ChannelCard } from './channel-card'
-import { ChannelColumnSlotsContext } from './channel-column-slots-context'
 import { ChannelGroupFilterBar } from './channel-group-filter-bar'
 import { useChannelsColumns } from './channels-columns'
 import { useChannels } from './channels-provider'
@@ -81,8 +78,9 @@ const route = getRouteApi('/_authenticated/channels/')
  * current version are still persisted and restored as usual.
  *
  * 2: priority split into the priority / weight / cost ratio columns.
+ * 3: groups column added; cost / consumption / profit split into three columns.
  */
-const CHANNELS_COLUMN_SIZING_VERSION = 2
+const CHANNELS_COLUMN_SIZING_VERSION = 3
 
 const CHANNELS_COLUMN_VISIBILITY_STORAGE_KEY = 'channels:column-visibility'
 const CHANNELS_COLUMN_SIZING_STORAGE_KEY = `channels:column-sizing:v${CHANNELS_COLUMN_SIZING_VERSION}`
@@ -103,15 +101,53 @@ function isDisabledChannelRow(channel: Channel) {
   )
 }
 
+/**
+ * Columns of figures. Right-aligned, header and cells alike, so a title ends
+ * on the same line as the figures below it and the decimal points of every row
+ * share one x.
+ */
+const NUMERIC_COLUMN_IDS = new Set([
+  'priority',
+  'weight',
+  'cost_ratio',
+  'quota_cost',
+  'quota_used',
+  'quota_profit',
+])
+
+/**
+ * The table's header is left-aligned, so a numeric column right-aligns its own.
+ * A header that is a menu button (the sort menu, the statistics range menu)
+ * ends in an icon, which would push the title off the figures' line, so the
+ * icon moves to the inner side of the title and the button's end padding and
+ * border (4px + 1px) are pulled back into the cell padding, leaving the title
+ * itself on the line.
+ */
+const NUMERIC_HEADER_CLASS =
+  'text-right [&>div]:justify-end [&_button]:flex-row-reverse [&_button]:pe-1 [&_button]:-me-[5px] [&_button_svg]:ms-0'
+
+// Module scope keeps the resolver stable, so the memoized rows do not re-render.
+function getChannelColumnClassName(columnId: string, kind: 'header' | 'cell') {
+  if (NUMERIC_COLUMN_IDS.has(columnId)) {
+    return kind === 'header' ? NUMERIC_HEADER_CLASS : 'text-right'
+  }
+  // The response column is left-aligned right after the right-aligned profit
+  // figures; a wider start inset, on header and cells alike, keeps the two
+  // from running into each other.
+  if (columnId === 'response_time') {
+    return 'ps-4'
+  }
+  return undefined
+}
+
 export function ChannelsTable() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const {
     enableTagMode,
     idSort,
     batchMode,
     sensitiveVisible,
     setSensitiveVisible,
-    quotaSummaryScope,
   } = useChannels()
   const isMobile = useMediaQuery('(max-width: 640px)')
 
@@ -315,19 +351,6 @@ export function ChannelsTable() {
     return rawChannels
   }, [data, enableTagMode])
 
-  // One width per value slot across the page, so the quota and routing
-  // columns line up; recomputed whenever the page, scope or masking changes.
-  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
-  const columnSlotWidths = useMemo(
-    () =>
-      getChannelColumnSlotWidths(channels, quotaSummaryScope, {
-        sensitiveVisible,
-        showSymbol: true,
-        locale,
-      }),
-    [channels, quotaSummaryScope, sensitiveVisible, locale]
-  )
-
   const totalCount = data?.data?.total || 0
   const typeCounts = data?.data?.type_counts
 
@@ -430,97 +453,96 @@ export function ChannelsTable() {
   }, [t, typeCounts, typeFilter])
 
   return (
-    <ChannelColumnSlotsContext.Provider value={columnSlotWidths}>
-      <DataTablePage
-        table={table}
-        columns={columns}
-        isLoading={isLoading}
-        isFetching={isFetching}
-        emptyTitle={t('No Channels Found')}
-        emptyDescription={t(
-          'No channels available. Create your first channel to get started.'
-        )}
-        skeletonKeyPrefix='channel-skeleton'
-        enableCardView
-        viewModeStorageKey={CHANNELS_VIEW_MODE_STORAGE_KEY}
-        renderCard={(row, { isSelected }) => (
-          <ChannelCard row={row} isSelected={isSelected} />
-        )}
-        cardGridClassName='grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-3'
-        applyHeaderSize
-        toolbarProps={{
-          searchPlaceholder: t('Filter by name, ID, or key...'),
-          searchDebounceMs: 500,
-          onReset: () => {
-            resetModelFilterInput()
+    <DataTablePage
+      table={table}
+      columns={columns}
+      isLoading={isLoading}
+      isFetching={isFetching}
+      emptyTitle={t('No Channels Found')}
+      emptyDescription={t(
+        'No channels available. Create your first channel to get started.'
+      )}
+      skeletonKeyPrefix='channel-skeleton'
+      enableCardView
+      viewModeStorageKey={CHANNELS_VIEW_MODE_STORAGE_KEY}
+      renderCard={(row, { isSelected }) => (
+        <ChannelCard row={row} isSelected={isSelected} />
+      )}
+      cardGridClassName='grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-3'
+      applyHeaderSize
+      getColumnClassName={getChannelColumnClassName}
+      toolbarProps={{
+        searchPlaceholder: t('Filter by name, ID, or key...'),
+        searchDebounceMs: 500,
+        onReset: () => {
+          resetModelFilterInput()
+        },
+        additionalSearch: (
+          <Input
+            placeholder={t('Filter by model...')}
+            value={modelFilterInput}
+            onChange={onModelFilterInputChange}
+            onCompositionStart={onModelFilterCompositionStart}
+            onCompositionEnd={onModelFilterCompositionEnd}
+            className='w-full sm:w-[150px] lg:w-[180px]'
+          />
+        ),
+        filters: [
+          {
+            columnId: 'channel_status',
+            title: t('Status'),
+            options: [...CHANNEL_STATUS_OPTIONS],
+            singleSelect: true,
           },
-          additionalSearch: (
-            <Input
-              placeholder={t('Filter by model...')}
-              value={modelFilterInput}
-              onChange={onModelFilterInputChange}
-              onCompositionStart={onModelFilterCompositionStart}
-              onCompositionEnd={onModelFilterCompositionEnd}
-              className='w-full sm:w-[150px] lg:w-[180px]'
-            />
-          ),
-          filters: [
-            {
-              columnId: 'channel_status',
-              title: t('Status'),
-              options: [...CHANNEL_STATUS_OPTIONS],
-              singleSelect: true,
-            },
-            {
-              columnId: 'channel_type',
-              title: t('Type'),
-              options: typeFilterOptions,
-              singleSelect: true,
-            },
-          ],
-          leftActions: (
-            <ChannelGroupFilterBar
-              groups={groups}
-              selectedGroup={selectedGroup}
-              onSelectedGroupChange={(group) =>
-                table
-                  .getColumn('channel_group')
-                  ?.setFilterValue(group === undefined ? undefined : [group])
+          {
+            columnId: 'channel_type',
+            title: t('Type'),
+            options: typeFilterOptions,
+            singleSelect: true,
+          },
+        ],
+        leftActions: (
+          <ChannelGroupFilterBar
+            groups={groups}
+            selectedGroup={selectedGroup}
+            onSelectedGroupChange={(group) =>
+              table
+                .getColumn('channel_group')
+                ?.setFilterValue(group === undefined ? undefined : [group])
+            }
+          />
+        ),
+        preActions: (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant='ghost'
+                  size='icon'
+                  onClick={() => setSensitiveVisible(!sensitiveVisible)}
+                  aria-label={sensitiveVisible ? t('Hide') : t('Show')}
+                  className='text-muted-foreground hover:text-foreground size-8'
+                />
               }
-            />
-          ),
-          preActions: (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant='ghost'
-                    size='icon'
-                    onClick={() => setSensitiveVisible(!sensitiveVisible)}
-                    aria-label={sensitiveVisible ? t('Hide') : t('Show')}
-                    className='text-muted-foreground hover:text-foreground size-8'
-                  />
-                }
-              >
-                {sensitiveVisible ? <Eye /> : <EyeOff />}
-              </TooltipTrigger>
-              <TooltipContent>
-                {sensitiveVisible ? t('Hide') : t('Show')}
-              </TooltipContent>
-            </Tooltip>
-          ),
-        }}
-        getRowClassName={(row, { isMobile }) => {
-          if (!isDisabledChannelRow(row.original)) {
-            return undefined
-          }
-          if (isMobile) {
-            return DISABLED_ROW_MOBILE
-          }
-          return DISABLED_ROW_DESKTOP
-        }}
-        bulkActions={batchMode ? <DataTableBulkActions table={table} /> : null}
-      />
-    </ChannelColumnSlotsContext.Provider>
+            >
+              {sensitiveVisible ? <Eye /> : <EyeOff />}
+            </TooltipTrigger>
+            <TooltipContent>
+              {sensitiveVisible ? t('Hide') : t('Show')}
+            </TooltipContent>
+          </Tooltip>
+        ),
+      }}
+      getRowClassName={(row, { isMobile }) => {
+        if (!isDisabledChannelRow(row.original)) {
+          return undefined
+        }
+        if (isMobile) {
+          return DISABLED_ROW_MOBILE
+        }
+        return DISABLED_ROW_DESKTOP
+      }}
+      bulkActions={batchMode ? <DataTableBulkActions table={table} /> : null}
+    />
   )
 }

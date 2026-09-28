@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQueryClient } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -31,10 +31,7 @@ import {
 } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 
-import {
-  useChannelGroups,
-  useGroupCapsuleClassName,
-} from '../hooks/use-channel-groups'
+import { useChannelGroups } from '../hooks/use-channel-groups'
 import { handleUpdateChannelGroups, parseGroupsList } from '../lib'
 import type { Channel } from '../types'
 import { useChannels } from './channels-provider'
@@ -42,58 +39,40 @@ import { useChannels } from './channels-provider'
 const SENSITIVE_MASK = '••••'
 
 /**
- * A solid, white-on-colour pill. The fill comes from the full group list, so
- * a group has the same colour in every row and card. The label stays on one
- * line and truncates when the row is tight, so a long group name can never
- * wrap a table row onto a second line. The edit popover deliberately does not
- * use this pill: it lists group names as plain text.
+ * Groups named in the cell before the rest collapse into a "+N" count. A fixed
+ * number rather than "as many as fit", so the summary reads the same on every
+ * row and never depends on measuring the text.
  */
-export function GroupCapsule(props: { group: string; className?: string }) {
-  const { sensitiveVisible } = useChannels()
-  const capsuleClassName = useGroupCapsuleClassName()
-  const label = sensitiveVisible ? props.group : SENSITIVE_MASK
-  return (
-    <span
-      data-slot='group-capsule'
-      title={label}
-      className={cn(
-        // The pill hugs its label and clips it when the room runs out, so a
-        // long group name can neither widen a table cell nor stretch a popover
-        // column. `w-fit` with `max-w-full` is what keeps those two apart.
-        'block max-w-full min-w-0 w-fit truncate rounded-md px-2 py-0.5 text-xs leading-4 font-medium whitespace-nowrap text-white',
-        capsuleClassName(props.group),
-        props.className
-      )}
-    >
-      {label}
-    </span>
-  )
-}
+const NAMED_GROUP_COUNT = 2
 
 /**
- * The groups of a channel as capsules that sit inline after its name. Any
- * capsule opens a searchable checkbox grid of every group; each tick saves the
- * channel's groups right away. A channel without groups shows an outlined
- * "Add group" button that opens the same grid.
+ * The groups of a channel as one quiet line of text: the first
+ * {@link NAMED_GROUP_COUNT} names, then "+N" for the rest. The full list is in
+ * the title, and a click opens a searchable checkbox grid of every group where
+ * each tick saves the channel's groups right away. A channel without groups
+ * shows an outlined "Add group" button that opens the same grid.
  *
- * The capsules join the parent's one-line name row, so they truncate instead
- * of wrapping it.
+ * The line's intrinsic width is a constant, whatever the groups: `w-24` is all
+ * it asks of a table column, and `min-w-full` lets it fill whatever width the
+ * column has. So the column is exactly as wide with one group as with a
+ * hundred, a tight table cannot squeeze it below that constant, and the names
+ * truncate inside the width instead of widening the column or wrapping the row.
  */
-export function ChannelGroupCapsules(props: {
-  channel: Channel
-  className?: string
-}) {
+export function ChannelGroupsCell(props: { channel: Channel }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { sensitiveVisible } = useChannels()
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [isSaving, setIsSaving] = useState(false)
-  // Unticking a capsule's own group removes that capsule, so the popup is
-  // anchored to the first one instead of whichever trigger opened it.
-  const anchorRef = useRef<HTMLButtonElement>(null)
   const { data: groupsData } = useChannelGroups()
   const groups = parseGroupsList(props.channel.group)
+  const labels = groups.map((group) =>
+    sensitiveVisible ? group : SENSITIVE_MASK
+  )
+  const namedLabels = labels.slice(0, NAMED_GROUP_COUNT)
+  const collapsedCount = labels.length - namedLabels.length
+  const fullList = labels.join(', ')
 
   // Groups on the channel that the group list no longer knows stay visible,
   // so they can still be unticked.
@@ -133,44 +112,48 @@ export function ChannelGroupCapsules(props: {
         }
       }}
     >
-      {groups.length > 0 ? (
-        groups.map((group, index) => (
-          <PopoverTrigger
-            key={group}
-            ref={index === 0 ? anchorRef : undefined}
-            aria-label={t('Edit groups: {{group}}', {
-              group: sensitiveVisible ? group : SENSITIVE_MASK,
-            })}
-            className={cn(
-              'focus-visible:ring-ring/50 inline-flex min-w-0 cursor-pointer rounded-md outline-none focus-visible:ring-2',
-              props.className
+      {/* One trigger element for both states, so ticking the first group into
+          an empty channel keeps the open panel anchored where it opened. */}
+      <PopoverTrigger
+        data-slot='channel-groups'
+        aria-label={
+          groups.length > 0
+            ? t('Edit groups: {{group}}', { group: fullList })
+            : undefined
+        }
+        title={groups.length > 0 ? fullList : undefined}
+        className={cn(
+          'text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 cursor-pointer items-center rounded-md text-xs whitespace-nowrap outline-none focus-visible:ring-2',
+          groups.length > 0
+            ? 'flex h-6 w-24 min-w-full gap-1.5 text-left'
+            : 'hover:bg-muted inline-flex h-5 gap-0.5 border border-dashed px-1.5'
+        )}
+      >
+        {groups.length > 0 ? (
+          <>
+            <span className='min-w-0 truncate'>{namedLabels.join(', ')}</span>
+            {collapsedCount > 0 && (
+              <span className='bg-muted shrink-0 rounded px-1 leading-4 tabular-nums'>
+                +{collapsedCount}
+              </span>
             )}
-          >
-            <GroupCapsule group={group} />
-          </PopoverTrigger>
-        ))
-      ) : (
-        <PopoverTrigger
-          ref={anchorRef}
-          className={cn(
-            'text-muted-foreground hover:text-foreground hover:bg-muted inline-flex h-5 shrink-0 items-center gap-0.5 rounded-md border border-dashed px-1.5 text-xs whitespace-nowrap',
-            props.className
-          )}
-        >
-          <Plus className='size-3' aria-hidden='true' />
-          {t('Add group')}
-        </PopoverTrigger>
-      )}
+          </>
+        ) : (
+          <>
+            <Plus className='size-3' aria-hidden='true' />
+            {t('Add group')}
+          </>
+        )}
+      </PopoverTrigger>
       <PopoverContent
         align='start'
-        anchor={anchorRef}
         collisionPadding={8}
-        // Behind this panel sits a dense table whose own names and capsules
-        // look like the ones being edited, so the panel has to declare itself
-        // as a surface: an opaque body, a crisp border and a real shadow. The
-        // shared popover tone is a `ring-foreground/10` hairline with a soft
-        // shadow, which over a white table reads as almost no edge at all, so
-        // the ring is dropped in favour of an explicit border here.
+        // Behind this panel sits a dense table whose own rows look like the
+        // list being edited, so the panel has to declare itself as a surface:
+        // an opaque body, a crisp border and a real shadow. The shared popover
+        // tone is a `ring-foreground/10` hairline with a soft shadow, which over
+        // a white table reads as almost no edge at all, so the ring is dropped
+        // in favour of an explicit border here.
         className='bg-popover border-border w-[min(26rem,calc(100vw-1rem))] gap-0 overflow-hidden border p-0 shadow-lg ring-0'
       >
         {/* The search box keeps its own inset, so the panel's edge and the
@@ -221,9 +204,8 @@ export function ChannelGroupCapsules(props: {
                     className='shrink-0'
                   />
                   {/* Plain text, no colour: a selected group reads through
-                      weight and contrast, so the list stays quiet and the
-                      capsules outside this panel keep the colour language to
-                      themselves. */}
+                      weight and contrast, the same quiet language as the
+                      cell that opened this panel. */}
                   <span
                     aria-hidden='true'
                     title={label}

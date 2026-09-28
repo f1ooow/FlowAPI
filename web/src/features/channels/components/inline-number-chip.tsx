@@ -21,48 +21,67 @@ import { useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 
 import { MIXED_ROUTING_VALUE } from '../lib/channel-routing-text'
-import { AlignedValue } from './aligned-value'
 
 /**
- * Quiet "label value" chip. The label is muted and the number carries the
- * weight, so a column of figures reads first and the chrome around them stays
- * out of the way. The box only appears on hover or while editing.
+ * Quiet value chip. The number carries the weight and the box only appears on
+ * hover or while editing, so a column of figures reads first.
  */
 const CHIP_CLASS_NAME =
-  'inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-transparent px-1.5 text-xs leading-none whitespace-nowrap'
+  'inline-flex h-6 shrink-0 items-center justify-end gap-1.5 rounded-md px-1.5 text-xs leading-none whitespace-nowrap'
+
+/**
+ * A table column names the figure in its header, so there the chip shows the
+ * number alone and fills the column: the whole cell is the click target and the
+ * editing field gets the column's full width. Its end padding is pulled back
+ * into the cell padding, so the value ends exactly on the column's right edge,
+ * the line the header title and every other row end on.
+ */
+const COLUMN_CHIP_CLASS_NAME = 'w-full -me-1.5'
 
 /**
  * Room the value box always keeps, in `ch`, so even a one-digit number has a
- * click target and every row's box ends up the same width.
+ * click target.
  */
 const MIN_VALUE_BOX_WIDTH = 3
 
-/**
- * Read-only "label value" chip. `valueWidth` (in `ch`) gives the value a
- * fixed, right-aligned slot so chips line up across table rows.
- */
-export function ValueChip(props: {
+const VALUE_CLASS_NAME = 'text-right font-mono font-medium tabular-nums'
+
+type ChipLayoutProps = {
+  /** Names the figure; shown in the chip only when `labelVisible`. */
   label: string
-  value: string
-  valueWidth?: number
-}) {
+  /**
+   * Whether the chip shows its label. Off (the default) in a table column,
+   * whose header already names the figure; on where chips sit side by side
+   * (a card).
+   */
+  labelVisible?: boolean
+}
+
+/** Read-only chip of a figure that cannot be edited here. */
+function ValueChip(props: ChipLayoutProps & { value: string }) {
   return (
-    <span className={CHIP_CLASS_NAME}>
-      <span className='text-muted-foreground'>{props.label}</span>
+    <span
+      className={cn(
+        CHIP_CLASS_NAME,
+        !props.labelVisible && COLUMN_CHIP_CLASS_NAME
+      )}
+    >
+      {props.labelVisible && (
+        <span className='text-muted-foreground'>{props.label}</span>
+      )}
       <span
-        className='inline-block'
+        className='inline-flex justify-end'
         style={{ minWidth: `${MIN_VALUE_BOX_WIDTH}ch` }}
       >
-        <AlignedValue width={props.valueWidth} className='font-medium'>
+        <span data-slot='aligned-number' className={VALUE_CLASS_NAME}>
           {props.value}
-        </AlignedValue>
+        </span>
       </span>
     </span>
   )
 }
 
-type InlineNumberChipProps = {
-  label: string
+type InlineNumberChipProps = ChipLayoutProps & {
   /** `null` is a mixed value (e.g. a tag whose channels disagree). */
   value: number | null
   formatValue?: (value: number) => string
@@ -76,16 +95,14 @@ type InlineNumberChipProps = {
   max?: number
   /** An integer step only accepts integers; a fractional one accepts decimals. */
   step?: number
-  /** Width of the value slot in `ch`; see {@link ValueChip}. */
-  valueWidth?: number
   /** Omit to render the chip read-only. */
   onCommit?: (value: number) => void
 }
 
 /**
- * A "label value" chip that turns into an input when clicked. Enter or
- * leaving the field commits, Escape cancels, and the arrow keys step the value
- * before committing, so one edit always produces a single save.
+ * A number chip that turns into an input when clicked. Enter or leaving the
+ * field commits, Escape cancels, and the arrow keys step the value before
+ * committing, so one edit always produces a single save.
  */
 export function InlineNumberChip(props: InlineNumberChipProps) {
   const [draft, setDraft] = useState<string | null>(null)
@@ -107,8 +124,8 @@ export function InlineNumberChip(props: InlineNumberChipProps) {
     return (
       <ValueChip
         label={props.label}
+        labelVisible={props.labelVisible}
         value={display}
-        valueWidth={props.valueWidth}
       />
     )
   }
@@ -165,29 +182,33 @@ export function InlineNumberChip(props: InlineNumberChipProps) {
       }}
       className={cn(
         CHIP_CLASS_NAME,
+        !props.labelVisible && COLUMN_CHIP_CLASS_NAME,
         'bg-transparent transition-colors duration-100',
         editing && 'bg-muted/60 ring-ring/30 ring-1',
         !editing &&
           'hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:ring-ring/40 cursor-text focus-visible:ring-1'
       )}
     >
-      <span className='text-muted-foreground'>{props.label}</span>
-      {/* The field is absolutely positioned over the value box, which already
-          reserves the widest the value can get, so editing adds nothing to the
-          flow: the chip, its neighbours and the row keep their exact geometry. */}
+      {props.labelVisible && (
+        <span className='text-muted-foreground'>{props.label}</span>
+      )}
+      {/* The field is absolutely positioned over the value box, so editing
+          adds nothing to the flow: the chip, its neighbours and the row keep
+          their exact geometry. */}
       <span
-        className='relative inline-flex'
+        className='relative inline-flex flex-1 justify-end'
         style={{ minWidth: `${MIN_VALUE_BOX_WIDTH}ch` }}
       >
-        <AlignedValue
-          width={props.valueWidth}
+        <span
+          data-slot='aligned-number'
           className={cn(
-            'font-medium transition-opacity duration-100',
+            VALUE_CLASS_NAME,
+            'transition-opacity duration-100',
             editing && 'invisible'
           )}
         >
           {display}
-        </AlignedValue>
+        </span>
         {editing && (
           <input
             aria-label={props.label}
@@ -199,7 +220,10 @@ export function InlineNumberChip(props: InlineNumberChipProps) {
             onChange={(event) => {
               const raw = event.target.value
               const pattern = allowsDecimals ? /^-?\d*(?:\.\d*)?$/ : /^-?\d*$/
-              if (pattern.test(raw) && (allowsNegative || !raw.startsWith('-'))) {
+              if (
+                pattern.test(raw) &&
+                (allowsNegative || !raw.startsWith('-'))
+              ) {
                 setDraft(raw)
               }
             }}
@@ -217,7 +241,7 @@ export function InlineNumberChip(props: InlineNumberChipProps) {
               }
             }}
             onBlur={finishEditing}
-            className='ring-ring/60 bg-background/80 absolute inset-0 w-full rounded-sm text-right font-mono font-medium tabular-nums outline-none ring-2'
+            className='ring-ring/60 bg-background/80 absolute inset-0 w-full rounded-sm text-right font-mono font-medium tabular-nums ring-2 outline-none'
           />
         )}
       </span>
