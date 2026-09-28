@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useTranslation } from 'react-i18next'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { toIntlLocale } from '@/i18n/languages'
 import { formatQuotaWithCurrency, getCurrencyLabel } from '@/lib/currency'
 import { cn } from '@/lib/utils'
 
@@ -110,7 +111,7 @@ function TotalsWindowCard(props: {
   onSelect: (key: TotalsWindowKey) => void
 }) {
   const { t, i18n } = useTranslation()
-  const locale = i18n.resolvedLanguage ?? i18n.language
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
   const label = t(TOTALS_WINDOW_LABEL_KEY[props.windowKey])
 
   // The window exists but its figures are unavailable (consume logging is
