@@ -55,7 +55,7 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 
-	if apiErr := applySeedreamImageCount(c, info, responseBody); apiErr != nil {
+	if apiErr := applySeedreamImageCount(c, info, resp.Header, responseBody); apiErr != nil {
 		return nil, apiErr
 	}
 
@@ -88,10 +88,22 @@ func isSeedreamLayerRequest(c *gin.Context, info *relaycommon.RelayInfo) bool {
 	return model == dto.Seedream50Pro
 }
 
-func applySeedreamImageCount(c *gin.Context, info *relaycommon.RelayInfo, responseBody []byte) *types.NewAPIError {
+func applySeedreamImageCount(c *gin.Context, info *relaycommon.RelayInfo, header http.Header, responseBody []byte) *types.NewAPIError {
 	count := gjson.GetBytes(responseBody, "data.#").Int()
 	layer := isSeedreamLayerRequest(c, info)
 	if layer {
+		// Deliver and bill only the delivered layers: failed items carry
+		// {"error":...} instead of an image, and an untrustworthy
+		// generated_images can only lower the billed count, never raise it.
+		success := int64(0)
+		for _, item := range gjson.GetBytes(responseBody, "data").Array() {
+			if item.Get("error").Exists() {
+				continue
+			}
+			if url, b64 := item.Get("url"), item.Get("b64_json"); (url.Type == gjson.String && url.Str != "") || (b64.Type == gjson.String && b64.Str != "") {
+				success++
+			}
+		}
 		var response struct {
 			Usage struct {
 				GeneratedImages *int64 `json:"generated_images"`
@@ -99,13 +111,25 @@ func applySeedreamImageCount(c *gin.Context, info *relaycommon.RelayInfo, respon
 		}
 		err := common.Unmarshal(responseBody, &response)
 		generated := response.Usage.GeneratedImages
-		if err != nil || generated == nil || *generated < 1 || *generated > dto.MaxSeedreamLayerImages || count != *generated {
-			logger.LogWarn(c, "Seedream layer response rejected: generated_images must be an integer in 1..17 matching data length")
-			return types.NewErrorWithStatusCode(fmt.Errorf("invalid Seedream layer usage: generated_images must be an integer in 1..17 matching data length"), types.ErrorCodeBadResponseBody, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+		billed := success
+		generatedValid := err == nil && generated != nil && *generated >= 1 && *generated <= dto.MaxSeedreamLayerImages
+		if generatedValid && *generated < billed {
+			billed = *generated
 		}
-		c.Set("seedream_layer_image_count", int(*generated)) // bounded above
+		billed = min(billed, dto.MaxSeedreamLayerImages)
+		if !generatedValid || success != *generated || count != success {
+			upstreamRequestID := c.GetString(common.UpstreamRequestIdKey)
+			if upstreamRequestID == "" && header != nil {
+				upstreamRequestID = header.Get("X-Request-Id")
+			}
+			logger.LogWarn(c, fmt.Sprintf("Seedream layer usage mismatch: success=%d data=%d generated_images=%s billed=%d upstream_request_id=%s", success, count, gjson.GetBytes(responseBody, "usage.generated_images").Raw, billed, upstreamRequestID))
+		}
+		if billed < 1 {
+			return types.NewErrorWithStatusCode(fmt.Errorf("invalid Seedream layer response: no delivered layer image"), types.ErrorCodeBadResponseBody, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
+		}
+		c.Set("seedream_layer_image_count", int(billed)) // bounded above
 		if info != nil && info.PriceData.UsePrice && info.TieredBillingSnapshot == nil {
-			info.PriceData.AddOtherRatio("n", float64(*generated)*dto.SeedreamLayerImagePriceFactor)
+			info.PriceData.AddOtherRatio("n", float64(billed)*dto.SeedreamLayerImagePriceFactor)
 		}
 		return nil
 	}
@@ -323,7 +347,7 @@ func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
 
 	imageCount := gjson.GetBytes(responseBody, "data.#").Int()
-	if apiErr := applySeedreamImageCount(c, info, responseBody); apiErr != nil {
+	if apiErr := applySeedreamImageCount(c, info, resp.Header, responseBody); apiErr != nil {
 		return nil, apiErr
 	}
 

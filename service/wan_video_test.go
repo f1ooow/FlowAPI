@@ -142,29 +142,72 @@ func TestWanBillingSnapshotAndRepeatedTerminal(t *testing.T) {
 	}
 }
 
-func TestWanUnverifiedDurationPreservesReservation(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		duration float64
-	}{{"missing output media", 0}, {"absurd provider duration", 31}} {
-		t.Run(tc.name, func(t *testing.T) {
+func TestWanSettlementBillsOutputPlusReferenceSeconds(t *testing.T) {
+	// 0.6 CNY/s × group 1.2 × 480P 0.5 × 500000 = 180000 quota per billed second.
+	const perSecond = 180000
+	tests := []struct {
+		name           string
+		requested      float64
+		input          float64
+		inputBilled    bool
+		providerOutput float64
+		wantQuota      int
+		wantOutput     float64
+		wantUnverified bool
+	}{
+		{name: "no reference video charges output only", requested: 5, providerOutput: 2, wantQuota: 2 * perSecond, wantOutput: 2},
+		{name: "reference video adds its seconds", requested: 5, input: 5, inputBilled: true, providerOutput: 3, wantQuota: 8 * perSecond, wantOutput: 3},
+		{name: "missing provider duration settles at requested output plus reference", requested: 5, input: 5, inputBilled: true, wantQuota: 10 * perSecond, wantOutput: 5, wantUnverified: true},
+		{name: "provider duration over the 30s total settles at requested", requested: 5, input: 5, inputBilled: true, providerOutput: 28, wantQuota: 10 * perSecond, wantOutput: 5, wantUnverified: true},
+		{name: "missing provider duration without reference settles at requested", requested: 5, wantQuota: 5 * perSecond, wantOutput: 5, wantUnverified: true},
+		{name: "legacy snapshot does not bill reference seconds", requested: 5, input: 5, providerOutput: 5, wantQuota: 5 * perSecond, wantOutput: 5},
+		{name: "legacy snapshot with missing duration keeps output-only reservation", requested: 5, input: 5, wantQuota: 5 * perSecond, wantOutput: 5, wantUnverified: true},
+		{name: "longer provider output never charges above reservation", requested: 5, providerOutput: 9, wantQuota: 5 * perSecond, wantOutput: 9},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			truncate(t)
-			seedUser(t, 801, 1000000)
-			seedToken(t, 802, 801, "wan-unverified", 1000000)
+			seedUser(t, 801, 10000000)
+			seedToken(t, 802, 801, "wan-reference", 10000000)
 			seedChannel(t, 803)
-			task := makeTask(801, 803, 50000, 802, "wallet", 0)
-			task.TaskID = "wan-unverified"
+			reservedSeconds := tt.requested
+			if tt.inputBilled {
+				reservedSeconds += tt.input
+			}
+			pre := int(reservedSeconds) * perSecond
+			task := makeTask(801, 803, pre, 802, "wallet", 0)
+			task.TaskID = "wan-reference"
 			task.SubmitTime = time.Now().Unix()
-			task.PrivateData.BillingContext = &model.TaskBillingContext{BillingUnit: "output_seconds", ModelPrice: .6, GroupRatio: 1, OtherRatios: map[string]float64{"resolution": 1}}
+			task.Properties.OriginModelName = "wan3.0-video"
+			task.PrivateData.BillingContext = &model.TaskBillingContext{
+				BillingUnit: "output_seconds", ModelPrice: .6, GroupRatio: 1.2, InputVideoDuration: tt.input, WanInputBilled: tt.inputBilled,
+				OtherRatios: map[string]float64{"seconds": reservedSeconds, "resolution": .5}, OriginModelName: "wan3.0-video",
+			}
 			require.NoError(t, task.Insert())
-			a := &wanBillingTestAdaptor{result: &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, OutputVideoDuration: tc.duration}}
-			err := updateVideoSingleTask(context.Background(), a, &model.Channel{Id: 803, Type: 1, Key: "original"}, task.TaskID, map[string]*model.Task{task.TaskID: task})
-			require.ErrorContains(t, err, "verification pending")
-			assert.Equal(t, model.TaskStatus(model.TaskStatusInProgress), task.Status)
-			assert.Equal(t, 50000, task.Quota)
-			assert.Zero(t, task.PrivateData.BillingContext.OutputVideoDuration)
-			assert.Equal(t, 1000000, getUserQuota(t, 801))
-			assert.Equal(t, 1000000, getTokenRemainQuota(t, 802))
+			a := &wanBillingTestAdaptor{result: &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Url: "https://example.com/video.mp4", OutputVideoDuration: tt.providerOutput}}
+			ch := &model.Channel{Id: 803, Type: 1, Key: "fixture"}
+			for range 2 {
+				require.NoError(t, updateVideoSingleTask(context.Background(), a, ch, task.TaskID, map[string]*model.Task{task.TaskID: task}))
+			}
+
+			var stored model.Task
+			require.NoError(t, model.DB.First(&stored, task.ID).Error)
+			assert.Equal(t, model.TaskStatus(model.TaskStatusSuccess), stored.Status)
+			assert.Equal(t, "https://example.com/video.mp4", stored.GetResultURL())
+			assert.Equal(t, tt.wantQuota, stored.Quota)
+			assert.Equal(t, tt.wantOutput, stored.PrivateData.BillingContext.OutputVideoDuration)
+			assert.Equal(t, tt.wantUnverified, stored.PrivateData.BillingContext.OutputDurationUnverified)
+			assert.Equal(t, 10000000+pre-tt.wantQuota, getUserQuota(t, 801))
+			assert.Equal(t, 10000000+pre-tt.wantQuota, getTokenRemainQuota(t, 802))
 		})
+	}
+}
+
+func TestWanBillingRejectsCorruptReferenceSeconds(t *testing.T) {
+	for _, input := range []float64{-1, math.NaN(), 31} {
+		task := &model.Task{PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{BillingUnit: "output_seconds", ModelPrice: .6, GroupRatio: 1, OutputVideoDuration: 4, InputVideoDuration: input, WanInputBilled: true, OtherRatios: map[string]float64{"resolution": 1}}}}
+		quota, clamp := wanActualQuotaChecked(task)
+		require.NotNil(t, clamp)
+		assert.Zero(t, quota)
 	}
 }

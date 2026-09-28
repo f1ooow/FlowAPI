@@ -136,6 +136,13 @@ func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 	a.taskEndpointOverride = info.ChannelOtherSettings.TaskEndpointOverride
 }
 
+// UnknownStatusGraceSeconds lets polling fail a DashScope task that is still
+// UNKNOWN this long after submission; a freshly submitted task may briefly
+// report UNKNOWN, a lost one reports it indefinitely.
+func (a *TaskAdaptor) UnknownStatusGraceSeconds() int64 {
+	return UnknownStatusGraceSeconds
+}
+
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.TaskError) {
 	// ValidateMultipartDirect 负责解析并将原始 TaskSubmitReq 存入 context
 	if taskErr := relaycommon.ValidateMultipartDirect(c, info); taskErr != nil {
@@ -679,8 +686,8 @@ func (a *TaskAdaptor) ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, e
 	case "UNKNOWN":
 		// DashScope 对"刚提交、尚不可查"的任务也会返回 UNKNOWN，与真正丢失的任务
 		// 无法区分，不能在此立即判死（会误杀并误退款刚提交的任务）。这里保持非终态
-		// UNKNOWN，由视频轮询按任务年龄决定宽限存活或有界判死
-		// （见 service/task_polling.go updateVideoSingleTask 与 model.TaskUnknownStatusGraceSeconds）。
+		// UNKNOWN，由视频轮询按提交时间决定宽限存活或判失败退款
+		// （见 service/task_polling.go updateVideoSingleTask 与 UnknownStatusGraceSeconds）。
 		taskResult.Status = model.TaskStatusUnknown
 		if aliResp.Message != "" {
 			taskResult.Reason = aliResp.Message

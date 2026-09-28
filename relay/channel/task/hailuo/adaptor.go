@@ -541,7 +541,8 @@ func containsInt(slice []int, item int) bool {
 }
 
 // EstimateBilling 根据请求的 resolution + duration 算出档位倍率。
-// H3 quota = 0.20 元/秒基价 × duration × resolution ratio × group ratio。
+// H3 quota = 768P 基价 × (输出秒 + 参考视频预留秒) × resolution ratio × group ratio；
+// 带参考视频时按官方总时长上限预留 15 秒，完成后按 task.usage 退差额。
 // 旧 Hailuo 模型继续使用各自既有 tier ratio。
 func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64 {
 	taskReq, err := relaycommon.GetTaskRequest(c)
@@ -553,14 +554,21 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 		if err != nil {
 			return nil
 		}
-		duration, resolution := payload.Duration, payload.Resolution
-
 		resolutionRatio := 1.0
-		if resolution == Resolution2K {
+		if payload.Resolution == Resolution2K {
 			resolutionRatio = H3HighResolutionRatio
 		}
+		inputSeconds := 0.0
+		for _, item := range payload.Content {
+			if item.VideoURL != nil {
+				inputSeconds = H3MaxReferenceVideoSeconds
+				break
+			}
+		}
+		c.Set("task_billing_unit", H3BillingUnit)
+		c.Set(relaycommon.TaskInputVideoSecondsKey, inputSeconds)
 		return map[string]float64{
-			"hailuo-h3-duration":   float64(duration),
+			"hailuo-h3-duration":   float64(payload.Duration) + inputSeconds,
 			"hailuo-h3-resolution": resolutionRatio,
 		}
 	}

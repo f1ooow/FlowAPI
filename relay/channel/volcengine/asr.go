@@ -405,7 +405,6 @@ func asrSubmit(ctx context.Context, accessToken, appID, audioURL string, asrCtx 
 	req.Header.Set("X-Api-Resource-Id", asrResourceID)
 	req.Header.Set("X-Api-Request-Id", reqID)
 	req.Header.Set("X-Api-App-Key", appID)
-	req.Header.Set("X-Api-Sequence", "-1")
 
 	resp, err := asrHTTPClient.Do(req)
 	if err != nil {
@@ -483,7 +482,6 @@ func asrQueryOnce(ctx context.Context, accessToken, appID, taskID string) (int, 
 	req.Header.Set("X-Api-Resource-Id", asrResourceID)
 	req.Header.Set("X-Api-Request-Id", taskID)
 	req.Header.Set("X-Api-App-Key", appID)
-	req.Header.Set("X-Api-Sequence", "-1")
 
 	resp, err := asrHTTPClient.Do(req)
 	if err != nil {

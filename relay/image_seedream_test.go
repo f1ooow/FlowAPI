@@ -11,12 +11,14 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -63,14 +65,14 @@ func seedreamRequestContext(t *testing.T, raw string) (*gin.Context, *relaycommo
 func TestSeedreamProPayloadOmissionAndExplicitValues(t *testing.T) {
 	for _, model := range []string{dto.Seedream40, dto.Seedream45, dto.Seedream50, dto.Seedream50Pro} {
 		t.Run(model, func(t *testing.T) {
-			raw := fmt.Sprintf(`{"model":%q,"prompt":"a garden","seed":0,"guidance_scale":0,"watermark":false,"stream":false,"layer_decomposition":false,"image":["https://example.test/one.png","https://example.test/two.png"],"sequential_image_generation":"auto","sequential_image_generation_options":{"max_images":0},"unknown":9007199254740993}`, model)
+			raw := fmt.Sprintf(`{"model":%q,"prompt":"a garden","seed":0,"guidance_scale":0,"watermark":false,"stream":false,"layer_decomposition":false,"image":["https://example.test/one.png","https://example.test/two.png"],"sequential_image_generation":"auto","sequential_image_generation_options":{"max_images":0},"tools":[{"type":"web_search"}],"unknown":9007199254740993}`, model)
 			actual, request, err := normalizeSeedreamImagePayload([]byte(raw))
 			require.NoError(t, err)
 			assert.False(t, request.IsSeedreamLayerDecomposition())
 			for _, field := range []string{"seed", "guidance_scale", "watermark", "stream", "layer_decomposition", "image", "unknown"} {
 				assert.Equal(t, gjson.Get(raw, field).Raw, gjson.GetBytes(actual, field).Raw, field)
 			}
-			for _, field := range []string{"sequential_image_generation", "sequential_image_generation_options"} {
+			for _, field := range []string{"sequential_image_generation", "sequential_image_generation_options", "tools"} {
 				assert.Equal(t, model != dto.Seedream50Pro, gjson.GetBytes(actual, field).Exists(), field)
 			}
 		})
@@ -195,6 +197,58 @@ func TestSeedreamNormalSequentialReservation(t *testing.T) {
 			_, apiErr := prepareSeedreamImageRequest(c, info, strings.NewReader(raw))
 			require.Nil(t, apiErr)
 			assert.Equal(t, []int{tc.want}, billing.targets)
+		})
+	}
+}
+
+func TestImageHelperForwardsToolsOnlyToSeedream(t *testing.T) {
+	settings := model_setting.GetGlobalSettings()
+	previous := settings.PassThroughRequestEnabled
+	settings.PassThroughRequestEnabled = false
+	t.Cleanup(func() { settings.PassThroughRequestEnabled = previous })
+
+	for _, tc := range []struct {
+		model     string
+		wantTools bool
+	}{
+		{model: "gpt-image-1", wantTools: false},
+		{model: dto.Seedream50, wantTools: true},
+	} {
+		t.Run(tc.model, func(t *testing.T) {
+			raw := fmt.Sprintf(`{"model":%q,"prompt":"a garden","tools":[{"type":"web_search"}]}`, tc.model)
+			received := make(chan []byte, 1)
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, err := io.ReadAll(r.Body)
+				assert.NoError(t, err)
+				received <- body
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = io.WriteString(w, `{"error":{"message":"captured upstream request","type":"invalid_request_error"}}`)
+			}))
+			defer upstream.Close()
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(raw))
+			ctx.Request.Header.Set("Content-Type", "application/json")
+			defer common.CleanupBodyStorage(ctx)
+			common.SetContextKey(ctx, constant.ContextKeyChannelType, constant.ChannelTypeOpenAI)
+			common.SetContextKey(ctx, constant.ContextKeyChannelBaseUrl, upstream.URL)
+			common.SetContextKey(ctx, constant.ContextKeyChannelKey, "test-key")
+			common.SetContextKey(ctx, constant.ContextKeyOriginalModel, tc.model)
+			common.SetContextKey(ctx, constant.ContextKeyChannelSetting, dto.ChannelSettings{})
+			var request dto.ImageRequest
+			require.NoError(t, common.Unmarshal([]byte(raw), &request))
+			info := &relaycommon.RelayInfo{OriginModelName: tc.model, Request: &request,
+				RequestURLPath: "/v1/images/generations", RelayMode: relayconstant.RelayModeImagesGenerations}
+
+			apiErr := ImageHelper(ctx, info)
+			require.NotNil(t, apiErr)
+			require.Len(t, received, 1, "handler must have reached the upstream")
+			actual := <-received
+			assert.Equal(t, tc.wantTools, gjson.GetBytes(actual, "tools").Exists())
+			if tc.wantTools {
+				assert.JSONEq(t, `[{"type":"web_search"}]`, gjson.GetBytes(actual, "tools").Raw)
+			}
+			assert.JSONEq(t, `[{"type":"web_search"}]`, string(request.Tools), "inbound request stays intact for retries")
 		})
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -20,7 +21,9 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 )
 
 type TaskSubmitResult struct {
@@ -216,10 +219,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 
 	// 6. 将 OtherRatios 应用到基础额度（饱和转换，防止溢出成负数）
 	if !common.StringsContains(constant.TaskPricePatches, modelName) {
-		quotaWithRatios := info.PriceData.ApplyOtherRatiosToFloat(
-			info.PriceData.PreConsumeQuotaBeforeGroup * info.PriceData.GroupRatioInfo.GroupRatio,
-		)
-		quota, clamp := common.QuotaFromFloatChecked(quotaWithRatios)
+		quota, clamp := taskQuotaWithRatios(info.PriceData)
 		info.PriceData.Quota = quota
 		noteTaskQuotaClamp(info, clamp)
 	}
@@ -250,8 +250,9 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 			billingContext.BillingUnit = "output_seconds"
 			billingContext.PerCallBilling = false
 			billingContext.Resolution = req.Parameters.Resolution
-			billingContext.InputVideoDuration = c.GetFloat64("wan_input_video_seconds")
+			billingContext.WanInputBilled = true
 		}
+		billingContext.InputVideoDuration = c.GetFloat64(relaycommon.TaskInputVideoSecondsKey)
 		route := model.TaskSubmissionRoute{
 			ChannelID: info.ChannelId, ChannelType: info.ChannelType,
 			APIKey: info.ApiKey, BaseURL: info.ChannelBaseUrl,
@@ -340,6 +341,26 @@ func recalcQuotaFromRatios(info *relaycommon.RelayInfo, ratios map[string]float6
 	quota, clamp := common.QuotaFromFloatChecked(result)
 	noteTaskQuotaClamp(info, clamp)
 	return quota, true
+}
+
+// taskQuotaWithRatios is the task reservation: base price × route ratio ×
+// OtherRatios, truncated. The product runs in decimal because float truncation
+// loses one quota on exact prices (for example 0.15 × 0.41 × 4 or 0.15 × 5/3).
+// Rounding to 6 places first absorbs the float residue of repeating ratios
+// such as seconds/60, which would otherwise truncate to one below.
+func taskQuotaWithRatios(priceData types.PriceData) (int, *common.QuotaClamp) {
+	base, ratio := priceData.PreConsumeQuotaBeforeGroup, priceData.GroupRatioInfo.GroupRatio
+	for _, factor := range []float64{base, ratio, priceData.ModelPrice} {
+		if math.IsNaN(factor) || math.IsInf(factor, 0) {
+			return common.QuotaFromFloatChecked(priceData.ApplyOtherRatiosToFloat(base * ratio))
+		}
+	}
+	value := decimal.NewFromFloat(base)
+	if priceData.UsePrice {
+		value = decimal.NewFromFloat(priceData.ModelPrice).Mul(decimal.NewFromFloat(common.QuotaPerUnit))
+	}
+	value = priceData.ApplyOtherRatiosToDecimal(value.Mul(decimal.NewFromFloat(ratio)))
+	return common.QuotaFromDecimalChecked(value.Round(6).Truncate(0))
 }
 
 // noteTaskQuotaClamp records the first quota saturation event onto the task's

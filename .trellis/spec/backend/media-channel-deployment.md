@@ -68,3 +68,19 @@ identity=(50,vedio)  -> viapi-super-resolve, viapi-erase-subtitles
 source 64/type 60   -> FlowAPI type 103 token routes only
 source 75/type 1    -> Wan 3.0 and Wan 3.0 Prime
 ```
+
+## Media settlement contracts (2026-09-28)
+
+Replaces `.trellis/tasks/09-22-flowapi-seedream-images/billing-contract.md` "mismatch returns 502" for Seedream layers.
+
+| Path | Reserve | Settle | Untrusted / missing usage |
+|---|---|---|---|
+| Seedream 5.0 Pro layers | `n = 17 × 0.5` | `n = min(delivered, generated_images) × 0.5`, capped 17; delivered = `data` items with non-empty `url`/`b64_json` and no `error`; full body forwarded | invalid `generated_images` → bill delivered; zero delivered → 502, skip retry, refund |
+| MiniMax TTS (ratio mode) | weighted characters (Han ×2, other runes ×1) | upstream `usage_characters` when `0 < v ≤ weighted + 16` | bill weighted count, `SysError` + `relayInfo.QuotaClamp` (`MiniMaxUsageCharacters`); never 502 after upstream success |
+| Wan (`output_seconds`) | `(requested + Σ ceil(distinct reference video)) × resolution`; snapshot `wan_input_billed=true` | `min((output + input) × price, task.Quota)` | output missing / ≤0 / output+input>30 → requested output, `admin_info.output_duration_unverified`; no media download |
+| H3 (`billing_unit=h3_total_seconds`) | `(output + 15 if any reference video) × (2K ? 5/3 : 1)`; decimal, truncated | `task.usage.output_seconds (4..15) + input_seconds (0..15)` from stored `task.Data`, refund only | missing/out of range, or `input_seconds=0` with reference video → keep reservation |
+| DashScope UNKNOWN (ali only, `TaskUnknownGraceAdaptor`) | — | UNKNOWN > 120 s after `SubmitTime` (0 = expired) → FAILURE + CAS refund | adaptors mapping unrecognized states to UNKNOWN (H3, FastAI, Wan) must not implement the interface |
+
+- Snapshots without `wan_input_billed` / `h3_total_seconds` keep the pre-2026-09-28 formula; old images reading new snapshots can only under-refund.
+- Task reservation (`relay/relay_task.go` `taskQuotaWithRatios`) multiplies in decimal so exact prices (0.15 × 5/3 × 500000 = 125000) do not lose one quota to float truncation.
+- Tests: `relay/channel/openai/seedream_image_test.go`, `relay/channel/minimax/defects_test.go`, `service/wan_video_test.go`, `relay/channel/task/hailuo/billing_test.go`, `relay/relay_task_quota_test.go`, `service/task_polling_test.go` (`TestUnknownStatusGrace`, `TestCheckedAdaptorSettlesPerCallSnapshotOnce`).

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -36,31 +37,42 @@ func (a *TaskAdaptor) validateWan(c *gin.Context, info *relaycommon.RelayInfo) *
 	if p.Audio != nil && !*p.Audio || p.Seed != nil && *p.Seed != -1 || p.PromptExtend != nil && !*p.PromptExtend || p.Watermark != nil && *p.Watermark {
 		return service.TaskErrorWrapperLocal(fmt.Errorf("this channel has not verified audio=false, fixed seed, prompt_extend=false or watermark=true"), "unsupported_channel_capability", 400)
 	}
-	var videoSeconds, audioSeconds float64
+	// Rolldek bills each distinct reference video URL once; probe once per URL
+	// and bill whole seconds so its per-second rounding cannot exceed our charge.
+	var videoSeconds, billedVideoSeconds, audioSeconds float64
+	probedVideos := map[string]bool{}
 	for _, m := range req.Input.Media {
 		if m.Type == "file" || m.Type == "link" || strings.HasPrefix(m.URL, "oss:") {
 			return service.TaskErrorWrapperLocal(fmt.Errorf("this channel has not verified file, link or private OSS media"), "unsupported_channel_capability", 400)
 		}
-		if m.Type == "reference_video" || m.Type == "reference_audio" {
-			seconds, err := service.ProbeWanMediaDuration(c.Request.Context(), m.URL, m.Type == "reference_video")
-			if err != nil {
-				return service.TaskErrorWrapperLocal(fmt.Errorf("cannot validate %s duration: %w", m.Type, err), "invalid_media", 400)
+		if m.Type != "reference_video" && m.Type != "reference_audio" {
+			continue
+		}
+		if m.Type == "reference_video" {
+			if probedVideos[m.URL] {
+				continue
 			}
-			if seconds < 1 || seconds > 15 {
-				return service.TaskErrorWrapperLocal(fmt.Errorf("reference media duration must be 1–15 seconds"), "invalid_media", 400)
-			}
-			if m.Type == "reference_video" {
-				videoSeconds += seconds
-			} else {
-				audioSeconds += seconds
-			}
+			probedVideos[m.URL] = true
+		}
+		seconds, err := service.ProbeWanMediaDuration(c.Request.Context(), m.URL, m.Type == "reference_video")
+		if err != nil {
+			return service.TaskErrorWrapperLocal(fmt.Errorf("cannot validate %s duration: %w", m.Type, err), "invalid_media", 400)
+		}
+		if seconds < 1 || seconds > 15 {
+			return service.TaskErrorWrapperLocal(fmt.Errorf("reference media duration must be 1–15 seconds"), "invalid_media", 400)
+		}
+		if m.Type == "reference_video" {
+			videoSeconds += seconds
+			billedVideoSeconds += math.Ceil(seconds)
+		} else {
+			audioSeconds += seconds
 		}
 	}
 	if videoSeconds > 15 || audioSeconds > 15 || videoSeconds+float64(*p.Duration) > 30 {
 		return service.TaskErrorWrapperLocal(fmt.Errorf("reference total must be <=15 seconds and input video + output <=30 seconds"), "invalid_media", 400)
 	}
 	c.Set("wan_request", &req)
-	c.Set("wan_input_video_seconds", videoSeconds)
+	c.Set(relaycommon.TaskInputVideoSecondsKey, billedVideoSeconds)
 	info.Action = constant.TaskActionGenerate
 	return nil
 }

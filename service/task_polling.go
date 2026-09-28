@@ -42,6 +42,13 @@ type TaskBillingCheckedAdaptor interface {
 	AdjustBillingOnCompleteChecked(task *model.Task, taskResult *relaycommon.TaskInfo) (int, *common.QuotaClamp, bool)
 }
 
+// TaskUnknownGraceAdaptor opts a provider into failing tasks whose upstream
+// status stays UNKNOWN beyond the grace window after submission. Adaptors that
+// map unrecognized states to UNKNOWN must not implement it.
+type TaskUnknownGraceAdaptor interface {
+	UnknownStatusGraceSeconds() int64
+}
+
 // IsMeaningfulVideoTaskResponse prevents provider-native payloads from being
 // mistaken for the new-api passthrough envelope merely because they happen to
 // contain {"code":"success"}. A passthrough response is authoritative only
@@ -537,13 +544,12 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.BillingUnit == "output_seconds" && taskResult.Status == model.TaskStatusSuccess {
 		seconds := taskResult.OutputVideoDuration
-		if seconds <= 0 {
-			seconds, err = ProbeWanMediaDuration(ctx, taskResult.Url, true)
-		}
-		if err != nil || math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds <= 0 || seconds+bc.InputVideoDuration > 30 {
-			// A successful provider task is not a failed job merely because its
-			// media is temporarily unavailable. Keep the reservation and retry polling.
-			return fmt.Errorf("Wan output duration verification pending")
+		if seconds <= 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds+bc.InputVideoDuration > 30 {
+			// Rolldek does not report output duration. Settle the delivered video at
+			// the requested duration instead of downloading it or withholding it.
+			seconds = wanRequestedOutputSeconds(bc)
+			bc.OutputDurationUnverified = true
+			logger.LogWarn(ctx, fmt.Sprintf("Wan task %s output duration unverified (provider=%v), settling at requested %vs", task.TaskID, taskResult.OutputVideoDuration, seconds))
 		}
 		bc.OutputVideoDuration = seconds
 	}
@@ -607,9 +613,16 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		}
 		shouldSettle = true
 	case model.TaskStatusUnknown:
-		task.Status = snap.Status
-		task.Data = snap.Data
-		return nil
+		grace, ok := adaptor.(TaskUnknownGraceAdaptor)
+		if !ok || task.SubmitTime > 0 && now-task.SubmitTime <= grace.UnknownStatusGraceSeconds() {
+			task.Status = snap.Status
+			task.Data = snap.Data
+			return nil
+		}
+		if taskResult.Reason == "" {
+			taskResult.Reason = fmt.Sprintf("upstream task status stayed UNKNOWN for more than %d seconds after submit, task treated as lost", grace.UnknownStatusGraceSeconds())
+		}
+		fallthrough
 	case model.TaskStatusFailure:
 		logger.LogJson(ctx, fmt.Sprintf("Task %s failed", taskId), task)
 		task.Status = model.TaskStatusFailure
@@ -703,7 +716,9 @@ func truncateBase64(s string) string {
 func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) {
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.BillingUnit == "output_seconds" {
 		actual, clamp := wanActualQuotaChecked(task)
-		RecalculateTaskQuota(ctx, task, actual, "Wan output duration", clamp)
+		// The reservation already covers the requested output plus reference
+		// seconds; overlong provider output is never charged beyond it.
+		RecalculateTaskQuota(ctx, task, min(actual, task.Quota), "Wan output duration", clamp)
 		return
 	}
 	if checked, ok := adaptor.(TaskBillingCheckedAdaptor); ok {

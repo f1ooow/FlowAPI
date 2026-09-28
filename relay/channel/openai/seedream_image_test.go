@@ -48,10 +48,64 @@ func TestSeedreamLayerResponseUsage(t *testing.T) {
 	}
 }
 
-func TestSeedreamLayerRejectsUntrustworthyUsageBeforeWriting(t *testing.T) {
-	for _, usage := range []string{``, `,"usage":{}`, `,"usage":{"generated_images":null}`, `,"usage":{"generated_images":0}`, `,"usage":{"generated_images":-1}`, `,"usage":{"generated_images":18}`, `,"usage":{"generated_images":18446744073709551615}`, `,"usage":{"generated_images":"1"}`, `,"usage":{"generated_images":1.5}`, `,"usage":{"generated_images":2}`} {
-		t.Run(usage, func(t *testing.T) {
-			body := `{"data":[{"url":"https://example.test/image.png"}]` + usage + `}`
+func TestSeedreamLayerBillsDeliveredImages(t *testing.T) {
+	const image = `{"url":"https://example.test/image.png"}`
+	const failed = `{"error":{"code":"OutputImageSensitiveContentDetected","message":"rejected"}}`
+	eighteen := strings.TrimSuffix(strings.Repeat(image+",", 18), ",")
+	for _, tc := range []struct {
+		name, data, usage string
+		wantImages        int
+	}{
+		{"error item billed by delivered images", image + "," + failed + "," + image, `,"usage":{"generated_images":3}`, 2},
+		{"generated below delivered", image + "," + image + "," + image, `,"usage":{"generated_images":2}`, 2},
+		{"generated above delivered", image, `,"usage":{"generated_images":2}`, 1},
+		{"b64 delivered", `{"b64_json":"aW1hZ2U="}`, `,"usage":{"generated_images":1}`, 1},
+		{"usage missing", image + "," + image, ``, 2},
+		{"generated missing", image + "," + image, `,"usage":{}`, 2},
+		{"generated null", image, `,"usage":{"generated_images":null}`, 1},
+		{"generated zero", image, `,"usage":{"generated_images":0}`, 1},
+		{"generated negative", image, `,"usage":{"generated_images":-1}`, 1},
+		{"generated above bound", image, `,"usage":{"generated_images":18}`, 1},
+		{"generated wrapped", image, `,"usage":{"generated_images":18446744073709551615}`, 1},
+		{"generated string", image, `,"usage":{"generated_images":"1"}`, 1},
+		{"generated fraction", image, `,"usage":{"generated_images":1.5}`, 1},
+		{"delivered capped at bound", eighteen, `,"usage":{"generated_images":18}`, 17},
+	} {
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/json-as-stream=%t", tc.name, stream), func(t *testing.T) {
+				body := `{"data":[` + tc.data + `]` + tc.usage + `}`
+				c, recorder, resp, info := newImageTestContext(t, body, "application/json", stream)
+				info.UpstreamModelName = dto.Seedream50Pro
+				info.Request = &dto.ImageRequest{Model: dto.Seedream50Pro, LayerDecomposition: common.GetPointer(true)}
+				info.PriceData.UsePrice = true
+				info.PriceData.AddOtherRatio("n", 8.5)
+				handler := OpenaiImageHandler
+				if stream {
+					handler = OpenaiImageStreamHandler
+				}
+				parsed, apiErr := handler(c, info, resp)
+				require.Nil(t, apiErr)
+				require.NotNil(t, parsed)
+				if !stream {
+					assert.Equal(t, body, recorder.Body.String(), "delivered response is written unchanged, including error items")
+				}
+				assert.Equal(t, float64(tc.wantImages)*dto.SeedreamLayerImagePriceFactor, info.PriceData.OtherRatios()["n"])
+				assert.Equal(t, tc.wantImages, c.GetInt("seedream_layer_image_count"))
+			})
+		}
+	}
+}
+
+func TestSeedreamLayerRejectsResponseWithoutDeliveredImage(t *testing.T) {
+	for _, data := range []string{
+		``,
+		`{"error":{"code":"InternalServiceError","message":"failed"}}`,
+		`{"url":"https://example.test/image.png","error":{"code":"InternalServiceError"}}`,
+		`{"url":""}`,
+		`{"revised_prompt":"no image"}`,
+	} {
+		t.Run(data, func(t *testing.T) {
+			body := `{"data":[` + data + `],"usage":{"generated_images":1}}`
 			c, recorder, resp, info := newImageTestContext(t, body, "application/json", false)
 			info.UpstreamModelName = dto.Seedream50Pro
 			info.Request = &dto.ImageRequest{Model: dto.Seedream50Pro, LayerDecomposition: common.GetPointer(true)}
@@ -63,7 +117,7 @@ func TestSeedreamLayerRejectsUntrustworthyUsageBeforeWriting(t *testing.T) {
 			assert.True(t, types.IsSkipRetryError(apiErr), "an accepted paid generation must not be retried")
 			assert.Nil(t, parsed)
 			assert.Empty(t, recorder.Body.String())
-			assert.Equal(t, 8.5, info.PriceData.OtherRatios()["n"], "invalid usage cannot become a zero or negative charge")
+			assert.Equal(t, 8.5, info.PriceData.OtherRatios()["n"], "failed response cannot become a zero or negative charge")
 		})
 	}
 }

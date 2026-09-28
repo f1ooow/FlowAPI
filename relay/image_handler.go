@@ -68,6 +68,10 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		}
 		requestBody = body
 	} else {
+		// Strict OpenAI-style image upstreams reject unknown parameters (#1961).
+		if !dto.IsSeedreamModel(info.UpstreamModelName) {
+			request.Tools = nil
+		}
 		convertedRequest, err := adaptor.ConvertImageRequest(c, info, *request)
 		if err != nil {
 			if dto.IsSeedreamModel(info.UpstreamModelName) {

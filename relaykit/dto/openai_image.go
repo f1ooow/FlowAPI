@@ -41,6 +41,8 @@ type ImageRequest struct {
 	SequentialImageGenerationOptions *SequentialImageGenerationOptions `json:"sequential_image_generation_options,omitempty"`
 	OptimizePromptOptions            json.RawMessage                   `json:"optimize_prompt_options,omitempty"`
 	LayerDecomposition               *bool                             `json:"layer_decomposition,omitempty"`
+	// Seedream-only (e.g. web_search); image handlers drop it for other upstreams.
+	Tools json.RawMessage `json:"tools,omitempty"`
 	// zhipu 4v
 	WatermarkEnabled json.RawMessage `json:"watermark_enabled,omitempty"`
 	UserId           json.RawMessage `json:"user_id,omitempty"`

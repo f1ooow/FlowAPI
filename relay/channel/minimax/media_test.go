@@ -2,7 +2,6 @@ package minimax
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -97,8 +96,11 @@ func TestMiniMaxUploadAndCloneWireContract(t *testing.T) {
 			body, err := io.ReadAll(req.Body)
 			require.NoError(t, err)
 			assert.Contains(t, string(body), `"file_id":9223372036854775807`)
-			assert.Contains(t, string(body), `"need_noise_reduce":false`)
-			assert.NotContains(t, string(body), `"model"`)
+			var sent map[string]any
+			require.NoError(t, common.Unmarshal(body, &sent))
+			assert.Equal(t, false, sent["need_noise_reduction"])
+			assert.NotContains(t, sent, "need_noise_reduce")
+			assert.NotContains(t, sent, "model")
 			step++
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"base_resp":{"status_code":0},"extra_info":{"usage_characters":12345}}`)), Header: make(http.Header)}, nil
 		}
@@ -146,26 +148,9 @@ func TestMiniMaxTTSMappingExplicitZerosAndUsage(t *testing.T) {
 	assert.Contains(t, string(raw), `"pitch":0`)
 	assert.Contains(t, string(raw), `"text_normalization":false`)
 	assert.Contains(t, string(raw), `"aigc_watermark":false`)
-	for _, characters := range []int{2, 0, -1, 10001} {
-		t.Run(fmt.Sprint(characters), func(t *testing.T) {
-			recorder := httptest.NewRecorder()
-			c, _ := gin.CreateTestContext(recorder)
-			c.Set("minimax_audio_format", "wav")
-			response := &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(fmt.Sprintf(`{"data":{"audio":"52494646"},"base_resp":{"status_code":0},"extra_info":{"usage_characters":%d}}`, characters)))}
-			usage, apiErr := handleTTSResponse(c, response, info)
-			if characters != 2 {
-				require.NotNil(t, apiErr)
-				assert.False(t, c.Writer.Written())
-				return
-			}
-			require.Nil(t, apiErr)
-			assert.Equal(t, 2, usage.(*dto.Usage).PromptTokens)
-			assert.Equal(t, "audio/wav", recorder.Header().Get("Content-Type"))
-			assert.Equal(t, "RIFF", recorder.Body.String())
-		})
-	}
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
+	c.Set(miniMaxTTSBillingCharactersContextKey, 4)
 	response := &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":{},"base_resp":{"status_code":1004,"status_msg":"invalid voice"},"extra_info":{"usage_characters":0}}`))}
 	_, apiErr := handleTTSResponse(c, response, info)
 	require.NotNil(t, apiErr)

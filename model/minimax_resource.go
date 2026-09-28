@@ -101,3 +101,12 @@ func CompleteMiniMaxVoice(userID int, id string, channelID int, baseURL, key str
 	}
 	return nil
 }
+
+// ReleasePendingMiniMaxVoice frees a clone reservation after the provider
+// definitively rejected it. Ready voices and other accounts' rows are untouched.
+func ReleasePendingMiniMaxVoice(userID int, id string, channelID int, baseURL, key string) error {
+	if DB == nil {
+		return errors.New("MiniMax resource store is unavailable")
+	}
+	return DB.Where("id = ? AND channel_id = ? AND credential_hash = ? AND state = ?", miniMaxResourceID(userID, "voice", id), channelID, MiniMaxCredentialHash(baseURL, key), "pending").Delete(&MiniMaxResourceBinding{}).Error
+}

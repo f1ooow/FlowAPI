@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
 	"math"
@@ -106,6 +107,16 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 	case "mp3", "wav", "flac", "aac", "pcm":
 	default:
 		return nil, fmt.Errorf("unsupported audio format")
+	}
+	billingCharacters := miniMaxBillingCharacters(minimaxRequest.Text)
+	c.Set(miniMaxTTSBillingCharactersContextKey, billingCharacters)
+	// The generic estimate counts runes; MiniMax bills Han characters twice.
+	// Reserve on the same unit that settlement uses.
+	if !info.PriceData.UsePrice && info.TieredBillingSnapshot == nil {
+		info.PriceData.PreConsumeQuotaBeforeGroup = float64(max(billingCharacters, common.PreConsumedQuota)) * info.PriceData.ModelRatio
+		if apiErr := service.PrepareBillingForSelectedRoute(c, info); apiErr != nil {
+			return nil, apiErr
+		}
 	}
 	c.Set("minimax_audio_format", minimaxRequest.AudioSetting.Format)
 	c.Set("response_format", minimaxRequest.OutputFormat)

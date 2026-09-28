@@ -5,13 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -79,14 +82,13 @@ func RelayMiniMaxFilesUpload(c *gin.Context, info *relaycommon.RelayInfo) (any, 
 	if len(form.Value["purpose"]) == 1 {
 		purpose = form.Value["purpose"][0]
 	}
-	switch purpose {
-	case "voice_clone", "prompt_audio", "video_generation", "t2a_async_input":
-	default:
-		return nil, miniMaxError(fmt.Errorf("unsupported upload purpose"), http.StatusBadRequest)
-	}
 	header := form.File["file"][0]
-	if header.Size <= 0 || header.Size > MaxUploadBytes {
-		return nil, miniMaxError(fmt.Errorf("file must be between 1 and %d bytes", MaxUploadBytes), http.StatusBadRequest)
+	limit, err := miniMaxUploadLimit(purpose, header)
+	if err != nil {
+		return nil, miniMaxError(err, http.StatusBadRequest)
+	}
+	if header.Size <= 0 || header.Size > limit {
+		return nil, miniMaxError(fmt.Errorf("file must be between 1 and %d bytes", limit), http.StatusBadRequest)
 	}
 	file, err := header.Open()
 	if err != nil {
@@ -102,8 +104,8 @@ func RelayMiniMaxFilesUpload(c *gin.Context, info *relaycommon.RelayInfo) (any, 
 	if err != nil {
 		return nil, miniMaxError(err, http.StatusBadRequest)
 	}
-	count, err := io.Copy(part, io.LimitReader(file, MaxUploadBytes+1))
-	if err != nil || count > MaxUploadBytes {
+	count, err := io.Copy(part, io.LimitReader(file, limit+1))
+	if err != nil || count > limit {
 		return nil, miniMaxError(fmt.Errorf("invalid or oversized upload"), http.StatusBadRequest)
 	}
 	if err := writer.Close(); err != nil {
@@ -130,4 +132,49 @@ func RelayMiniMaxFilesUpload(c *gin.Context, info *relaycommon.RelayInfo) (any, 
 
 func buildMiniMaxFilesUploadURL(baseURL string) (string, error) {
 	return miniMaxEndpoint(baseURL, "/v1/files/upload")
+}
+
+// UploadRoutingModel names the capability that later consumes an upload of this
+// purpose. Files are bound to the uploading account, so the upload must land on
+// a channel that can serve that capability. Pricing stays minimax-files-upload.
+func UploadRoutingModel(purpose string) string {
+	switch purpose {
+	case "voice_clone", "prompt_audio":
+		return "minimax-voice-clone"
+	case "video_generation_input", "video_generation":
+		return "MiniMax-H3"
+	}
+	return "minimax-files-upload"
+}
+
+// miniMaxUploadLimit applies MiniMax's per-purpose upload limits. Video
+// generation inputs are limited by media kind; the global request body limit
+// always takes precedence.
+func miniMaxUploadLimit(purpose string, header *multipart.FileHeader) (int64, error) {
+	var limit int64
+	switch purpose {
+	case "voice_clone", "prompt_audio", "t2a_async_input", "video_understanding":
+		limit = MaxUploadBytes
+	case "video_generation_input", "video_generation":
+		mediaType, _, _ := mime.ParseMediaType(header.Header.Get("Content-Type"))
+		if mediaType == "" || mediaType == "application/octet-stream" {
+			mediaType, _, _ = mime.ParseMediaType(mime.TypeByExtension(strings.ToLower(filepath.Ext(header.Filename))))
+		}
+		switch {
+		case strings.HasPrefix(mediaType, "video/"):
+			limit = 50 << 20
+		case strings.HasPrefix(mediaType, "image/"):
+			limit = 30 << 20
+		case strings.HasPrefix(mediaType, "audio/"):
+			limit = 15 << 20
+		default:
+			return 0, fmt.Errorf("video generation input must be an image, video or audio file")
+		}
+	default:
+		return 0, fmt.Errorf("unsupported upload purpose")
+	}
+	if constant.MaxRequestBodyMB > 0 {
+		limit = min(limit, int64(constant.MaxRequestBodyMB)<<20)
+	}
+	return limit, nil
 }

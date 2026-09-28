@@ -19,3 +19,7 @@ var ModelList = []string{
 }
 
 var ChannelName = "ali"
+
+// UnknownStatusGraceSeconds is how long after submission an upstream UNKNOWN
+// status is treated as "not yet queryable" before polling fails and refunds.
+const UnknownStatusGraceSeconds int64 = 120

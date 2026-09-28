@@ -55,7 +55,8 @@ func prepareSeedreamImageRequest(c *gin.Context, info *relaycommon.RelayInfo, bo
 
 func normalizeSeedreamImagePayload(raw []byte) ([]byte, *dto.ImageRequest, error) {
 	// Preserve arbitrary passthrough fields while removing only Pro's explicitly
-	// unsupported sequential controls. Never roundtrip the full body through DTO.
+	// unsupported sequential and web search controls. Never roundtrip the full
+	// body through DTO.
 	var fields map[string]json.RawMessage
 	if err := common.Unmarshal(raw, &fields); err != nil {
 		return nil, nil, err
@@ -67,6 +68,7 @@ func normalizeSeedreamImagePayload(raw []byte) ([]byte, *dto.ImageRequest, error
 	if model == dto.Seedream50Pro {
 		delete(fields, "sequential_image_generation")
 		delete(fields, "sequential_image_generation_options")
+		delete(fields, "tools")
 		var err error
 		raw, err = common.Marshal(fields)
 		if err != nil {

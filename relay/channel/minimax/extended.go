@@ -22,6 +22,12 @@ func miniMaxError(err error, status int) *types.NewAPIError {
 	return types.NewErrorWithStatusCode(err, types.ErrorCodeBadResponse, status, types.ErrOptionWithSkipRetry())
 }
 
+// miniMaxRejection marks a definitive provider refusal (HTTP 4xx or a non-zero
+// base_resp): the request was received and declined, so nothing was created.
+// Transport failures and unreadable responses stay unmarked because the
+// provider may still have completed the operation.
+type miniMaxRejection struct{ error }
+
 func miniMaxEndpoint(baseURL, path string) (string, error) {
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = "https://api.minimax.chat"
@@ -55,6 +61,9 @@ func callMiniMaxExtended(c *gin.Context, info *relaycommon.RelayInfo, path, cont
 	if err != nil || len(raw) > maxExtendedResponseBytes {
 		return nil, miniMaxError(fmt.Errorf("invalid or oversized MiniMax response"), http.StatusBadGateway)
 	}
+	if response.StatusCode >= 400 && response.StatusCode < 500 {
+		return nil, miniMaxError(miniMaxRejection{fmt.Errorf("MiniMax upstream HTTP %d", response.StatusCode)}, response.StatusCode)
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, miniMaxError(fmt.Errorf("MiniMax upstream HTTP %d", response.StatusCode), response.StatusCode)
 	}
@@ -65,7 +74,7 @@ func callMiniMaxExtended(c *gin.Context, info *relaycommon.RelayInfo, path, cont
 		return nil, miniMaxError(fmt.Errorf("MiniMax response is missing base_resp"), http.StatusBadGateway)
 	}
 	if envelope.BaseResp.StatusCode != 0 {
-		return nil, miniMaxError(fmt.Errorf("MiniMax error %d: %s", envelope.BaseResp.StatusCode, envelope.BaseResp.StatusMsg), http.StatusBadRequest)
+		return nil, miniMaxError(miniMaxRejection{fmt.Errorf("MiniMax error %d: %s", envelope.BaseResp.StatusCode, envelope.BaseResp.StatusMsg)}, http.StatusBadRequest)
 	}
 	return raw, nil
 }

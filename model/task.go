@@ -132,6 +132,10 @@ type TaskBillingContext struct {
 	OtherRatios         map[string]float64 `json:"other_ratios,omitempty"`          // 附加倍率（时长、分辨率等）
 	OriginModelName     string             `json:"origin_model_name,omitempty"`     // 模型名称，必须为OriginModelName
 	PerCallBilling      bool               `json:"per_call_billing,omitempty"`      // 按次计费：跳过轮询阶段的差额结算
+	// WanInputBilled 标记预扣已含参考视频秒数；旧 Wan 快照缺此标记，结算只按成片秒数。
+	WanInputBilled bool `json:"wan_input_billed,omitempty"`
+	// OutputDurationUnverified 标记上游未给出可信成片时长、按请求时长结算（审计用）。
+	OutputDurationUnverified bool `json:"output_duration_unverified,omitempty"`
 }
 
 // NewTaskBillingContext freezes the prices used by submission and later settlement.

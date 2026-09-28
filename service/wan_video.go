@@ -18,6 +18,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/abema/go-mp4"
+	"github.com/shopspring/decimal"
 )
 
 // ProbeWanMediaDuration uses the video track, not the movie/audio tail, for output billing.
@@ -129,8 +130,23 @@ func wanVideoTrackDuration(r io.ReadSeeker) (float64, error) {
 	return result, nil
 }
 
+// wanRequestedOutputSeconds recovers the requested output duration from the
+// submission snapshot. New snapshots reserve output plus reference seconds.
+func wanRequestedOutputSeconds(bc *model.TaskBillingContext) float64 {
+	seconds := bc.OtherRatios["seconds"]
+	if bc.WanInputBilled {
+		seconds -= bc.InputVideoDuration
+	}
+	if seconds <= 0 || seconds > 30 || math.IsNaN(seconds) {
+		return 0
+	}
+	return seconds
+}
+
 // wanActualQuotaChecked uses only the immutable submission snapshot. The caller
 // must pass the clamp to RecalculateTaskQuota for the admin saturation audit.
+// Snapshots without WanInputBilled were reserved for output seconds only and
+// keep that formula so tasks in flight during rollout are never charged more.
 func wanActualQuotaChecked(task *model.Task) (int, *common.QuotaClamp) {
 	bc := task.PrivateData.BillingContext
 	if bc == nil || bc.BillingUnit != "output_seconds" || bc.OutputVideoDuration <= 0 || bc.OutputVideoDuration > 30 {
@@ -144,17 +160,22 @@ func wanActualQuotaChecked(task *model.Task) (int, *common.QuotaClamp) {
 	if value, ok := bc.OtherRatios["resolution"]; ok {
 		resolution = value
 	}
+	inputSeconds := 0.0
+	if bc.WanInputBilled {
+		inputSeconds = bc.InputVideoDuration
+	}
 	// The task snapshot is immutable, but old rows and corrupted provider data
 	// still need to be rejected before arithmetic can produce a credit. Turn
 	// every invalid factor into NaN so QuotaRoundChecked emits an auditable clamp.
-	for _, factor := range []float64{bc.ModelPrice, ratio, bc.OutputVideoDuration} {
+	for _, factor := range []float64{bc.ModelPrice, ratio, bc.OutputVideoDuration, inputSeconds} {
 		if factor < 0 || math.IsNaN(factor) || math.IsInf(factor, 0) {
 			return common.QuotaRoundChecked(math.NaN())
 		}
 	}
-	if resolution <= 0 || math.IsNaN(resolution) || math.IsInf(resolution, 0) {
+	if resolution <= 0 || math.IsNaN(resolution) || math.IsInf(resolution, 0) || inputSeconds > 30 {
 		return common.QuotaRoundChecked(math.NaN())
 	}
-	value := bc.ModelPrice * ratio * resolution * bc.OutputVideoDuration * common.QuotaPerUnit
-	return common.QuotaRoundChecked(value)
+	value := decimal.NewFromFloat(bc.ModelPrice).Mul(decimal.NewFromFloat(ratio)).Mul(decimal.NewFromFloat(resolution)).
+		Mul(decimal.NewFromFloat(bc.OutputVideoDuration + inputSeconds)).Mul(decimal.NewFromFloat(common.QuotaPerUnit))
+	return common.QuotaFromDecimalChecked(value)
 }

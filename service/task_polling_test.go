@@ -499,3 +499,114 @@ func TestSweepTimedOutTasksHonorsRefundRolloutBoundary(t *testing.T) {
 	assert.Equal(t, initialQuota+modernTaskQuota, getUserQuota(t, userID))
 	assert.Equal(t, int64(1), countLogs(t))
 }
+
+type unknownStatusPollingAdaptor struct{ reason string }
+
+func (a *unknownStatusPollingAdaptor) Init(*relaycommon.RelayInfo) {}
+func (a *unknownStatusPollingAdaptor) FetchTask(string, string, map[string]any, string) (*http.Response, error) {
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString(`{"output":{"task_status":"UNKNOWN"}}`))}, nil
+}
+func (a *unknownStatusPollingAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) {
+	return &relaycommon.TaskInfo{Status: model.TaskStatusUnknown, Reason: a.reason}, nil
+}
+func (a *unknownStatusPollingAdaptor) AdjustBillingOnComplete(*model.Task, *relaycommon.TaskInfo) int {
+	return 0
+}
+
+type unknownGracePollingAdaptor struct{ unknownStatusPollingAdaptor }
+
+func (a *unknownGracePollingAdaptor) UnknownStatusGraceSeconds() int64 { return 120 }
+
+func TestUnknownStatusGrace(t *testing.T) {
+	const initialQuota, taskQuota = 100000, 30000
+	tests := []struct {
+		name       string
+		adaptor    TaskPollingAdaptor
+		age        int64
+		wantFailed bool
+		wantReason string
+	}{
+		{name: "grace adaptor within window keeps task", adaptor: &unknownGracePollingAdaptor{}, age: 60},
+		{name: "grace adaptor at window edge keeps task", adaptor: &unknownGracePollingAdaptor{}, age: 120},
+		{name: "grace adaptor past window fails and refunds", adaptor: &unknownGracePollingAdaptor{}, age: 121, wantFailed: true, wantReason: "stayed UNKNOWN for more than 120 seconds"},
+		{name: "upstream message is kept as failure reason", adaptor: &unknownGracePollingAdaptor{unknownStatusPollingAdaptor{reason: "code: X , message: lost"}}, age: 3600, wantFailed: true, wantReason: "code: X , message: lost"},
+		{name: "missing submit time is past window", adaptor: &unknownGracePollingAdaptor{}, age: -1, wantFailed: true, wantReason: "stayed UNKNOWN"},
+		{name: "adaptor without grace keeps task indefinitely", adaptor: &unknownStatusPollingAdaptor{}, age: 86000},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			truncate(t)
+			seedUser(t, 901, initialQuota)
+			seedToken(t, 902, 901, "unknown-grace", initialQuota)
+			seedChannel(t, 903)
+			task := makeTask(901, 903, taskQuota, 902, BillingSourceWallet, 0)
+			task.TaskID = "unknown-grace"
+			task.Status = model.TaskStatusNotStart
+			task.Progress = "0%"
+			task.SubmitTime = time.Now().Unix() - tt.age
+			if tt.age < 0 {
+				task.SubmitTime = 0
+			}
+			require.NoError(t, task.Insert())
+			var stale model.Task
+			require.NoError(t, model.DB.First(&stale, task.ID).Error)
+			ch := &model.Channel{Id: 903, Type: constant.ChannelTypeAli, Key: "fixture"}
+
+			require.NoError(t, updateVideoSingleTask(context.Background(), tt.adaptor, ch, task.TaskID, map[string]*model.Task{task.TaskID: task}))
+			// A second, stale poller must not refund again.
+			require.NoError(t, updateVideoSingleTask(context.Background(), tt.adaptor, ch, stale.TaskID, map[string]*model.Task{stale.TaskID: &stale}))
+
+			var stored model.Task
+			require.NoError(t, model.DB.First(&stored, task.ID).Error)
+			if !tt.wantFailed {
+				assert.Equal(t, model.TaskStatus(model.TaskStatusNotStart), stored.Status)
+				assert.Equal(t, taskQuota, stored.Quota)
+				assert.Equal(t, initialQuota, getUserQuota(t, 901))
+				assert.Zero(t, countLogs(t))
+				return
+			}
+			assert.Equal(t, model.TaskStatus(model.TaskStatusFailure), stored.Status)
+			assert.Equal(t, "100%", stored.Progress)
+			assert.Contains(t, stored.FailReason, tt.wantReason)
+			assert.Zero(t, stored.Quota)
+			assert.Equal(t, initialQuota+taskQuota, getUserQuota(t, 901))
+			assert.Equal(t, initialQuota+taskQuota, getTokenRemainQuota(t, 902))
+			assert.Equal(t, int64(1), countLogs(t))
+		})
+	}
+}
+
+type checkedRefundPollingAdaptor struct {
+	unknownStatusPollingAdaptor
+	actual int
+}
+
+func (a *checkedRefundPollingAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) {
+	return &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, Url: "https://example.com/h3.mp4"}, nil
+}
+func (a *checkedRefundPollingAdaptor) AdjustBillingOnCompleteChecked(*model.Task, *relaycommon.TaskInfo) (int, *common.QuotaClamp, bool) {
+	return a.actual, nil, true
+}
+
+// H3 snapshots use ModelPrice (PerCallBilling) yet settle from task.usage; the
+// checked adaptor must run before the per-call skip.
+func TestCheckedAdaptorSettlesPerCallSnapshotOnce(t *testing.T) {
+	truncate(t)
+	const initialQuota, reserved, actual = 10000000, 20 * 125000, 11 * 125000
+	seedUser(t, 911, initialQuota)
+	seedToken(t, 912, 911, "checked-refund", initialQuota)
+	seedChannel(t, 913)
+	task := makeTask(911, 913, reserved, 912, BillingSourceWallet, 0)
+	task.TaskID = "checked-refund"
+	task.SubmitTime = time.Now().Unix()
+	task.PrivateData.BillingContext.PerCallBilling = true
+	require.NoError(t, task.Insert())
+	a := &checkedRefundPollingAdaptor{actual: actual}
+	ch := &model.Channel{Id: 913, Type: constant.ChannelTypeMiniMax, Key: "fixture"}
+	for range 2 {
+		require.NoError(t, updateVideoSingleTask(context.Background(), a, ch, task.TaskID, map[string]*model.Task{task.TaskID: task}))
+	}
+	assert.Equal(t, actual, getTaskQuota(t, task.ID))
+	assert.Equal(t, initialQuota+reserved-actual, getUserQuota(t, 911))
+	assert.Equal(t, initialQuota+reserved-actual, getTokenRemainQuota(t, 912))
+}

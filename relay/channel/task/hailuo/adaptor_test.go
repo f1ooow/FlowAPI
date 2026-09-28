@@ -345,25 +345,31 @@ func TestH3EstimateBilling(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for duration := 4; duration <= 15; duration++ {
 		for _, tc := range []struct {
-			resolution string
-			wantRatio  float64
+			name        string
+			resolution  string
+			metadata    map[string]any
+			wantRatio   float64
+			wantSeconds float64
 		}{
-			{resolution: Resolution768P, wantRatio: 1},
-			{resolution: Resolution2K, wantRatio: H3HighResolutionRatio},
+			{name: "768P", resolution: Resolution768P, metadata: map[string]any{"ratio": "16:9"}, wantRatio: 1, wantSeconds: float64(duration)},
+			{name: "2K", resolution: Resolution2K, metadata: map[string]any{"ratio": "16:9"}, wantRatio: 5.0 / 3.0, wantSeconds: float64(duration)},
+			{name: "images and audio are free", resolution: Resolution768P, metadata: map[string]any{"reference_images": []string{"https://example.com/a.png"}, "reference_audios": []string{"https://example.com/a.mp3"}}, wantRatio: 1, wantSeconds: float64(duration)},
+			{name: "reference video reserves 15s", resolution: Resolution2K, metadata: map[string]any{"reference_videos": []string{"mm_file://1", "https://example.com/b.mp4"}}, wantRatio: 5.0 / 3.0, wantSeconds: float64(duration) + 15},
 		} {
-			t.Run(tc.resolution+"-"+strconv.Itoa(duration), func(t *testing.T) {
+			t.Run(tc.name+"-"+strconv.Itoa(duration), func(t *testing.T) {
 				ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 				ctx.Set("task_request", relaycommon.TaskSubmitReq{
-					Prompt: "billing", Duration: duration, Size: tc.resolution, Metadata: map[string]any{"ratio": "16:9"},
+					Prompt: "billing", Duration: duration, Size: tc.resolution, Metadata: tc.metadata,
 				})
 				adaptor := &TaskAdaptor{}
 				ratios := adaptor.EstimateBilling(ctx, &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{
 					UpstreamModelName: ModelMiniMaxH3,
 				}})
 				require.NotNil(t, ratios)
-				assert.Equal(t, float64(duration), ratios["hailuo-h3-duration"])
-				assert.InDelta(t, tc.wantRatio, ratios["hailuo-h3-resolution"], 1e-12)
-				assert.InDelta(t, map[bool]float64{true: 0.25, false: 0.2}[tc.resolution == Resolution2K]*float64(duration), 0.2*ratios["hailuo-h3-duration"]*ratios["hailuo-h3-resolution"], 1e-12)
+				assert.Equal(t, tc.wantSeconds, ratios["hailuo-h3-duration"])
+				assert.Equal(t, tc.wantRatio, ratios["hailuo-h3-resolution"])
+				assert.Equal(t, H3BillingUnit, ctx.GetString("task_billing_unit"))
+				assert.Equal(t, tc.wantSeconds-float64(duration), ctx.GetFloat64(relaycommon.TaskInputVideoSecondsKey))
 			})
 		}
 	}

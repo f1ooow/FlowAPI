@@ -781,8 +781,9 @@ func RelayTask(c *gin.Context) {
 			task.PrivateData.BillingContext.BillingUnit = "output_seconds"
 			task.PrivateData.BillingContext.PerCallBilling = false
 			task.PrivateData.BillingContext.Resolution = req.Parameters.Resolution
-			task.PrivateData.BillingContext.InputVideoDuration = c.GetFloat64("wan_input_video_seconds")
+			task.PrivateData.BillingContext.WanInputBilled = true
 		}
+		task.PrivateData.BillingContext.InputVideoDuration = c.GetFloat64(relaycommon.TaskInputVideoSecondsKey)
 		task.Quota = result.Quota
 		task.Data = result.TaskData
 		task.Action = relayInfo.Action

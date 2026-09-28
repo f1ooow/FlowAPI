@@ -7,7 +7,6 @@ var ModelList = []string{
 	"music-2.5",
 	"music-2.5+",
 	"music-2.6",
-	"minimax-music-generation",
 	"minimax-voice-clone",
 	"minimax-files-upload",
 	"speech-2.6-turbo",

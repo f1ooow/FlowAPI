@@ -1,6 +1,6 @@
 export function billingUnitLabel(unit: string | undefined, t: (key: string) => string): string {
   switch (unit) {
-    case 'seconds': case 'output_seconds': return t('seconds')
+    case 'seconds': case 'output_seconds': case 'h3_total_seconds': return t('seconds')
     case 'minutes': case 'per-minute': return t('minutes')
     case 'input_minutes': case 'per-input-minute': return t('input minutes')
     case 'output_minutes': case 'per-output-minute': return t('output minutes')

@@ -15,6 +15,7 @@ import (
 	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relay/channel/minimax"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -28,6 +29,9 @@ import (
 type ModelRequest struct {
 	Model string `json:"model"`
 	Group string `json:"group,omitempty"`
+	// RoutingModel overrides Model for channel selection only. Token limits,
+	// pricing and original_model keep using Model.
+	RoutingModel string `json:"-"`
 }
 
 func Distribute() func(c *gin.Context) {
@@ -107,6 +111,7 @@ func Distribute() func(c *gin.Context) {
 					}
 				}
 
+				routingModel := common.GetStringIfEmpty(modelRequest.RoutingModel, modelRequest.Model)
 				if binding != nil {
 					channel, err = selectMiniMaxResourceChannel(c, binding, modelRequest.Model, usingGroup)
 					if err != nil {
@@ -114,16 +119,16 @@ func Distribute() func(c *gin.Context) {
 						return
 					}
 				}
-				if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, modelRequest.Model, usingGroup); found && channel == nil {
+				if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, routingModel, usingGroup); found && channel == nil {
 					affinityUsable := false
 					preferred, err := model.CacheGetChannel(preferredChannelID)
 					if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled &&
-						channelSupportsRequestPath(preferred, c.Request.URL.Path, modelRequest.Model) {
+						channelSupportsRequestPath(preferred, c.Request.URL.Path, routingModel) {
 						if usingGroup == "auto" {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 							autoGroups := service.GetRequestAutoGroups(c, userGroup)
 							for _, g := range autoGroups {
-								if model.IsChannelEnabledForGroupModel(g, modelRequest.Model, preferred.Id) {
+								if model.IsChannelEnabledForGroupModel(g, routingModel, preferred.Id) {
 									selectGroup = g
 									common.SetContextKey(c, constant.ContextKeyAutoGroup, g)
 									channel = preferred
@@ -132,7 +137,7 @@ func Distribute() func(c *gin.Context) {
 									break
 								}
 							}
-						} else if model.IsChannelEnabledForGroupModel(usingGroup, modelRequest.Model, preferred.Id) {
+						} else if model.IsChannelEnabledForGroupModel(usingGroup, routingModel, preferred.Id) {
 							channel = preferred
 							selectGroup = usingGroup
 							affinityUsable = true
@@ -147,7 +152,7 @@ func Distribute() func(c *gin.Context) {
 				if channel == nil {
 					channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
 						Ctx:                c,
-						ModelName:          modelRequest.Model,
+						ModelName:          routingModel,
 						TokenGroup:         usingGroup,
 						RequestPath:        c.Request.URL.Path,
 						ExcludedChannelIDs: make(map[int]struct{}),
@@ -157,7 +162,7 @@ func Distribute() func(c *gin.Context) {
 						if usingGroup == "auto" {
 							showGroup = fmt.Sprintf("auto(%s)", selectGroup)
 						}
-						message := i18n.T(c, i18n.MsgDistributorGetChannelFailed, map[string]any{"Group": showGroup, "Model": modelRequest.Model, "Error": err.Error()})
+						message := i18n.T(c, i18n.MsgDistributorGetChannelFailed, map[string]any{"Group": showGroup, "Model": routingModel, "Error": err.Error()})
 						// 如果错误，但是渠道不为空，说明是数据库一致性问题
 						//if channel != nil {
 						//	common.SysError(fmt.Sprintf("渠道不存在：%d", channel.Id))
@@ -167,7 +172,7 @@ func Distribute() func(c *gin.Context) {
 						return
 					}
 					if channel == nil {
-						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorNoAvailableChannel, map[string]any{"Group": usingGroup, "Model": modelRequest.Model}), types.ErrorCodeModelNotFound)
+						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorNoAvailableChannel, map[string]any{"Group": usingGroup, "Model": routingModel}), types.ErrorCodeModelNotFound)
 						return
 					}
 				}
@@ -421,6 +426,9 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 				if vals, ok := form.Value["model"]; ok && len(vals) > 0 {
 					modelRequest.Model = vals[0]
 				}
+				if vals, ok := form.Value["purpose"]; ok && len(vals) > 0 {
+					modelRequest.RoutingModel = minimax.UploadRoutingModel(vals[0])
+				}
 			}
 		}
 		// 若用户未指定 model，使用 MiniMax 文件上传的默认占位模型
@@ -433,7 +441,10 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 		c.Set("relay_mode", relayconstant.RelayModeMiniMaxVoiceClone)
 	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/music_generation") {
-		modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "minimax-music-generation")
+		// 音乐没有可路由的占位名：客户端必须传真实模型
+		if modelRequest.Model == "" {
+			return nil, false, errors.New("model is required")
+		}
 		c.Set("relay_mode", relayconstant.RelayModeMiniMaxMusic)
 	}
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/audio") {

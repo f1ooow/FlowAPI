@@ -144,7 +144,11 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 		if bc.EffectiveRatio != nil {
 			billingRatios["effective_ratio"] = *bc.EffectiveRatio
 		}
-		other["admin_info"] = map[string]interface{}{"billing_ratios": billingRatios}
+		adminInfo := map[string]interface{}{"billing_ratios": billingRatios}
+		if bc.OutputDurationUnverified {
+			adminInfo["output_duration_unverified"] = true
+		}
+		other["admin_info"] = adminInfo
 		if priceData := taskBillingContextPriceData(bc); priceData != nil {
 			for k, v := range priceData.OtherRatios() {
 				other[k] = v

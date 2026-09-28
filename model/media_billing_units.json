@@ -84,10 +84,6 @@
     "ratio": "free",
     "task": true
   },
-  "minimax-music-generation": {
-    "fixed": "request",
-    "task": true
-  },
   "minimax-voice-clone": {
     "fixed": "request",
     "task": true

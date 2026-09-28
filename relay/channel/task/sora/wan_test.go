@@ -2,11 +2,17 @@ package sora
 
 import (
 	"bytes"
-	relaykitdto "github.com/QuantumNous/new-api/relaykit/dto"
+	"encoding/binary"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"sync"
+	"sync/atomic"
 	"testing"
+
+	relaykitdto "github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -77,4 +83,69 @@ func TestWanUnverifiedControlsFailExplicitly(t *testing.T) {
 	e := (&TaskAdaptor{wanProtocol: true}).ValidateRequestAndSetAction(c, &relaycommon.RelayInfo{})
 	require.NotNil(t, e)
 	assert.Equal(t, "unsupported_channel_capability", e.Code)
+}
+
+// wanTestMP4 builds a minimal MP4 whose video track lasts millis/1000 seconds.
+func wanTestMP4(millis uint32) []byte {
+	box := func(name string, data []byte) []byte {
+		b := make([]byte, 8)
+		binary.BigEndian.PutUint32(b, uint32(8+len(data)))
+		copy(b[4:], name)
+		return append(b, data...)
+	}
+	mdhd := make([]byte, 24)
+	binary.BigEndian.PutUint32(mdhd[12:], 1000)
+	binary.BigEndian.PutUint32(mdhd[16:], millis)
+	hdlr := make([]byte, 25)
+	copy(hdlr[8:], "vide")
+	return box("moov", box("trak", box("mdia", append(box("mdhd", mdhd), box("hdlr", hdlr)...))))
+}
+
+func TestWanReferenceVideoBillingDedupesAndRoundsUp(t *testing.T) {
+	fetchSetting := system_setting.GetFetchSetting()
+	original := *fetchSetting
+	t.Cleanup(func() { *fetchSetting = original })
+	fetchSetting.EnableSSRFProtection = false
+
+	var hits sync.Map
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count, _ := hits.LoadOrStore(r.URL.Path, new(atomic.Int32))
+		count.(*atomic.Int32).Add(1)
+		millis := map[string]uint32{"/a.mp4": 4200, "/b.mp4": 3000}[r.URL.Path]
+		_, _ = w.Write(wanTestMP4(millis))
+	}))
+	t.Cleanup(server.Close)
+
+	tests := []struct {
+		name         string
+		media        string
+		duration     int
+		wantInput    float64
+		wantHits     map[string]int32
+		wantRejected bool
+	}{
+		{name: "no reference video", media: `[{"type":"reference_image","url":"https://example.com/a.png"}]`, duration: 5, wantInput: 0, wantHits: map[string]int32{}},
+		{name: "same URL probed and billed once, rounded up", media: `[{"type":"reference_video","url":"` + server.URL + `/a.mp4"},{"type":"reference_video","url":"` + server.URL + `/a.mp4"}]`, duration: 5, wantInput: 5, wantHits: map[string]int32{"/a.mp4": 1}},
+		{name: "distinct URLs sum rounded seconds", media: `[{"type":"reference_video","url":"` + server.URL + `/a.mp4"},{"type":"reference_video","url":"` + server.URL + `/b.mp4"}]`, duration: 5, wantInput: 8, wantHits: map[string]int32{"/a.mp4": 1, "/b.mp4": 1}},
+		{name: "30s bound uses deduplicated duration", media: `[{"type":"reference_video","url":"` + server.URL + `/a.mp4"},{"type":"reference_video","url":"` + server.URL + `/a.mp4"},{"type":"reference_video","url":"` + server.URL + `/a.mp4"},{"type":"reference_video","url":"` + server.URL + `/a.mp4"}]`, duration: 25, wantInput: 5, wantHits: map[string]int32{"/a.mp4": 1}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hits.Range(func(key, _ any) bool { hits.Delete(key); return true })
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			body := `{"model":"wan3.0-video","input":{"prompt":"test","media":` + tt.media + `},"parameters":{"duration":` + strconv.Itoa(tt.duration) + `,"resolution":"480P"}}`
+			c.Request = httptest.NewRequest(http.MethodPost, dto.WanCreatePath, bytes.NewBufferString(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			c.Request.Header.Set("X-DashScope-Async", "enable")
+			info := &relaycommon.RelayInfo{TaskRelayInfo: &relaycommon.TaskRelayInfo{}, ChannelMeta: &relaycommon.ChannelMeta{ChannelOtherSettings: relaykitdto.ChannelOtherSettings{VideoProtocol: dto.WanProtocolRolldek}}, OriginModelName: "wan3.0-video"}
+			a := &TaskAdaptor{}
+			a.Init(info)
+			require.Nil(t, a.ValidateRequestAndSetAction(c, info))
+			assert.Equal(t, tt.wantInput, c.GetFloat64(relaycommon.TaskInputVideoSecondsKey))
+			assert.Equal(t, map[string]float64{"seconds": float64(tt.duration) + tt.wantInput, "resolution": .5}, a.EstimateBilling(c, info))
+			got := map[string]int32{}
+			hits.Range(func(key, value any) bool { got[key.(string)] = value.(*atomic.Int32).Load(); return true })
+			assert.Equal(t, tt.wantHits, got)
+		})
+	}
 }

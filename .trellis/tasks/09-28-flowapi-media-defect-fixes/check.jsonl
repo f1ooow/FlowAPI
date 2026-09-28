@@ -1,0 +1,16 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/backend/index.md", "reason": "后端规范入口"}
+{"file": ".trellis/spec/backend/billing-ratio-routing.md", "reason": "核对任务计费与退款改动是否守住快照合同"}
+{"file": ".trellis/spec/backend/global-passthrough.md", "reason": "核对 R2 改动不破坏透传语义"}
+{"file": ".trellis/spec/backend/testing-concurrency.md", "reason": "核对新测试符合竞态约定"}
+{"file": ".trellis/spec/shared/code-quality.md", "reason": "通用代码质量检查项"}
+{"file": ".trellis/tasks/09-28-flowapi-media-defect-fixes/research/r1-r2-confirmation.md", "reason": "核对实现是否符合调研结论：r1-r2-confirmation"}
+{"file": ".trellis/tasks/09-28-flowapi-media-defect-fixes/research/r4-voice-clone.md", "reason": "核对实现是否符合调研结论：r4-voice-clone"}
+{"file": ".trellis/tasks/09-28-flowapi-media-defect-fixes/research/r7-tts-usage-characters.md", "reason": "核对实现是否符合调研结论：r7-tts-usage-characters"}
+{"file": ".trellis/tasks/09-28-flowapi-media-defect-fixes/research/r8-music-placeholder.md", "reason": "核对实现是否符合调研结论：r8-music-placeholder"}
+{"file": ".trellis/tasks/09-28-flowapi-media-defect-fixes/research/r3-happyhorse-unknown-grace.md", "reason": "核对实现是否符合调研结论：r3-happyhorse-unknown-grace"}
+{"file": ".trellis/tasks/09-28-flowapi-media-defect-fixes/research/r5-seedream-pro-layer-mismatch.md", "reason": "核对实现是否符合调研结论：r5-seedream-pro-layer-mismatch"}
+{"file": ".trellis/tasks/09-28-flowapi-media-defect-fixes/research/r6-wan-duration-hang.md", "reason": "核对实现是否符合调研结论：r6-wan-duration-hang"}
+{"file": ".trellis/tasks/09-28-flowapi-media-defect-fixes/research/h3-2k-ratio.md", "reason": "核对实现是否符合调研结论：h3-2k-ratio"}
+{"file": ".trellis/tasks/09-28-flowapi-media-defect-fixes/research/wan-rolldek-models.md", "reason": "核对实现是否符合调研结论：wan-rolldek-models"}
+{"file": ".trellis/tasks/09-28-flowapi-media-defect-fixes/research/prod-evidence.md", "reason": "生产只读证据"}

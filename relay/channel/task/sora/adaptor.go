@@ -107,7 +107,9 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64 {
 	if a.wanProtocol {
 		req := c.MustGet("wan_request").(*dto.WanRequest)
-		return map[string]float64{"seconds": float64(*req.Parameters.Duration), "resolution": req.Parameters.ResolutionRatio()}
+		// Rolldek video models bill output plus distinct reference video seconds.
+		seconds := float64(*req.Parameters.Duration) + c.GetFloat64(relaycommon.TaskInputVideoSecondsKey)
+		return map[string]float64{"seconds": seconds, "resolution": req.Parameters.ResolutionRatio()}
 	}
 	// remix 路径的 OtherRatios 已在 ResolveOriginTask 中设置
 	if info.Action == constant.TaskActionRemix {

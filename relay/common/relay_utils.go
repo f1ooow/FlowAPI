@@ -145,6 +145,10 @@ func validatePrompt(prompt string) *dto.TaskError {
 // overflow quota calculation into a negative charge.
 const MaxTaskDurationSeconds = 3600
 
+// TaskInputVideoSecondsKey carries the billed reference-video seconds from an
+// adaptor's validation/estimate into the task billing snapshot.
+const TaskInputVideoSecondsKey = "task_input_video_seconds"
+
 func validateTaskDurationBounds(req TaskSubmitReq) *dto.TaskError {
 	seconds := req.Duration
 	if seconds == 0 && req.Seconds != "" {

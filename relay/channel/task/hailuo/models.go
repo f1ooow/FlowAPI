@@ -97,6 +97,13 @@ type H3Task struct {
 	FailReason    string          `json:"fail_reason,omitempty"`
 	FailureReason string          `json:"failure_reason,omitempty"`
 	Message       string          `json:"message,omitempty"`
+	Usage         *H3Usage        `json:"usage,omitempty"`
+}
+
+// H3Usage is the provider's billed seconds for a finished task.
+type H3Usage struct {
+	InputSeconds  *float64 `json:"input_seconds,omitempty"`
+	OutputSeconds *float64 `json:"output_seconds,omitempty"`
 }
 
 type H3QueryResult struct {

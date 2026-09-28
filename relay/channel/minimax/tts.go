@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"unicode"
 
 	"github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -96,9 +97,27 @@ type MiniMaxBaseResp struct {
 }
 
 const (
-	miniMaxTTSSubtitleEnabledContextKey = "minimax_tts_subtitle_enabled"
-	maxMiniMaxTTSSubtitleBytes          = 4 << 20
+	miniMaxTTSSubtitleEnabledContextKey   = "minimax_tts_subtitle_enabled"
+	miniMaxTTSBillingCharactersContextKey = "minimax_tts_billing_characters"
+	maxMiniMaxTTSSubtitleBytes            = 4 << 20
+	// miniMaxUsageCharactersTolerance absorbs provider counting of markup such
+	// as pause tags that the local weighted count cannot reproduce exactly.
+	miniMaxUsageCharactersTolerance = 16
 )
+
+// miniMaxBillingCharacters mirrors MiniMax's published speech billing unit:
+// each Han character counts as two characters, every other rune as one.
+func miniMaxBillingCharacters(text string) int {
+	count := 0
+	for _, r := range text {
+		if unicode.Is(unicode.Han, r) {
+			count += 2
+		} else {
+			count++
+		}
+	}
+	return count
+}
 
 type miniMaxTTSSubtitleEnvelope struct {
 	Audio    string          `json:"audio,omitempty"`
@@ -187,8 +206,24 @@ func handleTTSResponseWithSubtitleDownloader(c *gin.Context, resp *http.Response
 			http.StatusBadRequest,
 		)
 	}
-	if minimaxResp.ExtraInfo.UsageCharacters <= 0 || minimaxResp.ExtraInfo.UsageCharacters > MaxSpeechCharacters {
-		return nil, miniMaxError(fmt.Errorf("invalid MiniMax speech usage"), http.StatusBadGateway)
+	// Upstream usage_characters is the provider's billed count (Han characters
+	// count twice). It may differ slightly from the local count for markup, but
+	// it can never be trusted beyond the local weighted bound.
+	localCharacters := c.GetInt(miniMaxTTSBillingCharactersContextKey)
+	if localCharacters <= 0 {
+		return nil, types.NewErrorWithStatusCode(errors.New("missing MiniMax speech billing characters"), types.ErrorCodeBadResponse, http.StatusInternalServerError, types.ErrOptionWithSkipRetry())
+	}
+	billedCharacters := minimaxResp.ExtraInfo.UsageCharacters
+	if billedCharacters <= 0 || billedCharacters > int64(localCharacters+miniMaxUsageCharactersTolerance) {
+		kind := common.QuotaClampOverflow
+		if billedCharacters <= 0 {
+			kind = common.QuotaClampUnderflow
+		}
+		common.SysError(fmt.Sprintf("MiniMax speech usage_characters %d outside (0, %d]; billing local weighted count %d", billedCharacters, localCharacters+miniMaxUsageCharactersTolerance, localCharacters))
+		if info.QuotaClamp == nil {
+			info.QuotaClamp = &common.QuotaClamp{Op: "MiniMaxUsageCharacters", Kind: kind, Original: float64(billedCharacters), Clamped: localCharacters}
+		}
+		billedCharacters = int64(localCharacters)
 	}
 
 	// Check if we have audio data
@@ -250,9 +285,9 @@ func handleTTSResponseWithSubtitleDownloader(c *gin.Context, resp *http.Response
 	}
 
 	usage = &dto.Usage{
-		PromptTokens:     common.QuotaFromFloat(float64(minimaxResp.ExtraInfo.UsageCharacters)),
+		PromptTokens:     int(billedCharacters),
 		CompletionTokens: 0,
-		TotalTokens:      common.QuotaFromFloat(float64(minimaxResp.ExtraInfo.UsageCharacters)),
+		TotalTokens:      int(billedCharacters),
 	}
 
 	return usage, nil

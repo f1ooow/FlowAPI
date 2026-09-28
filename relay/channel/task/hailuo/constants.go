@@ -56,8 +56,14 @@ const (
 	DefaultDuration   = 6
 	DefaultResolution = Resolution720P
 	H3DefaultDuration = 5
-	// H3 high-resolution pricing is ¥0.25/s versus the ¥0.20/s 768P base.
-	H3HighResolutionRatio = 1.25
+	// H3 2K pricing is ¥0.25/s versus the ¥0.15/s 768P base.
+	H3HighResolutionRatio = 5.0 / 3.0
+	// H3MaxReferenceVideoSeconds is the documented total reference-video cap;
+	// submission cannot measure mm_file:// media, so it is reserved in full.
+	H3MaxReferenceVideoSeconds = 15
+	// H3BillingUnit marks snapshots billed as output + reference seconds and
+	// settled from task.usage. Older H3 snapshots keep the flat reservation.
+	H3BillingUnit = "h3_total_seconds"
 )
 
 // HailuoTierRatios 是 Hailuo 视频"分辨率 × 时长"分档倍率表。
