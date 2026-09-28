@@ -95,7 +95,11 @@ func TestClickHouseLogCreateTableSQL(t *testing.T) {
 // CREATE TABLE IF NOT EXISTS leaves them untouched.
 func TestClickHouseLogAddMissingColumnsSQL(t *testing.T) {
 	assert.Equal(t,
-		[]string{"ALTER TABLE logs ADD COLUMN IF NOT EXISTS base_quota Int64 DEFAULT 0"},
+		[]string{
+			"ALTER TABLE logs ADD COLUMN IF NOT EXISTS base_quota Int64 DEFAULT 0",
+			"ALTER TABLE logs ADD COLUMN IF NOT EXISTS channel_cost_ratio Int64 DEFAULT 0",
+			"ALTER TABLE logs ADD COLUMN IF NOT EXISTS channel_cost_ratio_estimated UInt8 DEFAULT 0",
+		},
 		clickHouseLogAddMissingColumnsSQL())
 }
 

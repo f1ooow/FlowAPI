@@ -27,6 +27,8 @@ import { ChannelMonitoring } from '..'
 import type {
   ChannelMonitoringChannelSummary,
   ChannelMonitoringSummary,
+  ChannelMonitoringTotalsResponse,
+  ChannelMonitoringTotalsWindow,
 } from '../types'
 
 function channel(
@@ -107,9 +109,27 @@ function summary(range: string): ChannelMonitoringSummary {
   }
 }
 
-function renderPage() {
+function totals(overrides: Partial<ChannelMonitoringTotalsWindow> = {}) {
+  const window: ChannelMonitoringTotalsWindow = {
+    used_quota: 5_000_000,
+    cost_quota: 2_000_000,
+    profit: 3_000_000,
+    cost_has_estimate: false,
+    ...overrides,
+  }
+  return { available: true as const, totals: { today: window, month: window, total: window } }
+}
+
+function renderPage(
+  options: { totals?: ChannelMonitoringTotalsResponse } = {}
+) {
   const requestedRanges: string[] = []
-  vi.spyOn(api, 'get').mockImplementation(async (_url, config) => {
+  vi.spyOn(api, 'get').mockImplementation(async (url, config) => {
+    if (String(url).includes('/totals')) {
+      return {
+        data: { success: true, data: options.totals ?? totals() },
+      } as never
+    }
     const range = String(
       (config?.params as Record<string, unknown> | undefined)?.range ?? ''
     )
@@ -194,5 +214,76 @@ describe('ChannelMonitoring page', () => {
     expect(
       screen.queryByText(/Cache hit rate counts settled requests/)
     ).toBeNull()
+  })
+})
+
+describe('ChannelMonitoring fleet totals board', () => {
+  test('shows all three windows at once, with the short window selected by default', async () => {
+    renderPage()
+    await screen.findByText('Primary')
+
+    // Today, this month and all time are all on screen simultaneously; the
+    // quick selector only chooses which one is emphasised.
+    expect(screen.getByRole('button', { name: 'Today' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    expect(screen.getByRole('button', { name: 'This month' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    )
+    expect(screen.getByRole('button', { name: 'All time' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    )
+    expect(screen.getAllByText('Consumption')).toHaveLength(3)
+    expect(screen.getAllByText('Cost')).toHaveLength(3)
+    expect(screen.getAllByText('Profit')).toHaveLength(3)
+  })
+
+  test('moves the quick selection without hiding the other windows', async () => {
+    renderPage()
+    await screen.findByText('Primary')
+
+    await userEvent.click(screen.getByRole('button', { name: 'All time' }))
+
+    expect(screen.getByRole('button', { name: 'All time' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    expect(screen.getByRole('button', { name: 'Today' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    )
+    expect(screen.getAllByText('Consumption')).toHaveLength(3)
+    expect(screen.getByText('Since the first request')).toBeInTheDocument()
+  })
+
+  test('marks a window whose cost was inferred from the current channel ratio', async () => {
+    const inferred = totals({ cost_has_estimate: false })
+    const withEstimate: ChannelMonitoringTotalsResponse = {
+      available: true,
+      totals: {
+        today: { ...inferred.totals.today, cost_has_estimate: true },
+        month: inferred.totals.month,
+        total: inferred.totals.total,
+      },
+    }
+    renderPage({ totals: withEstimate })
+    await screen.findByText('Primary')
+
+    // Only the window that actually carried an inferred ratio is flagged, so
+    // an approximate figure is never presented as a settled one.
+    expect(screen.getAllByText('estimated')).toHaveLength(1)
+  })
+
+  test('renders a dash rather than a zero when the totals are unavailable', async () => {
+    renderPage({ totals: { available: false } })
+    await screen.findByText('Primary')
+
+    // Consume logging is off, so the figures are unknown. Showing 0 would
+    // claim "no spend", which is a different statement.
+    expect(screen.getAllByText('--')).toHaveLength(3)
+    expect(screen.queryByText('Consumption')).toBeNull()
   })
 })

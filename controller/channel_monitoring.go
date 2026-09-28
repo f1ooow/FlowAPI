@@ -123,6 +123,95 @@ type channelMonitoringSummaryResponse struct {
 	Channels      []channelMonitoringChannelSummary `json:"channels"`
 }
 
+// channelMonitoringTotalsWindow is one reporting window of the fleet-wide
+// money figures. UsedQuota is what users were charged, CostQuota what the
+// upstream charged for the same requests, and Profit their difference.
+//
+// The cost is priced from the cost ratio snapshotted onto each consume log, so
+// these figures describe what actually happened rather than what the channels
+// are configured to cost today.
+type channelMonitoringTotalsWindow struct {
+	UsedQuota int64 `json:"used_quota"`
+	CostQuota int64 `json:"cost_quota"`
+	Profit    int64 `json:"profit"`
+	// CostHasEstimate is true when some contributing log had no recorded cost
+	// ratio and had to be priced at an inferred one. The figures are still
+	// shown; the flag lets the UI say they are approximate instead of
+	// presenting an inferred number as a settled one.
+	CostHasEstimate bool `json:"cost_has_estimate"`
+}
+
+// channelMonitoringTotals groups the fleet-wide figures by window. All three
+// windows are always populated, because the page shows them side by side.
+type channelMonitoringTotals struct {
+	Today channelMonitoringTotalsWindow `json:"today"`
+	Month channelMonitoringTotalsWindow `json:"month"`
+	Total channelMonitoringTotalsWindow `json:"total"`
+}
+
+func channelMonitoringTotalsWindowOf(usage model.GlobalQuotaUsage) channelMonitoringTotalsWindow {
+	return channelMonitoringTotalsWindow{
+		UsedQuota:       usage.UsedQuota,
+		CostQuota:       usage.CostQuota,
+		Profit:          usage.Profit,
+		CostHasEstimate: usage.CostHasEstimate,
+	}
+}
+
+// GetChannelMonitoringTotals reports fleet-wide consumption, cost and profit
+// over three windows: the current UTC+8 calendar day, the current UTC+8
+// calendar month, and all time.
+//
+// The aggregation reads consume logs directly and never joins the channel
+// table. That is the point of the endpoint: a channel that was renamed keeps
+// its history, and a channel that was deleted keeps contributing to the
+// totals, because neither operation touches the logs it already wrote. Each
+// log also carries the cost ratio it was billed under, so repricing a channel
+// does not restate what history cost.
+func GetChannelMonitoringTotals(c *gin.Context) {
+	if !common.LogConsumeEnabled {
+		// Consumption logging is off, so there is no history to report. An
+		// empty set of windows is honest; zeroed figures would read as "no
+		// spend", which is a different claim.
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"available": false}})
+		return
+	}
+
+	now := time.Now()
+	todayStart, todayEnd := channelTodayTimeRange(now)
+	monthStart, monthEnd := channelMonthTimeRange(now)
+
+	ctx := c.Request.Context()
+	todayUsage, err := model.SumGlobalQuotaUsage(ctx, todayStart, todayEnd)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	monthUsage, err := model.SumGlobalQuotaUsage(ctx, monthStart, monthEnd)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	// An all-time window needs no upper bound: every consume log is in the past.
+	totalUsage, err := model.SumGlobalQuotaUsage(ctx, 0, 0)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"available": true,
+			"totals": channelMonitoringTotals{
+				Today: channelMonitoringTotalsWindowOf(todayUsage),
+				Month: channelMonitoringTotalsWindowOf(monthUsage),
+				Total: channelMonitoringTotalsWindowOf(totalUsage),
+			},
+		},
+	})
+}
+
 type channelMonitoringCounters struct {
 	attemptCount   int64
 	successCount   int64
@@ -370,19 +459,13 @@ func GetChannelMonitoringSummary(c *gin.Context) {
 	todayStart, todayEnd := channelTodayTimeRange(now)
 	usageByChannel := channelQuotaUsageById(c.Request.Context(), channelIds, todayStart, todayEnd)
 	if usageByChannel != nil {
-		costRatioByChannel := make(map[int]float64, len(identities))
-		for _, identity := range identities {
-			costRatioByChannel[identity.Id] = identity.GetCostRatio()
-		}
 		for index := range channels {
-			channelId := channels[index].ChannelId
-			costRatio, ok := costRatioByChannel[channelId]
-			if !ok {
-				costRatio = 1
-			}
-			usage := usageByChannel[channelId]
+			// The figures come from each log's own cost-ratio snapshot, not
+			// from the channel's current configuration, so they stay put when
+			// an operator reprices or renames the channel.
+			usage := usageByChannel[channels[index].ChannelId]
 			channels[index].TodayUsedQuota = common.GetPointer(usage.UsedQuota)
-			channels[index].TodayCostQuota = common.GetPointer(usage.CostQuota(costRatio))
+			channels[index].TodayCostQuota = common.GetPointer(usage.CostQuota)
 		}
 	}
 	response := channelMonitoringSummaryResponse{

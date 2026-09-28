@@ -72,10 +72,23 @@ func clearChannelInfo(channel *model.Channel) {
 	}
 }
 
+// chinaStandardTime is the reporting timezone. Both the daily and the monthly
+// window are natural calendar boundaries in UTC+8, so they share one zone
+// instead of each deriving its own.
+var chinaStandardTime = time.FixedZone("UTC+8", 8*60*60)
+
 func channelTodayTimeRange(now time.Time) (int64, int64) {
-	chinaStandardTime := time.FixedZone("UTC+8", 8*60*60)
 	localNow := now.In(chinaStandardTime)
 	start := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, chinaStandardTime)
+	return start.Unix(), now.Unix()
+}
+
+// channelMonthTimeRange returns the UTC+8 natural month containing now, from
+// its first instant to now. The end is the current instant rather than the end
+// of the month so the window never includes time that has not happened.
+func channelMonthTimeRange(now time.Time) (int64, int64) {
+	localNow := now.In(chinaStandardTime)
+	start := time.Date(localNow.Year(), localNow.Month(), 1, 0, 0, 0, 0, chinaStandardTime)
 	return start.Unix(), now.Unix()
 }
 
@@ -117,16 +130,17 @@ func enrichChannelsWithQuotaSummary(ctx context.Context, channels []*model.Chann
 		if channel == nil {
 			continue
 		}
-		costRatio := channel.GetCostRatio()
+		// Cost is priced from each log's snapshot of the ratio it was billed
+		// under, so a later reprice of this channel does not restate history.
 		if todayUsage != nil {
 			usage := todayUsage[channel.Id]
 			channel.TodayUsedQuota = common.GetPointer(usage.UsedQuota)
-			channel.TodayCostQuota = common.GetPointer(usage.CostQuota(costRatio))
+			channel.TodayCostQuota = common.GetPointer(usage.CostQuota)
 		}
 		if totalUsage != nil {
 			usage := totalUsage[channel.Id]
 			channel.TotalUsedQuota = common.GetPointer(usage.UsedQuota)
-			channel.TotalCostQuota = common.GetPointer(usage.CostQuota(costRatio))
+			channel.TotalCostQuota = common.GetPointer(usage.CostQuota)
 		}
 	}
 }

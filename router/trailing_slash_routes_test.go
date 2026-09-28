@@ -87,6 +87,7 @@ func TestChannelRoutesResolve(t *testing.T) {
 		"/api/channel/models",
 		"/api/channel/1",
 		"/api/channel-monitoring/summary",
+		"/api/channel-monitoring/totals",
 		"/api/group",
 		"/api/group/",
 		"/api/user",

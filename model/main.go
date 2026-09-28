@@ -473,7 +473,11 @@ func migrateClickHouseLogDB() error {
 // release up to the current column set; CREATE TABLE IF NOT EXISTS leaves an
 // existing table untouched.
 func clickHouseLogAddMissingColumnsSQL() []string {
-	return []string{"ALTER TABLE logs ADD COLUMN IF NOT EXISTS base_quota Int64 DEFAULT 0"}
+	return []string{
+		"ALTER TABLE logs ADD COLUMN IF NOT EXISTS base_quota Int64 DEFAULT 0",
+		"ALTER TABLE logs ADD COLUMN IF NOT EXISTS channel_cost_ratio Int64 DEFAULT 0",
+		"ALTER TABLE logs ADD COLUMN IF NOT EXISTS channel_cost_ratio_estimated UInt8 DEFAULT 0",
+	}
 }
 
 func clickHouseLogTTLDays() int {
@@ -512,6 +516,8 @@ CREATE TABLE IF NOT EXISTS logs (
 	model_name String DEFAULT '',
 	quota Int32 DEFAULT 0,
 	base_quota Int64 DEFAULT 0,
+	channel_cost_ratio Int64 DEFAULT 0,
+	channel_cost_ratio_estimated UInt8 DEFAULT 0,
 	prompt_tokens Int32 DEFAULT 0,
 	completion_tokens Int32 DEFAULT 0,
 	use_time Int32 DEFAULT 0,

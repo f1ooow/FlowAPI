@@ -120,6 +120,10 @@ func TestRecordTaskBillingLogStoresBaseQuotaForConsume(t *testing.T) {
 
 // Logs written before base_quota existed must be filled from their stored
 // billing snapshot so channel cost totals cover history.
+//
+// The cost ratio snapshot is filled by the same pass but from a different
+// source: the log's own billing record when it carries one, otherwise the
+// channel's current configuration flagged as an estimate.
 func TestBackfillLogBaseQuota(t *testing.T) {
 	db := useIsolatedLogDB(t)
 	logs := []Log{
@@ -134,7 +138,10 @@ func TestBackfillLogBaseQuota(t *testing.T) {
 
 	updated, err := BackfillLogBaseQuota(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, 2, updated)
+	// Every consume log still missing a snapshot column is touched: two gain a
+	// base_quota, five gain a cost ratio (the third already had a base_quota,
+	// the refund is not a consume log).
+	assert.Equal(t, 5, updated)
 
 	var stored []Log
 	require.NoError(t, db.Order("id").Find(&stored).Error)
@@ -144,7 +151,54 @@ func TestBackfillLogBaseQuota(t *testing.T) {
 	}
 	assert.Equal(t, []int64{200, 200, 999, 0, 0, 0}, baseQuotas)
 
+	// These fixtures carry no channel_ratio, so every one falls back to the
+	// channel's current ratio and is marked as an estimate. Channel 94 does not
+	// exist in this fixture, so the fallback is the neutral ratio.
+	for _, log := range stored[:5] {
+		assert.EqualValues(t, channelCostRatioScale, log.ChannelCostRatio)
+		assert.True(t, log.ChannelCostRatioEstimated, "a fallback ratio is an estimate")
+	}
+	assert.Zero(t, stored[5].ChannelCostRatio, "a refund log carries no cost snapshot")
+	assert.False(t, stored[5].ChannelCostRatioEstimated)
+
 	updated, err = BackfillLogBaseQuota(context.Background())
 	require.NoError(t, err)
-	assert.Zero(t, updated)
+	assert.Zero(t, updated, "the second pass is a no-op")
+}
+
+// A log whose own billing record still holds the ratio it ran at must be
+// back-filled from that ratio, not from the channel's configuration, so
+// history is not repriced to whatever the channel costs today.
+func TestBackfillPrefersLogSnapshotRatioOverCurrentChannelRatio(t *testing.T) {
+	db := useIsolatedLogDB(t)
+
+	channel := Channel{Id: 96, Name: "repriced-since", CostRatio: common.GetPointer(3.0)}
+	require.NoError(t, DB.Create(&channel).Error)
+	t.Cleanup(func() { DB.Delete(&Channel{}, channel.Id) })
+
+	logs := []Log{
+		{
+			ChannelId: 96, Type: LogTypeConsume, Quota: 300,
+			Other: `{"admin_info":{"billing_ratios":{"effective_ratio":1.5,"channel_ratio":0.25}}}`,
+		},
+		{
+			ChannelId: 96, Type: LogTypeConsume, Quota: 300,
+			Other: `{"admin_info":{"billing_ratios":{"effective_ratio":1.5}}}`,
+		},
+	}
+	require.NoError(t, db.Create(&logs).Error)
+
+	_, err := BackfillLogBaseQuota(context.Background())
+	require.NoError(t, err)
+
+	var stored []Log
+	require.NoError(t, db.Order("id").Find(&stored).Error)
+
+	observed := stored[0]
+	assert.EqualValues(t, 2_500, observed.ChannelCostRatio, "0.25 from the log's own snapshot")
+	assert.False(t, observed.ChannelCostRatioEstimated, "an observed ratio is not an estimate")
+
+	inferred := stored[1]
+	assert.EqualValues(t, 30_000, inferred.ChannelCostRatio, "3.0 from the channel's current config")
+	assert.True(t, inferred.ChannelCostRatioEstimated, "an inferred ratio is flagged as such")
 }

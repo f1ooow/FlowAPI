@@ -33,7 +33,11 @@ import {
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 
-import { getChannelMonitoringSummary } from './api'
+import { getChannelMonitoringSummary, getChannelMonitoringTotals } from './api'
+import {
+  ChannelMonitoringTotalsBoard,
+  type TotalsWindowKey,
+} from './components/channel-monitoring-totals-board'
 import { ChannelAvailabilityRow } from './components/channel-availability-row'
 import { MonitoringOverviewCards } from './components/monitoring-overview-cards'
 import { RangeSelector } from './components/range-selector'
@@ -47,6 +51,10 @@ export function ChannelMonitoring() {
   const { t } = useTranslation()
   const [range, setRange] = useState(DEFAULT_RANGE)
   const [search, setSearch] = useState('')
+  // The board always shows all three windows; this only picks which one is
+  // emphasised and which sub-caption ("since midnight" / "since the 1st") is
+  // shown. It defaults to the short window an operator checks most often.
+  const [totalsWindow, setTotalsWindow] = useState<TotalsWindowKey>('today')
 
   const summaryQuery = useQuery({
     queryKey: ['channel-monitoring', 'summary', range],
@@ -57,10 +65,22 @@ export function ChannelMonitoring() {
     placeholderData: (previous) => previous,
   })
 
+  // Fetched separately from the summary: the totals are scoped by time only
+  // and do not depend on the selected availability range, so changing the
+  // range must not re-request them.
+  const totalsQuery = useQuery({
+    queryKey: ['channel-monitoring', 'totals'],
+    queryFn: getChannelMonitoringTotals,
+    refetchInterval: SUMMARY_REFETCH_INTERVAL_MS,
+    placeholderData: (previous) => previous,
+  })
+
   const channels = useMemo(
     () => summaryQuery.data?.channels ?? [],
     [summaryQuery.data]
   )
+
+  const totals = totalsQuery.data?.available ? totalsQuery.data : undefined
 
   const trafficChannels = useMemo(
     () => channels.filter((channel) => channel.has_data),
@@ -182,6 +202,16 @@ export function ChannelMonitoring() {
                 cache_input_tokens: 0,
               }
             }
+          />
+
+          <ChannelMonitoringTotalsBoard
+            windows={{
+              today: totals?.totals?.today,
+              month: totals?.totals?.month,
+              total: totals?.totals?.total,
+            }}
+            selectedWindow={totalsWindow}
+            onSelectWindow={setTotalsWindow}
           />
 
           <div className='flex justify-end'>

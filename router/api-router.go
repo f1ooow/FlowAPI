@@ -38,6 +38,7 @@ func SetApiRouter(router *gin.Engine) {
 		channelMonitoringRoute.Use(middleware.AdminAuth())
 		{
 			channelMonitoringRoute.GET("/summary", controller.GetChannelMonitoringSummary)
+			channelMonitoringRoute.GET("/totals", controller.GetChannelMonitoringTotals)
 		}
 		apiRouter.GET("/status/test", middleware.AdminAuth(), controller.TestStatus)
 		apiRouter.GET("/notice", controller.GetNotice)

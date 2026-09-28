@@ -18,7 +18,11 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
 
-import type { ApiResponse, ChannelMonitoringSummary } from './types'
+import type {
+  ApiResponse,
+  ChannelMonitoringSummary,
+  ChannelMonitoringTotalsResponse,
+} from './types'
 
 /**
  * `range` is validated against a server-side whitelist; the served range and
@@ -28,6 +32,18 @@ export async function getChannelMonitoringSummary(range: string) {
   const response = await api.get<ApiResponse<ChannelMonitoringSummary>>(
     '/api/channel-monitoring/summary',
     { params: { range } }
+  )
+  return response.data.data
+}
+
+/**
+ * Fleet-wide consumption, cost and profit for today, this month and all time.
+ * Independent of the summary request: it is scoped by time only, never by the
+ * channels that currently exist.
+ */
+export async function getChannelMonitoringTotals() {
+  const response = await api.get<ApiResponse<ChannelMonitoringTotalsResponse>>(
+    '/api/channel-monitoring/totals'
   )
   return response.data.data
 }

@@ -111,6 +111,41 @@ export type ChannelMonitoringSummary = {
   channels: ChannelMonitoringChannelSummary[]
 }
 
+/**
+ * Fleet-wide money figures for one reporting window, aggregated from consume
+ * logs alone.
+ *
+ * `used_quota` is what users were charged, `cost_quota` what the upstream
+ * charged for the same requests, and `profit` their difference. Cost is priced
+ * at the cost ratio each request was billed under, which the backend
+ * snapshotted onto the log at write time, so these figures do not move when an
+ * operator reprices, renames, deletes or adds a channel.
+ */
+export type ChannelMonitoringTotalsWindow = {
+  used_quota: number
+  cost_quota: number
+  profit: number
+  /**
+   * True when some contributing log had no recorded cost ratio and had to be
+   * priced at an inferred one, so the cost and profit are approximate. The
+   * figures are still shown; this only says they are not fully settled.
+   */
+  cost_has_estimate: boolean
+}
+
+export type ChannelMonitoringTotals = {
+  /** The current UTC+8 calendar day. */
+  today: ChannelMonitoringTotalsWindow
+  /** The current UTC+8 calendar month. */
+  month: ChannelMonitoringTotalsWindow
+  /** All time. */
+  total: ChannelMonitoringTotalsWindow
+}
+
+export type ChannelMonitoringTotalsResponse =
+  | { available: false }
+  | { available: true; totals: ChannelMonitoringTotals }
+
 export type ApiResponse<T> = {
   success: boolean
   data: T

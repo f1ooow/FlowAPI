@@ -82,6 +82,25 @@ type Log struct {
 	// BaseQuota is Quota before group and channel ratios: the official-price
 	// amount a channel's cost ratio applies to. Admin aggregation input only.
 	BaseQuota int64 `json:"-" gorm:"default:0"`
+	// ChannelCostRatio is the channel cost ratio that was in force when this
+	// request was billed, stored as the scaled integer snapshot described in
+	// channel_cost_ratio.go. Zero means no snapshot was recorded (a log written
+	// before the column existed, or a path that had no ratio in context).
+	//
+	// This is a write-time snapshot, never a lookup: reading the channel's
+	// current ratio at aggregation time would retroactively reprice settled
+	// history every time an operator edits the channel. Admin aggregation only.
+	ChannelCostRatio int64 `json:"-" gorm:"default:0"`
+	// ChannelCostRatioEstimated marks ChannelCostRatio as back-filled rather
+	// than observed. A true value means the ratio was inferred after the fact
+	// (from the channel's current configuration, not from what this request
+	// actually ran at), so cost totals built from it are an approximation and
+	// must be identifiable as such in an audit. False means the value was
+	// captured on the billing path.
+	//
+	// The invariant "estimated implies the value was inferred" is checkable in
+	// SQL, which is the point of keeping it as its own column.
+	ChannelCostRatioEstimated bool `json:"-" gorm:"default:false"`
 }
 
 // don't use iota, avoid change log type value
@@ -126,17 +145,55 @@ func consumeLogBaseQuota(quota int, other map[string]interface{}) int64 {
 
 // ChannelQuotaUsage totals a channel's consume logs over a time range:
 // UsedQuota is what users were charged, BaseQuota the same requests at
-// official price.
+// official price, and CostQuota what the upstream charged, priced with the
+// channel cost ratio each request was billed under.
+//
+// CostQuota comes from the ratio snapshotted onto the logs themselves, never
+// from the channel's current configuration. That is what makes a cost total
+// stable: editing a channel's cost ratio, renaming it, or deleting it leaves
+// the requests already settled priced exactly as they were.
 type ChannelQuotaUsage struct {
 	UsedQuota int64
 	BaseQuota int64
+	CostQuota int64
+	// CostHasEstimate is true when any contributing log had no usable snapshot
+	// and had to be priced at an inferred ratio, so the total is approximate.
+	CostHasEstimate bool
 }
 
-// CostQuota prices the usage at the channel's cost ratio, i.e. what the
-// upstream charges for these requests.
-func (usage ChannelQuotaUsage) CostQuota(costRatio float64) int64 {
-	return common.AggregateQuotaRound(float64(usage.BaseQuota) * costRatio)
+// channelQuotaUsageRow is one per-ratio aggregation row. Grouping by the stored
+// snapshot rather than summing a pre-multiplied column keeps the multiply in
+// Go, where the project's quota rounding helpers apply, instead of in SQL
+// where each dialect would round differently.
+//
+// ChannelId is populated only by the per-channel query; the fleet-wide query
+// does not group by channel and leaves it zero.
+type channelQuotaUsageRow struct {
+	ChannelId                 int   `gorm:"column:channel_id"`
+	ChannelCostRatio          int64 `gorm:"column:channel_cost_ratio"`
+	ChannelCostRatioEstimated bool  `gorm:"column:channel_cost_ratio_estimated"`
+	UsedQuotaSum              int64 `gorm:"column:used_quota_sum"`
+	BaseQuotaSum              int64 `gorm:"column:base_quota_sum"`
 }
+
+// accumulate folds one aggregated row into a usage total, pricing its base
+// quota at the ratio that row was billed under.
+func (usage ChannelQuotaUsage) accumulate(row channelQuotaUsageRow) ChannelQuotaUsage {
+	bucket := NewChannelCostRatioBucket(row.ChannelCostRatio, row.ChannelCostRatioEstimated)
+	usage.UsedQuota += row.UsedQuotaSum
+	usage.BaseQuota += row.BaseQuotaSum
+	usage.CostQuota += bucket.CostQuota(row.BaseQuotaSum)
+	if bucket.IsEstimate() {
+		usage.CostHasEstimate = true
+	}
+	return usage
+}
+
+// channelQuotaUsageSelect is the shared projection of the channel-usage
+// aggregates. Aliases differ from the column names on purpose: ClickHouse
+// resolves an alias that shadows a column inside the aggregate itself.
+const channelQuotaUsageSelect = "channel_id, channel_cost_ratio, channel_cost_ratio_estimated, " +
+	"SUM(quota) AS used_quota_sum, SUM(base_quota) AS base_quota_sum"
 
 func SumChannelQuotaUsage(ctx context.Context, channelIds []int, startTimestamp int64, endTimestamp int64) (map[int]ChannelQuotaUsage, error) {
 	uniqueIds := make([]int, 0, len(channelIds))
@@ -155,40 +212,113 @@ func SumChannelQuotaUsage(ctx context.Context, channelIds []int, startTimestamp 
 	usageByChannel := make(map[int]ChannelQuotaUsage, len(uniqueIds))
 	for start := 0; start < len(uniqueIds); start += channelQuotaAggregationBatchSize {
 		end := min(start+channelQuotaAggregationBatchSize, len(uniqueIds))
-		// Aliases differ from the column names: ClickHouse resolves an alias
-		// that shadows a column inside the aggregate itself.
-		var rows []struct {
-			ChannelId    int   `gorm:"column:channel_id"`
-			UsedQuotaSum int64 `gorm:"column:used_quota_sum"`
-			BaseQuotaSum int64 `gorm:"column:base_quota_sum"`
-		}
+		var rows []channelQuotaUsageRow
 		err := LOG_DB.WithContext(ctx).
 			Table("logs").
-			Select("channel_id, SUM(quota) AS used_quota_sum, SUM(base_quota) AS base_quota_sum").
+			Select(channelQuotaUsageSelect).
 			Where("channel_id IN ?", uniqueIds[start:end]).
 			Where("created_at >= ? AND created_at <= ?", startTimestamp, endTimestamp).
 			Where("type = ?", LogTypeConsume).
-			Group("channel_id").
+			Group("channel_id, channel_cost_ratio, channel_cost_ratio_estimated").
 			Scan(&rows).Error
 		if err != nil {
 			return nil, err
 		}
 		for _, row := range rows {
-			usage := usageByChannel[row.ChannelId]
-			usage.UsedQuota += row.UsedQuotaSum
-			usage.BaseQuota += row.BaseQuotaSum
-			usageByChannel[row.ChannelId] = usage
+			usageByChannel[row.ChannelId] = usageByChannel[row.ChannelId].accumulate(row)
 		}
 	}
 
 	return usageByChannel, nil
 }
 
-// BackfillLogBaseQuota fills base_quota for consume logs written before the
-// column existed, from each log's stored billing snapshot, so channel cost
-// totals cover history. It returns how many logs were updated; logs whose
-// snapshot carries no usable ratio stay at zero. ClickHouse log stores are
-// skipped because row updates there are asynchronous whole-part mutations.
+// GlobalQuotaUsage totals consume logs across every channel in a time range,
+// without consulting the channel table at all.
+//
+// This is deliberately not built on SumChannelQuotaUsage: that one takes a
+// list of channel ids, and callers can only supply ids of channels that still
+// exist. Deleting a channel would then erase its history from the total. Here
+// the aggregation is scoped by time and log type only, so a renamed channel
+// keeps its numbers and a deleted one keeps contributing to the totals.
+type GlobalQuotaUsage struct {
+	UsedQuota int64
+	BaseQuota int64
+	CostQuota int64
+	Profit    int64
+	// CostHasEstimate is true when every window's cost included at least one
+	// inferred ratio, so the profit figure is approximate.
+	CostHasEstimate bool
+}
+
+// QuotaUsageWindow is one reporting window of the global totals.
+type QuotaUsageWindow struct {
+	StartTimestamp int64
+	// EndTimestamp is inclusive, matching how the log queries bound a range.
+	EndTimestamp int64
+	Usage        GlobalQuotaUsage
+}
+
+// SumGlobalQuotaUsage totals consume logs over one time range. startTimestamp
+// of 0 means "since the beginning", matching the convention the log queries
+// already use.
+func SumGlobalQuotaUsage(ctx context.Context, startTimestamp int64, endTimestamp int64) (GlobalQuotaUsage, error) {
+	var usage GlobalQuotaUsage
+	query := LOG_DB.WithContext(ctx).
+		Table("logs").
+		Select("channel_cost_ratio, channel_cost_ratio_estimated, SUM(quota) AS used_quota_sum, SUM(base_quota) AS base_quota_sum").
+		Where("type = ?", LogTypeConsume)
+	if startTimestamp > 0 {
+		query = query.Where("created_at >= ?", startTimestamp)
+	}
+	if endTimestamp > 0 {
+		query = query.Where("created_at <= ?", endTimestamp)
+	}
+	var rows []channelQuotaUsageRow
+	if err := query.Group("channel_cost_ratio, channel_cost_ratio_estimated").Scan(&rows).Error; err != nil {
+		return GlobalQuotaUsage{}, err
+	}
+	for _, row := range rows {
+		usage = usage.accumulate(row)
+	}
+	return usage, nil
+}
+
+// accumulate folds one aggregated row into the global total and derives the
+// profit. Profit is what users were charged minus what the upstream charged;
+// it is signed, because a heavily discounted group can legitimately sell below
+// cost, and that is information the page exists to show.
+func (usage GlobalQuotaUsage) accumulate(row channelQuotaUsageRow) GlobalQuotaUsage {
+	bucket := NewChannelCostRatioBucket(row.ChannelCostRatio, row.ChannelCostRatioEstimated)
+	usage.UsedQuota += row.UsedQuotaSum
+	usage.BaseQuota += row.BaseQuotaSum
+	usage.CostQuota += bucket.CostQuota(row.BaseQuotaSum)
+	if bucket.IsEstimate() {
+		usage.CostHasEstimate = true
+	}
+	usage.Profit = usage.UsedQuota - usage.CostQuota
+	return usage
+}
+
+// BackfillLogBaseQuota fills base_quota and the channel cost ratio snapshot
+// for consume logs written before those columns existed, so channel cost
+// totals cover history. It returns how many logs were updated. ClickHouse log
+// stores are skipped because row updates there are asynchronous whole-part
+// mutations.
+//
+// The two columns have different fallbacks, so they are filled independently:
+//
+//   - base_quota comes only from the log's own billing snapshot. A log whose
+//     snapshot carries no usable effective ratio stays at zero, because the
+//     charge alone cannot reveal what the request cost at official price.
+//   - channel_cost_ratio is preferred from the log's own billing snapshot
+//     too, which is the ratio the request actually ran at and is therefore
+//     immune to later repricing. Only when that snapshot has no usable
+//     channel_ratio does it fall back to the channel's current configuration,
+//     and such a row is marked estimated so an inferred value can never be
+//     mistaken for an observed one.
+//
+// Both updates are keyed on the "not yet filled" sentinel, which keeps the
+// pass idempotent: re-running it rewrites nothing.
 func BackfillLogBaseQuota(ctx context.Context) (int, error) {
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
 		return 0, nil
@@ -196,15 +326,11 @@ func BackfillLogBaseQuota(ctx context.Context) (int, error) {
 	updated := 0
 	lastId := 0
 	for {
-		var rows []struct {
-			Id    int
-			Quota int
-			Other string
-		}
+		var rows []backfillLogQuotaRow
 		err := LOG_DB.WithContext(ctx).
 			Table("logs").
-			Select("id, quota, other").
-			Where("type = ? AND base_quota = 0 AND quota > 0 AND id > ?", LogTypeConsume, lastId).
+			Select("id, quota, base_quota, other, channel_id, channel_cost_ratio").
+			Where("type = ? AND (base_quota = 0 OR channel_cost_ratio = 0) AND id > ?", LogTypeConsume, lastId).
 			Order("id").
 			Limit(logBaseQuotaBackfillBatchSize).
 			Scan(&rows).Error
@@ -215,26 +341,91 @@ func BackfillLogBaseQuota(ctx context.Context) (int, error) {
 			return updated, nil
 		}
 		lastId = rows[len(rows)-1].Id
-		batchUpdated := 0
-		err = LOG_DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			for _, row := range rows {
-				other, _ := common.StrToMap(row.Other)
-				baseQuota := consumeLogBaseQuota(row.Quota, other)
-				if baseQuota == 0 {
-					continue
-				}
-				if err := tx.Table("logs").Where("id = ?", row.Id).Update("base_quota", baseQuota).Error; err != nil {
-					return err
-				}
-				batchUpdated++
-			}
-			return nil
-		})
+		batchUpdated, err := backfillLogQuotaBatch(ctx, rows)
 		if err != nil {
 			return updated, err
 		}
 		updated += batchUpdated
 	}
+}
+
+// backfillLogQuotaRow is one consume log whose snapshot columns are incomplete.
+type backfillLogQuotaRow struct {
+	Id               int
+	Quota            int
+	BaseQuota        int64
+	Other            string
+	ChannelId        int
+	ChannelCostRatio int64
+}
+
+// backfillLogQuotaBatch fills the missing snapshot columns of one batch of
+// logs. Channel cost ratios are resolved per channel, not per row, so a batch
+// spanning a handful of channels issues a handful of lookups rather than one
+// per log.
+func backfillLogQuotaBatch(ctx context.Context, rows []backfillLogQuotaRow) (int, error) {
+	fallbackByChannel := make(map[int]float64)
+	updatesByRow := make(map[int]map[string]interface{}, len(rows))
+	for _, row := range rows {
+		other, _ := common.StrToMap(row.Other)
+		updates := make(map[string]interface{}, 3)
+
+		// Each column is filled only while it still holds its sentinel, so a
+		// second run over the same rows writes nothing back.
+		if row.BaseQuota == 0 {
+			if baseQuota := consumeLogBaseQuota(row.Quota, other); baseQuota != 0 {
+				updates["base_quota"] = baseQuota
+			}
+		}
+
+		if row.ChannelCostRatio == 0 {
+			scaled, estimated := backfillChannelCostRatio(other, row.ChannelId, fallbackByChannel)
+			updates["channel_cost_ratio"] = scaled
+			updates["channel_cost_ratio_estimated"] = estimated
+		}
+
+		if len(updates) > 0 {
+			updatesByRow[row.Id] = updates
+		}
+	}
+
+	if len(updatesByRow) == 0 {
+		return 0, nil
+	}
+	updated := 0
+	err := LOG_DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for id, updates := range updatesByRow {
+			if err := tx.Table("logs").Where("id = ?", id).Updates(updates).Error; err != nil {
+				return err
+			}
+			updated++
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return updated, nil
+}
+
+// backfillChannelCostRatio resolves the snapshot pair for one historical log:
+// the ratio its own billing record used, else the channel's current ratio
+// flagged as an estimate.
+func backfillChannelCostRatio(other map[string]interface{}, channelId int, fallbackByChannel map[int]float64) (int64, bool) {
+	if ratio, ok := ParseSnapshotChannelCostRatio(other); ok {
+		if scaled := EncodeChannelCostRatio(ratio); scaled != 0 {
+			return scaled, false
+		}
+	}
+	ratio, ok := fallbackByChannel[channelId]
+	if !ok {
+		ratio = currentChannelCostRatio(channelId)
+		fallbackByChannel[channelId] = ratio
+	}
+	if scaled := EncodeChannelCostRatio(ratio); scaled != 0 {
+		return scaled, true
+	}
+	return channelCostRatioScale, true
 }
 
 func ensureLogRequestId(log *Log) {
@@ -639,6 +830,10 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		UpstreamRequestId: upstreamRequestId,
 		Other:             otherStr,
 	}
+	// Freeze the channel cost ratio this request ran at. The cost total is
+	// rebuilt from these snapshots, so an operator editing a channel's cost
+	// ratio must not reprice the requests already settled above.
+	log.ChannelCostRatio, log.ChannelCostRatioEstimated = ResolveLogChannelCostRatio(c, params.ChannelId, params.Other)
 	err := createLog(log)
 	if err != nil {
 		logger.LogError(c, "failed to record log: "+err.Error())
@@ -700,6 +895,10 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 	}
 	if params.LogType == LogTypeConsume {
 		log.BaseQuota = consumeLogBaseQuota(params.Quota, params.Other)
+		// Task billing runs off the request path often enough to have no gin
+		// context, so the snapshot resolves from the log's own billing record
+		// and, failing that, the channel row.
+		log.ChannelCostRatio, log.ChannelCostRatioEstimated = ResolveTaskLogChannelCostRatio(params.Other, params.ChannelId)
 	}
 	err := createLog(log)
 	if err != nil {

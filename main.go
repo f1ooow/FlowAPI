@@ -329,8 +329,15 @@ func InitResources() error {
 		return err
 	}
 	if common.IsMasterNode {
-		// Channel cost totals read base_quota; logs written before the column
-		// existed get it from their billing snapshot, off the startup path.
+		// Channel cost totals read base_quota and the channel cost ratio
+		// snapshot; logs written before those columns existed get them from
+		// their own billing snapshot, off the startup path.
+		//
+		// Startup is the right trigger because the figures are wrong until the
+		// pass runs, and an operator should not have to know to ask for it.
+		// Running it in a goroutine keeps it off the critical path, and it is
+		// keyed on the "not yet filled" sentinel so a restart neither redoes
+		// work nor changes a result.
 		gopool.Go(func() {
 			updated, backfillErr := model.BackfillLogBaseQuota(context.Background())
 			if backfillErr != nil {
@@ -338,7 +345,7 @@ func InitResources() error {
 				return
 			}
 			if updated > 0 {
-				common.SysLog(fmt.Sprintf("backfilled base quota for %d consume logs", updated))
+				common.SysLog(fmt.Sprintf("backfilled quota snapshots for %d consume logs", updated))
 			}
 		})
 	}

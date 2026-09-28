@@ -285,9 +285,9 @@ func TestGetChannelMonitoringSummaryReadsChannelMetrics(t *testing.T) {
 	}))
 	todayStart, _ := channelTodayTimeRange(time.Now())
 	require.NoError(t, db.Create(&[]model.Log{
-		{ChannelId: 11, CreatedAt: todayStart, Type: model.LogTypeConsume, Quota: 9, BaseQuota: 6},
-		{ChannelId: 11, CreatedAt: todayStart + 1, Type: model.LogTypeConsume, Quota: 6, BaseQuota: 4},
-		{ChannelId: 11, CreatedAt: todayStart - 1, Type: model.LogTypeConsume, Quota: 100, BaseQuota: 100},
+		{ChannelId: 11, CreatedAt: todayStart, Type: model.LogTypeConsume, Quota: 9, BaseQuota: 6, ChannelCostRatio: 5_000},
+		{ChannelId: 11, CreatedAt: todayStart + 1, Type: model.LogTypeConsume, Quota: 6, BaseQuota: 4, ChannelCostRatio: 5_000},
+		{ChannelId: 11, CreatedAt: todayStart - 1, Type: model.LogTypeConsume, Quota: 100, BaseQuota: 100, ChannelCostRatio: 5_000},
 		{ChannelId: 11, CreatedAt: todayStart + 1, Type: model.LogTypeRefund, Quota: 50, BaseQuota: 50},
 	}).Error)
 
@@ -313,7 +313,7 @@ func TestGetChannelMonitoringSummaryReadsChannelMetrics(t *testing.T) {
 	assert.Len(t, flaky.Buckets, 48)
 	require.NotNil(t, flaky.TodayUsedQuota)
 	assert.EqualValues(t, 15, *flaky.TodayUsedQuota)
-	// (6 + 4) official-price quota at the channel's current 0.5 cost ratio.
+	// (6 + 4) official-price quota at the 0.5 cost ratio the logs snapshotted.
 	require.NotNil(t, flaky.TodayCostQuota)
 	assert.EqualValues(t, 5, *flaky.TodayCostQuota)
 
