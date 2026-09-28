@@ -495,3 +495,41 @@ Fixed JSON top-level model rewriting for OpenAI, Responses, Claude, image and re
 ### Status
 
 [OK] **Completed**
+
+
+## Session 9: 修复 FlowAPI 媒体渠道缺陷与 H3/Wan 计费口径
+
+**Date**: 2026-09-28
+**Task**: 修复 FlowAPI 媒体渠道缺陷与 H3/Wan 计费口径
+**Branch**: `main`
+
+### Summary
+
+对比 keli-api 与 FlowAPI 媒体能力后，修复 FlowAPI 移植缺陷并按用户决定调整 H3/Wan 计费；代码已提交，未部署
+
+### Main Changes
+
+- 火山 ASR 去掉 X-Api-Sequence；Seedream 转发 tools（联网搜索），Pro 图层按成功张数计费
+- MiniMax 上传按 purpose 选渠道、白名单改官方枚举；克隆 file_id/字段对齐官方并释放被拒 voice_id；TTS 计费字符加本地上界；删除音乐占位名
+- HappyHorse UNKNOWN 120 秒宽限；Wan 按成片+参考视频秒数计费、缺时长按请求时长；H3 2K 倍率 5/3、参考视频预扣 +15s 并按 usage 退差
+- 异步任务预扣改 decimal 精确计算；H3 日志计费单位前端显示为秒
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a9a333bd6` | (see git log) |
+
+### Testing
+
+- [OK] 受影响的 32 个 Go 包 go test -count=1 全部 ok；go test -race 通过
+- [OK] relaykit GOWORK=off 构建与测试通过；前端 tsc --noEmit 通过；git diff --check 通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- HK 上线需授权：H3 ModelPrice 0.19→0.15、删 71 号渠道音乐模型与价格、部署后实测 ASR/克隆/H3 参考素材/Wan 参考视频
+- 另建任务部署独立运营的 FlowAPI B（文本/图片接 A，音视频直连）
