@@ -65,7 +65,7 @@ import type { Channel } from '../types'
 import { ChannelGroupCapsules } from './channel-group-capsules'
 import { ChannelQuotaSummaryCell } from './channel-quota-summary-cell'
 import { ChannelQuotaSummaryHeader } from './channel-quota-summary-header'
-import { ChannelRoutingCell } from './channel-routing-cell'
+import { ChannelRoutingValueCell } from './channel-routing-cell'
 import { ChannelRowActionsLayoutContext } from './channel-row-actions-context'
 import { ChannelTypeLogo } from './channel-type-logo'
 import { useChannels } from './channels-provider'
@@ -268,13 +268,14 @@ function ChannelNameCell(props: {
   const typeName = t(getChannelTypeLabel(props.channel.type))
 
   return (
-    <div className='flex max-w-full min-w-0 items-center gap-2'>
+    <div className='flex max-w-full min-w-0 flex-nowrap items-center gap-2'>
       <div className='flex max-w-full min-w-0 flex-col gap-1'>
         {/* The name, its markers and the group capsules share one row that
-          wraps when the groups do not fit. */}
+          never wraps: the name truncates and the capsules give way, so a long
+          group list cannot push the row to two lines. */}
         <div
           data-slot='channel-name-row'
-          className='flex max-w-full min-w-0 flex-wrap items-center gap-1.5'
+          className='flex max-w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden'
         >
           {showTypeMarkers && (
             <TooltipProvider delay={300}>
@@ -296,8 +297,8 @@ function ChannelNameCell(props: {
           )}
           <TruncatedText
             text={sensitiveVisible ? props.channel.name : SENSITIVE_MASK}
-            className='font-medium'
-            maxWidth='max-w-full'
+            className='shrink font-medium'
+            maxWidth='max-w-full min-w-0'
           />
           {showTypeMarkers && (
             <ChannelMultiKeyModeIcon channel={props.channel} />
@@ -350,7 +351,13 @@ function ChannelNameCell(props: {
             </TooltipProvider>
           )}
           <UpstreamUpdateTags channel={props.channel} />
-          <ChannelGroupCapsules channel={props.channel} />
+          {/* The capsules take the space that is left and truncate inside it,
+              so they never push the name or wrap the row. A single very long
+              group name is capped so it cannot eat the whole column. */}
+          <ChannelGroupCapsules
+            channel={props.channel}
+            className='min-w-0 shrink [&>[data-slot=group-capsule]]:max-w-40'
+          />
         </div>
         {props.channel.remark && (
           <TooltipProvider delay={200}>
@@ -627,14 +634,43 @@ export function useChannelsColumns(
         enableSorting: false,
       },
 
-      // Priority, weight and cost ratio as inline-editable chips. Keyed on
-      // priority so the server-side priority sort keeps working.
+      // Priority, weight and cost ratio as one inline-editable chip each. A
+      // column of their own, so a chip never shares its cell with its
+      // neighbours and never wraps. Keyed on priority so the server-side
+      // priority sort keeps working.
       {
         accessorKey: 'priority',
-        header: t('Priority / Weight / Cost ratio'),
+        header: t('Priority'),
         meta: { mobileHidden: true },
-        cell: ({ row }) => <ChannelRoutingCell channel={row.original} />,
-        size: 250,
+        cell: ({ row }) => (
+          <ChannelRoutingValueCell channel={row.original} field='priority' />
+        ),
+        size: 72,
+        minSize: 56,
+      },
+      {
+        id: 'weight',
+        accessorKey: 'weight',
+        header: t('Weight'),
+        meta: { mobileHidden: true },
+        cell: ({ row }) => (
+          <ChannelRoutingValueCell channel={row.original} field='weight' />
+        ),
+        enableSorting: false,
+        size: 72,
+        minSize: 56,
+      },
+      {
+        id: 'cost_ratio',
+        accessorKey: 'cost_ratio',
+        header: t('Cost ratio'),
+        meta: { mobileHidden: true },
+        cell: ({ row }) => (
+          <ChannelRoutingValueCell channel={row.original} field='costRatio' />
+        ),
+        enableSorting: false,
+        size: 92,
+        minSize: 72,
       },
 
       // Cost / consumption / profit over the scope picked in the header menu

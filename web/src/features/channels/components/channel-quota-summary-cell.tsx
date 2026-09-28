@@ -27,6 +27,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { toIntlLocale } from '@/i18n/languages'
+import { cn } from '@/lib/utils'
 
 import {
   getChannelQuotaSummary,
@@ -106,7 +107,10 @@ export function ChannelQuotaSummaryCell(props: {
       <Tooltip>
         <TooltipTrigger
           render={
-            <div className='flex max-w-full min-w-0 cursor-help items-center gap-1 text-sm font-medium' />
+            // Overflow is hidden and the separators never shrink, so a tight
+            // column clips the tail instead of squeezing the figures into a
+            // second line. The full numbers stay in the tooltip.
+            <div className='flex max-w-full min-w-0 cursor-help flex-nowrap items-center gap-1 overflow-hidden text-sm font-medium' />
           }
         >
           {entries.map((entry, index) => (
@@ -121,7 +125,7 @@ export function ChannelQuotaSummaryCell(props: {
               )}
               <AlignedValue
                 width={entry.width}
-                className={textColorMap[entry.variant]}
+                className={cn('shrink-0', textColorMap[entry.variant])}
                 title={`${entry.label} ${entry.full}`}
               >
                 {entry.display}

@@ -34,18 +34,31 @@ import { getChannelRoutingText } from '../lib/channel-routing-text'
 import type { Channel } from '../types'
 import { ChannelColumnSlotsContext } from './channel-column-slots-context'
 import { ChannelRowActionsLayoutContext } from './channel-row-actions-context'
-import { InlineNumberChip, ValueChip } from './inline-number-chip'
+import { InlineNumberChip } from './inline-number-chip'
+
+/** The routing figure a single column of the table edits. */
+export type ChannelRoutingField = 'priority' | 'weight' | 'costRatio'
 
 type TagFieldUpdate = { field: 'priority' | 'weight'; value: number }
 
 /**
- * Priority, weight and cost ratio of a channel as editable chips. A tag row
- * edits priority and weight for every channel in the tag after confirmation;
- * its cost ratio is shown as the range of its channels. Only super admins may
- * change a cost ratio, matching the backend rule. In the table each value
- * takes the slot width the table shares across rows, so the chips line up.
+ * Priority, weight or cost ratio of a channel as one editable chip, sized for
+ * one table column. The three fields are separate columns whose widths the
+ * table fixes, so a chip never shares a cell with its neighbours and never
+ * wraps. A tag row edits priority and weight for every channel in the tag
+ * after confirmation; its cost ratio is the range of its channels. Only super
+ * admins may change a cost ratio, matching the backend rule, so for everyone
+ * else the chip is read-only.
+ *
+ * The confirming dialog is owned by the row, not by a column, so a tag edit
+ * shows one dialog rather than one per column.
  */
-export function ChannelRoutingCell(props: { channel: Channel }) {
+export function ChannelRoutingValueCell(props: {
+  channel: Channel
+  field: ChannelRoutingField
+  /** Called with the confirmed value of a tag-wide priority or weight edit. */
+  onTagUpdate?: (field: 'priority' | 'weight', value: number) => void
+}) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const layout = useContext(ChannelRowActionsLayoutContext)
@@ -53,14 +66,87 @@ export function ChannelRoutingCell(props: { channel: Channel }) {
   const isRoot = useAuthStore(
     (state) => state.auth.user?.role === ROLE.SUPER_ADMIN
   )
+  const channel = props.channel
+  // In edit mode the chip overlays its value box instead of growing, so the
+  // shared slot widths only decide how wide each value box is; without them
+  // (cards) the box hugs its own text.
+  const widths = layout === 'table' ? slotWidths : null
+  const isTagRow = isTagAggregateRow(channel)
+  const routing = getChannelRoutingText(channel)
+
+  if (props.field === 'costRatio') {
+    return (
+      <InlineNumberChip
+        label={t('Cost ratio')}
+        // A tag row shows the range of its channels; a channel shows its own
+        // ratio. Both texts come from the same helper the slot width uses.
+        value={isTagRow ? null : (channel.cost_ratio ?? 1)}
+        formatValue={formatChannelCostRatio}
+        displayText={isTagRow ? routing.costRatio : undefined}
+        valueWidth={widths?.costRatio}
+        min={0.01}
+        max={1000}
+        step={0.01}
+        onCommit={
+          isRoot && !isTagRow
+            ? (value) =>
+                void handleUpdateChannelField(
+                  channel.id,
+                  'cost_ratio',
+                  value,
+                  queryClient
+                )
+            : undefined
+        }
+      />
+    )
+  }
+
+  const onTagUpdate = props.onTagUpdate
+  const label = t(props.field === 'priority' ? 'Priority' : 'Weight')
+  // A tag row carries the value its channels share and null when they differ;
+  // null is the mixed marker, so it must not fall back to a number.
+  const rawValue = channel[props.field]
+  const value =
+    rawValue == null && isTagRow
+      ? null
+      : ((rawValue as number | null | undefined) ?? 0)
+  // The batch handler is what makes a tag row's figure editable; without one
+  // (a card, which lays the row's fields out together) it stays a read-only range.
+  const batchField = props.field as 'priority' | 'weight'
+  let onCommit: ((next: number) => void) | undefined
+  if (isTagRow) {
+    onCommit = onTagUpdate ? (next) => onTagUpdate(batchField, next) : undefined
+  } else {
+    onCommit = (next) =>
+      void handleUpdateChannelField(channel.id, props.field, next, queryClient)
+  }
+
+  return (
+    <InlineNumberChip
+      label={label}
+      value={value}
+      valueWidth={widths?.[props.field]}
+      min={props.field === 'priority' ? -999 : 0}
+      onCommit={onCommit}
+    />
+  )
+}
+
+/**
+ * Priority, weight and cost ratio of a channel as three editable chips, laid
+ * out to sit in one row of the card view. The table renders one
+ * {@link ChannelRoutingValueCell} per column instead, which fixes each chip's
+ * width and keeps the numbers aligned down the column.
+ */
+export function ChannelRoutingCell(props: { channel: Channel }) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const [tagUpdate, setTagUpdate] = useState<TagFieldUpdate | null>(null)
   const channel = props.channel
-  // Cards are laid out one by one, so only the table aligns its slots.
-  const widths = layout === 'table' ? slotWidths : null
 
   if (isTagAggregateRow(channel)) {
     const tag = channel.tag || ''
-    const ratioLabel = getChannelRoutingText(channel).costRatio
     const confirmDescription =
       tagUpdate?.field === 'priority'
         ? t(
@@ -73,26 +159,18 @@ export function ChannelRoutingCell(props: { channel: Channel }) {
           )
 
     return (
-      <div className='flex flex-wrap items-center gap-1'>
-        <InlineNumberChip
-          label={t('Priority')}
-          value={channel.priority ?? null}
-          valueWidth={widths?.priority}
-          min={-999}
-          onCommit={(value) => setTagUpdate({ field: 'priority', value })}
+      <div className='flex items-center gap-2'>
+        <ChannelRoutingValueCell
+          channel={channel}
+          field='priority'
+          onTagUpdate={(field, value) => setTagUpdate({ field, value })}
         />
-        <InlineNumberChip
-          label={t('Weight')}
-          value={channel.weight ?? null}
-          valueWidth={widths?.weight}
-          min={0}
-          onCommit={(value) => setTagUpdate({ field: 'weight', value })}
+        <ChannelRoutingValueCell
+          channel={channel}
+          field='weight'
+          onTagUpdate={(field, value) => setTagUpdate({ field, value })}
         />
-        <ValueChip
-          label={t('Cost ratio')}
-          value={ratioLabel}
-          valueWidth={widths?.costRatio}
-        />
+        <ChannelRoutingValueCell channel={channel} field='costRatio' />
         <ConfirmDialog
           open={tagUpdate !== null}
           onOpenChange={(open) => {
@@ -120,55 +198,10 @@ export function ChannelRoutingCell(props: { channel: Channel }) {
   }
 
   return (
-    <div className='flex flex-wrap items-center gap-1'>
-      <InlineNumberChip
-        label={t('Priority')}
-        value={channel.priority ?? 0}
-        valueWidth={widths?.priority}
-        min={-999}
-        onCommit={(value) =>
-          void handleUpdateChannelField(
-            channel.id,
-            'priority',
-            value,
-            queryClient
-          )
-        }
-      />
-      <InlineNumberChip
-        label={t('Weight')}
-        value={channel.weight ?? 0}
-        valueWidth={widths?.weight}
-        min={0}
-        onCommit={(value) =>
-          void handleUpdateChannelField(
-            channel.id,
-            'weight',
-            value,
-            queryClient
-          )
-        }
-      />
-      <InlineNumberChip
-        label={t('Cost ratio')}
-        value={channel.cost_ratio ?? 1}
-        formatValue={formatChannelCostRatio}
-        valueWidth={widths?.costRatio}
-        min={0.01}
-        max={1000}
-        step={0.01}
-        onCommit={
-          isRoot
-            ? (value) =>
-                void handleUpdateChannelField(
-                  channel.id,
-                  'cost_ratio',
-                  value,
-                  queryClient
-                )
-            : undefined
-        }
-      />
+    <div className='flex items-center gap-2'>
+      <ChannelRoutingValueCell channel={channel} field='priority' />
+      <ChannelRoutingValueCell channel={channel} field='weight' />
+      <ChannelRoutingValueCell channel={channel} field='costRatio' />
     </div>
   )
 }

@@ -45,7 +45,10 @@ export function ChannelGroupFilterBar(props: {
       aria-labelledby={labelId}
       className='flex min-w-0 flex-1 flex-wrap items-center gap-1'
     >
-      <span id={labelId} className='text-muted-foreground me-1 text-sm'>
+      <span
+        id={labelId}
+        className='text-muted-foreground me-0.5 shrink-0 text-sm whitespace-nowrap'
+      >
         {t('Group:')}
       </span>
       <Button
@@ -63,8 +66,12 @@ export function ChannelGroupFilterBar(props: {
           variant={group === props.selectedGroup ? 'default' : 'ghost'}
           aria-pressed={group === props.selectedGroup}
           onClick={() => props.onSelectedGroupChange(group)}
+          // One line per button whatever the group is called.
+          className='max-w-40 min-w-0'
         >
-          {sensitiveVisible ? group : SENSITIVE_MASK}
+          <span className='truncate'>
+            {sensitiveVisible ? group : SENSITIVE_MASK}
+          </span>
         </Button>
       ))}
     </div>

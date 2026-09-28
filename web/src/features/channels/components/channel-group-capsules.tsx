@@ -43,21 +43,28 @@ const SENSITIVE_MASK = '••••'
 
 /**
  * A solid, white-on-colour pill. The fill comes from the full group list, so
- * a group has the same colour in every row, card and popover.
+ * a group has the same colour in every row, card and popover. The label stays
+ * on one line and truncates when the row is tight, so a long group name can
+ * never wrap a table row onto a second line.
  */
 export function GroupCapsule(props: { group: string; className?: string }) {
   const { sensitiveVisible } = useChannels()
   const capsuleClassName = useGroupCapsuleClassName()
+  const label = sensitiveVisible ? props.group : SENSITIVE_MASK
   return (
     <span
       data-slot='group-capsule'
+      title={label}
       className={cn(
-        'inline-flex max-w-full items-center rounded-md px-2 py-0.5 text-xs leading-4 font-medium text-white',
+        // The pill hugs its label and clips it when the room runs out, so a
+        // long group name can neither widen a table cell nor stretch a popover
+        // column. `w-fit` with `max-w-full` is what keeps those two apart.
+        'block max-w-full min-w-0 w-fit truncate rounded-md px-2 py-0.5 text-xs leading-4 font-medium whitespace-nowrap text-white',
         capsuleClassName(props.group),
         props.className
       )}
     >
-      {sensitiveVisible ? props.group : SENSITIVE_MASK}
+      {label}
     </span>
   )
 }
@@ -70,7 +77,10 @@ export function GroupCapsule(props: { group: string; className?: string }) {
  *
  * Renders a fragment so the capsules join the parent's wrapping name row.
  */
-export function ChannelGroupCapsules(props: { channel: Channel }) {
+export function ChannelGroupCapsules(props: {
+  channel: Channel
+  className?: string
+}) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { sensitiveVisible } = useChannels()
@@ -129,7 +139,10 @@ export function ChannelGroupCapsules(props: { channel: Channel }) {
             aria-label={t('Edit groups: {{group}}', {
               group: sensitiveVisible ? group : SENSITIVE_MASK,
             })}
-            className='focus-visible:ring-ring/50 max-w-full shrink-0 cursor-pointer rounded-md outline-none focus-visible:ring-2'
+            className={cn(
+              'focus-visible:ring-ring/50 inline-flex min-w-0 cursor-pointer rounded-md outline-none focus-visible:ring-2',
+              props.className
+            )}
           >
             <GroupCapsule group={group} />
           </PopoverTrigger>
@@ -137,7 +150,10 @@ export function ChannelGroupCapsules(props: { channel: Channel }) {
       ) : (
         <PopoverTrigger
           ref={anchorRef}
-          className='text-muted-foreground hover:text-foreground hover:bg-muted inline-flex h-5 shrink-0 items-center gap-0.5 rounded-md border border-dashed px-1.5 text-xs'
+          className={cn(
+            'text-muted-foreground hover:text-foreground hover:bg-muted inline-flex h-5 shrink-0 items-center gap-0.5 rounded-md border border-dashed px-1.5 text-xs whitespace-nowrap',
+            props.className
+          )}
         >
           <Plus className='size-3' aria-hidden='true' />
           {t('Add group')}
@@ -147,23 +163,30 @@ export function ChannelGroupCapsules(props: { channel: Channel }) {
         align='start'
         anchor={anchorRef}
         collisionPadding={8}
-        className='w-[min(28rem,calc(100vw-1rem))] gap-2 p-2'
+        className='w-[min(26rem,calc(100vw-1rem))] gap-0 overflow-hidden p-0'
       >
-        <Input
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder={t('Search groups...')}
-          aria-label={t('Search groups...')}
-          className='h-8'
-        />
+        <div className='p-2'>
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={t('Search groups...')}
+            aria-label={t('Search groups...')}
+            className='h-8 w-full'
+          />
+        </div>
+        {/* A hairline seam under the search box, so the list reads as its own
+            surface instead of bleeding into the field above it. */}
+        <div className='bg-border h-px shrink-0' />
         {visibleGroups.length === 0 ? (
-          <p className='text-muted-foreground px-1 py-2 text-center text-xs'>
+          <p className='text-muted-foreground px-2 py-3 text-center text-xs'>
             {t('No results found.')}
           </p>
         ) : (
           <div
             data-slot='group-options'
-            className='grid max-h-72 grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-1 overflow-y-auto'
+            // Two equal columns: `minmax(0, 1fr)` lets a long group name clip
+            // inside its own cell instead of widening the column.
+            className='grid max-h-72 grid-cols-[repeat(2,minmax(0,1fr))] gap-x-1 gap-y-0.5 overflow-y-auto p-2'
           >
             {visibleGroups.map((group) => {
               const checked = groups.includes(group)
@@ -174,7 +197,9 @@ export function ChannelGroupCapsules(props: { channel: Channel }) {
               return (
                 <div
                   key={group}
-                  className='hover:bg-muted flex min-w-0 items-start gap-2 rounded-md px-1.5 py-1'
+                  // One fixed row height for every option, so the two columns
+                  // stay on the same rhythm whatever the names look like.
+                  className='hover:bg-muted flex h-8 min-w-0 items-center gap-2 rounded-md px-2 transition-colors duration-100'
                 >
                   <Checkbox
                     checked={checked}
@@ -183,7 +208,7 @@ export function ChannelGroupCapsules(props: { channel: Channel }) {
                       void toggleGroup(group, nextChecked)
                     }
                     aria-label={label}
-                    className='mt-0.5'
+                    className='shrink-0'
                   />
                   <span
                     aria-hidden='true'
@@ -192,12 +217,9 @@ export function ChannelGroupCapsules(props: { channel: Channel }) {
                         void toggleGroup(group, !checked)
                       }
                     }}
-                    className='min-w-0 cursor-pointer'
+                    className='flex min-w-0 flex-1 cursor-pointer items-center'
                   >
-                    <GroupCapsule
-                      group={group}
-                      className='break-all whitespace-normal'
-                    />
+                    <GroupCapsule group={group} />
                   </span>
                 </div>
               )

@@ -23,8 +23,19 @@ import { cn } from '@/lib/utils'
 import { MIXED_ROUTING_VALUE } from '../lib/channel-routing-text'
 import { AlignedValue } from './aligned-value'
 
+/**
+ * Quiet "label value" chip. The label is muted and the number carries the
+ * weight, so a column of figures reads first and the chrome around them stays
+ * out of the way. The box only appears on hover or while editing.
+ */
 const CHIP_CLASS_NAME =
-  'inline-flex h-6 shrink-0 items-center gap-1 rounded-md border px-1.5 text-xs leading-none whitespace-nowrap'
+  'inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-transparent px-1.5 text-xs leading-none whitespace-nowrap'
+
+/**
+ * Room the value box always keeps, in `ch`, so even a one-digit number has a
+ * click target and every row's box ends up the same width.
+ */
+const MIN_VALUE_BOX_WIDTH = 3
 
 /**
  * Read-only "label value" chip. `valueWidth` (in `ch`) gives the value a
@@ -36,11 +47,16 @@ export function ValueChip(props: {
   valueWidth?: number
 }) {
   return (
-    <span className={cn(CHIP_CLASS_NAME, 'bg-muted/40')}>
+    <span className={CHIP_CLASS_NAME}>
       <span className='text-muted-foreground'>{props.label}</span>
-      <AlignedValue width={props.valueWidth} className='font-medium'>
-        {props.value}
-      </AlignedValue>
+      <span
+        className='inline-block'
+        style={{ minWidth: `${MIN_VALUE_BOX_WIDTH}ch` }}
+      >
+        <AlignedValue width={props.valueWidth} className='font-medium'>
+          {props.value}
+        </AlignedValue>
+      </span>
     </span>
   )
 }
@@ -50,6 +66,12 @@ type InlineNumberChipProps = {
   /** `null` is a mixed value (e.g. a tag whose channels disagree). */
   value: number | null
   formatValue?: (value: number) => string
+  /**
+   * Text to show instead of the formatted value, for a figure that is not a
+   * single number (e.g. a tag's cost ratio range). Editing is unavailable
+   * whenever this is set.
+   */
+  displayText?: string
   min: number
   max?: number
   /** An integer step only accepts integers; a fractional one accepts decimals. */
@@ -68,13 +90,20 @@ type InlineNumberChipProps = {
 export function InlineNumberChip(props: InlineNumberChipProps) {
   const [draft, setDraft] = useState<string | null>(null)
   const cancelledRef = useRef(false)
+  // The chip stays the focusable element across an edit, so leaving the field
+  // with Enter or Escape puts the focus back on it instead of dropping it.
+  const chipRef = useRef<HTMLButtonElement>(null)
+  const keyboardExitRef = useRef(false)
   const step = props.step ?? 1
   const display =
-    props.value == null
+    props.displayText ??
+    (props.value == null
       ? MIXED_ROUTING_VALUE
-      : (props.formatValue?.(props.value) ?? String(props.value))
+      : (props.formatValue?.(props.value) ?? String(props.value)))
+  const onCommit = props.onCommit
 
-  if (!props.onCommit) {
+  // A value that is not a single number has nothing to edit.
+  if (!onCommit || props.displayText !== undefined) {
     return (
       <ValueChip
         label={props.label}
@@ -83,8 +112,6 @@ export function InlineNumberChip(props: InlineNumberChipProps) {
       />
     )
   }
-
-  const onCommit = props.onCommit
   const clamp = (value: number) => {
     const bounded = Math.max(props.min, value)
     return props.max === undefined ? bounded : Math.min(props.max, bounded)
@@ -97,6 +124,13 @@ export function InlineNumberChip(props: InlineNumberChipProps) {
   const finishEditing = () => {
     const text = draft
     setDraft(null)
+    // Enter and Escape mean "I am done with this field", so the focus belongs
+    // back on the chip. A blur from clicking elsewhere leaves it where the
+    // pointer put it.
+    if (keyboardExitRef.current) {
+      keyboardExitRef.current = false
+      chipRef.current?.focus()
+    }
     if (cancelledRef.current) {
       cancelledRef.current = false
       return
@@ -111,71 +145,82 @@ export function InlineNumberChip(props: InlineNumberChipProps) {
     }
   }
 
-  if (draft === null) {
-    return (
-      <button
-        type='button'
-        aria-label={`${props.label} ${display}`}
-        onClick={(event) => {
-          event.stopPropagation()
-          setDraft(props.value == null ? '' : String(props.value))
-        }}
-        className={cn(
-          CHIP_CLASS_NAME,
-          'bg-muted/40 hover:bg-muted hover:border-foreground/20 cursor-text transition-colors'
-        )}
-      >
-        <span className='text-muted-foreground'>{props.label}</span>
-        <AlignedValue width={props.valueWidth} className='font-medium'>
-          {display}
-        </AlignedValue>
-      </button>
-    )
-  }
-
   const allowsDecimals = !Number.isInteger(step)
   const allowsNegative = props.min < 0
+  const editing = draft !== null
 
   return (
-    <span className={cn(CHIP_CLASS_NAME, 'ring-primary/30 bg-muted ring-1')}>
-      <span className='text-muted-foreground'>{props.label}</span>
-      <input
-        aria-label={props.label}
-        value={draft}
-        inputMode={allowsDecimals ? 'decimal' : 'numeric'}
-        autoFocus
-        onFocus={(event) => event.currentTarget.select()}
-        onClick={(event) => event.stopPropagation()}
-        onChange={(event) => {
-          const raw = event.target.value
-          const pattern = allowsDecimals ? /^-?\d*(?:\.\d*)?$/ : /^-?\d*$/
-          if (pattern.test(raw) && (allowsNegative || !raw.startsWith('-'))) {
-            setDraft(raw)
-          }
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') {
-            event.preventDefault()
-            event.currentTarget.blur()
-          } else if (event.key === 'Escape') {
-            cancelledRef.current = true
-            event.currentTarget.blur()
-          } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-            event.preventDefault()
-            const current = Number(draft) || 0
-            const delta = event.key === 'ArrowUp' ? step : -step
-            setDraft(String(clamp(roundToStep(current + delta))))
-          }
-        }}
-        onBlur={finishEditing}
-        // Keeps the slot's footprint so the chip does not shift while editing.
-        style={
-          props.valueWidth
-            ? { width: `max(3rem, ${props.valueWidth}ch)` }
-            : undefined
+    // One element for both states: the chip never unmounts, so entering an edit
+    // cannot move focus, height or width, and returning to the display state
+    // leaves the focus on the chip.
+    <button
+      ref={chipRef}
+      type='button'
+      aria-label={`${props.label} ${display}`}
+      onClick={(event) => {
+        event.stopPropagation()
+        if (!editing) {
+          setDraft(props.value == null ? '' : String(props.value))
         }
-        className='w-12 bg-transparent text-right font-mono font-medium tabular-nums outline-none'
-      />
-    </span>
+      }}
+      className={cn(
+        CHIP_CLASS_NAME,
+        'bg-transparent transition-colors duration-100',
+        editing && 'bg-muted/60 ring-ring/30 ring-1',
+        !editing &&
+          'hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:ring-ring/40 cursor-text focus-visible:ring-1'
+      )}
+    >
+      <span className='text-muted-foreground'>{props.label}</span>
+      {/* The field is absolutely positioned over the value box, which already
+          reserves the widest the value can get, so editing adds nothing to the
+          flow: the chip, its neighbours and the row keep their exact geometry. */}
+      <span
+        className='relative inline-flex'
+        style={{ minWidth: `${MIN_VALUE_BOX_WIDTH}ch` }}
+      >
+        <AlignedValue
+          width={props.valueWidth}
+          className={cn(
+            'font-medium transition-opacity duration-100',
+            editing && 'invisible'
+          )}
+        >
+          {display}
+        </AlignedValue>
+        {editing && (
+          <input
+            aria-label={props.label}
+            value={draft}
+            inputMode={allowsDecimals ? 'decimal' : 'numeric'}
+            autoFocus
+            onFocus={(event) => event.currentTarget.select()}
+            onClick={(event) => event.stopPropagation()}
+            onChange={(event) => {
+              const raw = event.target.value
+              const pattern = allowsDecimals ? /^-?\d*(?:\.\d*)?$/ : /^-?\d*$/
+              if (pattern.test(raw) && (allowsNegative || !raw.startsWith('-'))) {
+                setDraft(raw)
+              }
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === 'Escape') {
+                event.preventDefault()
+                keyboardExitRef.current = true
+                cancelledRef.current = event.key === 'Escape'
+                event.currentTarget.blur()
+              } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                event.preventDefault()
+                const current = Number(draft) || 0
+                const delta = event.key === 'ArrowUp' ? step : -step
+                setDraft(String(clamp(roundToStep(current + delta))))
+              }
+            }}
+            onBlur={finishEditing}
+            className='ring-ring/60 bg-background/80 absolute inset-0 w-full rounded-sm text-right font-mono font-medium tabular-nums outline-none ring-2'
+          />
+        )}
+      </span>
+    </button>
   )
 }

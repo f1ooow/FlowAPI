@@ -419,12 +419,19 @@ describe('ChannelsTable row layout', () => {
     expect(
       screen.queryByRole('columnheader', { name: 'Groups' })
     ).not.toBeInTheDocument()
-    // The resize handle's label is part of each header's accessible name.
+    // Priority, weight and cost ratio each own a column, so none of the three
+    // chips has to share a cell with its neighbours. The resize handle's label
+    // is part of the header's accessible name.
+    for (const label of ['Priority', 'Weight', 'Cost ratio']) {
+      expect(
+        screen.getByRole('columnheader', { name: new RegExp(`^${label}`) })
+      ).toBeInTheDocument()
+    }
     expect(
-      screen.getByRole('columnheader', {
-        name: /^Priority \/ Weight \/ Cost ratio/,
+      screen.queryByRole('columnheader', {
+        name: /Priority \/ Weight \/ Cost ratio/,
       })
-    ).toBeInTheDocument()
+    ).not.toBeInTheDocument()
   })
 
   test('switching an enabled channel off posts the manual-disable status', async () => {
@@ -655,6 +662,28 @@ describe('ChannelsTable card view', () => {
     expect(capsuleClassName('vip')).not.toBe(capsuleClassName('default'))
   })
 
+  test('shows all three routing chips in a card', async () => {
+    localStorage.setItem('channels:view-mode', 'card')
+    channels = channels.map((channel) =>
+      channel.id === 1
+        ? { ...channel, priority: 5, weight: 1, cost_ratio: 0.2 }
+        : channel
+    )
+    renderTable()
+    await screen.findByText('OpenAI main')
+
+    // The table splits these into three columns; the card must not lose two of
+    // them just because it only renders the first routing column.
+    expect(screen.getByRole('button', { name: 'Priority 5' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Weight 1' })).toBeVisible()
+    // The cost ratio stays read-only for anyone below super admin, so it is
+    // rendered as a plain value chip.
+    expect(screen.getByText('0.20x')).toBeVisible()
+    expect(
+      screen.queryByRole('button', { name: 'Cost ratio 0.20x' })
+    ).not.toBeInTheDocument()
+  })
+
   test('leaves card values at their natural width', async () => {
     localStorage.setItem('channels:view-mode', 'card')
     renderTable()
@@ -687,18 +716,17 @@ describe('ChannelsTable column alignment', () => {
       .filter((slot) => slot.dataset.slot === 'aligned-value')
   }
 
+  // Each routing field is a column of its own, so its chip is reached through
+  // the cell that carries the field's column id.
   function chipSlots(name: string): HTMLElement[] {
     const row = rowOf(name)
-    return ['Priority', 'Weight', 'Cost ratio'].map((label) => {
-      const chip = within(row)
-        .getAllByText(label)
-        .map((node) => node.parentElement)
-        .find((node) => node !== null)
-      const slot = chip?.querySelector<HTMLElement>(
+    return ['priority', 'weight', 'cost_ratio'].map((columnId) => {
+      const cell = row.querySelector(`[data-column-id="${columnId}"]`)
+      const slot = cell?.querySelector<HTMLElement>(
         '[data-slot="aligned-value"]'
       )
       if (!slot) {
-        throw new Error(`Missing ${label} slot in ${name}`)
+        throw new Error(`Missing ${columnId} slot in ${name}`)
       }
       return slot
     })
@@ -731,6 +759,38 @@ describe('ChannelsTable column alignment', () => {
     expect(large[0]).toHaveTextContent('$2,823.47')
     expect(small[0].style.minWidth).toBe(`${'$2,823.47'.length}ch`)
     expect(unavailable[0]).toHaveTextContent('--')
+  })
+
+  test('editing a routing chip adds no element to the row it lives in', async () => {
+    const user = userEvent.setup()
+    renderTable()
+    await screen.findByText('OpenAI main')
+
+    const row = rowOf('OpenAI main')
+    const cellsBefore = Array.from(
+      row.querySelectorAll('[data-column-id]'),
+      (cell) => cell.getAttribute('data-column-id')
+    )
+    const columnWidths = (): (string | null)[] =>
+      Array.from(document.querySelectorAll('colgroup col'), (col) =>
+        col.getAttribute('style')
+      )
+    const before = columnWidths()
+
+    await user.click(
+      within(row).getByRole('button', { name: 'Weight 0' })
+    )
+    expect(screen.getByRole('textbox', { name: 'Weight' })).toBeVisible()
+
+    // The field overlays its chip instead of joining the row, so no cell is
+    // added, removed or resized while the row is being edited.
+    expect(
+      Array.from(
+        row.querySelectorAll('[data-column-id]'),
+        (cell) => cell.getAttribute('data-column-id')
+      )
+    ).toEqual(cellsBefore)
+    expect(columnWidths()).toEqual(before)
   })
 
   test('gives each routing chip the same right-aligned width on every row', async () => {

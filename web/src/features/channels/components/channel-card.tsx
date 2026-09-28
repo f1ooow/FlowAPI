@@ -34,8 +34,9 @@ const SENSITIVE_MASK = '••••'
  * renderer via `flexRender`, so the table's information and interactions are
  * preserved: row selection, provider/multi-key/IO.NET type badge, id,
  * name/remark + warning icons, editable group capsules, the status switch,
- * priority/weight/cost-ratio chips, cost/consumption/profit, response/test
- * times, tag expand-collapse, and the per-row (or per-tag) actions menu.
+ * priority/weight/cost-ratio chips (the card shows the three fields the table
+ * splits into columns), cost/consumption/profit, response/test times, tag
+ * expand-collapse, and the per-row (or per-tag) actions menu.
  */
 function ChannelCardComponent({
   row,
@@ -65,7 +66,11 @@ function ChannelCardComponent({
   const typeCell = renderCell('channel_type')
   const nameCell = renderCell('name')
   const actionsCell = renderCell('actions')
-  const routingCell = renderCell('priority')
+  // The table splits priority, weight and cost ratio into three columns; the
+  // card lays the same three cells out in one row instead.
+  const routingCells = ['priority', 'weight', 'cost_ratio']
+    .map((id) => renderCell(id))
+    .filter((cell) => cell !== null)
   const quotaSummaryCell = renderCell('quota_summary')
   const responseCell = renderCell('response_time')
   const testCell = renderCell('test_time')
@@ -102,7 +107,11 @@ function ChannelCardComponent({
         </div>
 
         {/* Routing chips: priority, weight and cost ratio */}
-        {routingCell}
+        {routingCells.length > 0 && (
+          <div className='flex flex-wrap items-center gap-x-3 gap-y-1'>
+            {routingCells}
+          </div>
+        )}
 
         {/* Usage paired with the response and last-tested times */}
         <div className='flex items-start justify-between gap-3'>

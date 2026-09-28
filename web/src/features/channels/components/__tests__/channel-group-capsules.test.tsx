@@ -134,7 +134,7 @@ describe('ChannelGroupCapsules', () => {
     ).not.toBeInTheDocument()
   })
 
-  test('lists long group names in full in the edit popover', async () => {
+  test('keeps every popover option on one line in a two-column grid', async () => {
     const user = userEvent.setup()
     renderCapsules(channel('CODEX'))
 
@@ -143,20 +143,18 @@ describe('ChannelGroupCapsules', () => {
 
     const options = option.closest('[data-slot="group-options"]')
     expect(options).not.toBeNull()
+    // Two equal columns, sized so a long name cannot widen its own column.
+    expect(options).toHaveClass(
+      'grid-cols-[repeat(2,minmax(0,1fr))]'
+    )
+    // A long group name is truncated with its full text on the title instead of
+    // wrapping the option onto a second line, which would break the row rhythm.
     const capsule = within(options as HTMLElement).getByText(LONG_GROUP)
     expect(capsule).toHaveTextContent(LONG_GROUP)
-    expect(capsule).toHaveClass('whitespace-normal')
-    // Nothing between the grid and the name may clip it.
-    for (
-      let node: HTMLElement | null = capsule;
-      node && node !== options;
-      node = node.parentElement
-    ) {
-      expect(node).not.toHaveClass('truncate')
-      expect(node).not.toHaveClass('text-ellipsis')
-      expect(node).not.toHaveClass('line-clamp-1')
-    }
-    expect(options).not.toHaveClass('grid-cols-3')
+    expect(capsule).toHaveClass('truncate', 'whitespace-nowrap')
+    expect(capsule).toHaveAttribute('title', LONG_GROUP)
+    // The option row keeps one fixed height, so the two columns stay aligned.
+    expect(option.closest('div')).toHaveClass('h-8', 'items-center')
   })
 
   test('colours each popover option like its capsule', async () => {

@@ -136,4 +136,78 @@ describe('InlineNumberChip', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
     expect(screen.getByText('0.2')).toBeInTheDocument()
   })
+
+  test('keeps the value box laid out and overlays the field while editing', async () => {
+    const user = userEvent.setup()
+    render(
+      <InlineNumberChip label='Weight' value={0} min={0} onCommit={vi.fn()} />
+    )
+
+    const chip = screen.getByRole('button', { name: 'Weight 0' })
+    const slot = chip.querySelector('[data-slot="aligned-value"]')
+    // One-digit values still keep a roomy, aligned box.
+    expect(slot?.parentElement?.style.minWidth).toBe('3ch')
+
+    await user.click(chip)
+
+    const input = screen.getByRole('textbox', { name: 'Weight' })
+    // The field is positioned over the box inside the same chip, so it stays
+    // out of the flow: the chip cannot grow or wrap while being edited.
+    expect(input).toHaveClass('absolute', 'inset-0')
+    expect(input.parentElement?.style.minWidth).toBe('3ch')
+    expect(chip).toHaveClass('h-6', 'whitespace-nowrap')
+    // Exactly one field, so the chip never gains a second control while editing.
+    expect(document.body.querySelectorAll('input')).toHaveLength(1)
+  })
+
+  test('returns the focus to the chip when an edit ends with a key', async () => {
+    const user = userEvent.setup()
+    render(
+      <InlineNumberChip
+        label='Priority'
+        value={1}
+        min={-999}
+        onCommit={vi.fn()}
+      />
+    )
+
+    const chip = screen.getByRole('button', { name: 'Priority 1' })
+    await user.click(chip)
+    await user.keyboard('{Escape}')
+
+    // The chip is the same element as before the edit and holds the focus, so
+    // tabbing on from here continues from this cell.
+    expect(screen.getByRole('button', { name: 'Priority 1' })).toBe(chip)
+    expect(chip).toHaveFocus()
+  })
+
+  test('keeps the chip mounted while editing so the row cannot reflow', async () => {
+    const user = userEvent.setup()
+    render(
+      <InlineNumberChip label='Weight' value={3} min={0} onCommit={vi.fn()} />
+    )
+
+    const chip = screen.getByRole('button', { name: 'Weight 3' })
+    await user.click(chip)
+
+    // The field lives inside the chip: no node is added beside it, so the
+    // chip keeps its box and its neighbours keep theirs.
+    expect(screen.getByRole('textbox', { name: 'Weight' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Weight 3' })).toBe(chip)
+  })
+
+  test('leaves the chip read-only when the value is a range', () => {
+    render(
+      <InlineNumberChip
+        label='Cost ratio'
+        value={null}
+        displayText='0.20x-0.50x'
+        min={0.01}
+        onCommit={vi.fn()}
+      />
+    )
+
+    expect(screen.getByText('0.20x-0.50x')).toBeVisible()
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  })
 })
