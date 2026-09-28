@@ -298,3 +298,10 @@ FlowAPI 在 `8156149df`（2026-09-25）移植了 keli-api 的全部媒体渠道�
 - 让 FlowAPI 以 FlowAPI 为上游转发音视频的开发（New API 类型的音频 / 任务适配器）。
 - FastAI 的 2.0 / 2.0-fast 按秒路由和 `wan-3.0`：这是导入时有意不放开的，见 `.trellis/tasks/09-22-flowapi-provider-coverage/release-config-review.md`。
 - `doubao-asr-2.0` 实际调用的是火山录音文件识别模型 1.0（`volc.bigasr.auc`，`asr.go:59`）。名称和定价是否要改，另行决定。
+
+## 实施记录
+
+- 2026-09-28 代码提交 `a9a333bd6`（本地 main，未 push、未部署）。A、B、C 三组全部完成，验收清单全部打勾。
+  - 终检另修 2 处：按分钟计费的异步任务预扣少 1 额度（decimal 改动引入，已加 `Round(6)`）；H3 消费日志计费单位显示为「按次」（前端改为秒）。
+  - 验证：受影响的 32 个 Go 包 `go test -count=1` 全部 ok；`go test -race` 通过；`cd relaykit && GOWORK=off go build ./... && go test ./...` 通过；前端 `tsc --noEmit` 通过；`git diff --check` 通过。
+- 待办：HK 上线，需用户另行授权，按上面的上线清单执行。
