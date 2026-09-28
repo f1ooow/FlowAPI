@@ -43,9 +43,10 @@ const SENSITIVE_MASK = '••••'
 
 /**
  * A solid, white-on-colour pill. The fill comes from the full group list, so
- * a group has the same colour in every row, card and popover. The label stays
- * on one line and truncates when the row is tight, so a long group name can
- * never wrap a table row onto a second line.
+ * a group has the same colour in every row and card. The label stays on one
+ * line and truncates when the row is tight, so a long group name can never
+ * wrap a table row onto a second line. The edit popover deliberately does not
+ * use this pill: it lists group names as plain text.
  */
 export function GroupCapsule(props: { group: string; className?: string }) {
   const { sensitiveVisible } = useChannels()
@@ -75,7 +76,8 @@ export function GroupCapsule(props: { group: string; className?: string }) {
  * channel's groups right away. A channel without groups shows an outlined
  * "Add group" button that opens the same grid.
  *
- * Renders a fragment so the capsules join the parent's wrapping name row.
+ * The capsules join the parent's one-line name row, so they truncate instead
+ * of wrapping it.
  */
 export function ChannelGroupCapsules(props: {
   channel: Channel
@@ -163,9 +165,17 @@ export function ChannelGroupCapsules(props: {
         align='start'
         anchor={anchorRef}
         collisionPadding={8}
-        className='w-[min(26rem,calc(100vw-1rem))] gap-0 overflow-hidden p-0'
+        // Behind this panel sits a dense table whose own names and capsules
+        // look like the ones being edited, so the panel has to declare itself
+        // as a surface: an opaque body, a crisp border and a real shadow. The
+        // shared popover tone is a `ring-foreground/10` hairline with a soft
+        // shadow, which over a white table reads as almost no edge at all, so
+        // the ring is dropped in favour of an explicit border here.
+        className='bg-popover border-border w-[min(26rem,calc(100vw-1rem))] gap-0 overflow-hidden border p-0 shadow-lg ring-0'
       >
-        <div className='p-2'>
+        {/* The search box keeps its own inset, so the panel's edge and the
+            field's edge do not sit on top of each other. */}
+        <div className='p-2 pb-1.5'>
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -176,7 +186,7 @@ export function ChannelGroupCapsules(props: {
         </div>
         {/* A hairline seam under the search box, so the list reads as its own
             surface instead of bleeding into the field above it. */}
-        <div className='bg-border h-px shrink-0' />
+        <div className='bg-border/70 h-px shrink-0' />
         {visibleGroups.length === 0 ? (
           <p className='text-muted-foreground px-2 py-3 text-center text-xs'>
             {t('No results found.')}
@@ -186,14 +196,14 @@ export function ChannelGroupCapsules(props: {
             data-slot='group-options'
             // Two equal columns: `minmax(0, 1fr)` lets a long group name clip
             // inside its own cell instead of widening the column.
-            className='grid max-h-72 grid-cols-[repeat(2,minmax(0,1fr))] gap-x-1 gap-y-0.5 overflow-y-auto p-2'
+            className='grid max-h-72 grid-cols-[repeat(2,minmax(0,1fr))] gap-x-1 gap-y-0.5 overflow-y-auto p-2 pt-1.5'
           >
             {visibleGroups.map((group) => {
               const checked = groups.includes(group)
               const label = sensitiveVisible ? group : SENSITIVE_MASK
               // Not wrapped in a <label>: Base UI would link it through
-              // aria-labelledby and read the name twice. The capsule only
-              // toggles on its own clicks, so one click is one change.
+              // aria-labelledby and read the name twice. The row only toggles
+              // on the label's own clicks, so one click is one change.
               return (
                 <div
                   key={group}
@@ -210,16 +220,26 @@ export function ChannelGroupCapsules(props: {
                     aria-label={label}
                     className='shrink-0'
                   />
+                  {/* Plain text, no colour: a selected group reads through
+                      weight and contrast, so the list stays quiet and the
+                      capsules outside this panel keep the colour language to
+                      themselves. */}
                   <span
                     aria-hidden='true'
+                    title={label}
                     onClick={() => {
                       if (!isSaving) {
                         void toggleGroup(group, !checked)
                       }
                     }}
-                    className='flex min-w-0 flex-1 cursor-pointer items-center'
+                    className={cn(
+                      'min-w-0 flex-1 cursor-pointer truncate text-xs whitespace-nowrap transition-colors duration-100',
+                      checked
+                        ? 'text-foreground font-medium'
+                        : 'text-muted-foreground'
+                    )}
                   >
-                    <GroupCapsule group={group} />
+                    {label}
                   </span>
                 </div>
               )

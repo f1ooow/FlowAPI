@@ -72,8 +72,20 @@ import { useChannels } from './channels-provider'
 import { DataTableBulkActions } from './data-table-bulk-actions'
 
 const route = getRouteApi('/_authenticated/channels/')
+
+/**
+ * Bump when the columns themselves change shape (a column split, renamed id or
+ * new default width). Saved widths are matched against column ids and count, so
+ * a size list from an older column set would restore the wrong widths; carrying
+ * the version in the key retires those records on load. Widths saved under the
+ * current version are still persisted and restored as usual.
+ *
+ * 2: priority split into the priority / weight / cost ratio columns.
+ */
+const CHANNELS_COLUMN_SIZING_VERSION = 2
+
 const CHANNELS_COLUMN_VISIBILITY_STORAGE_KEY = 'channels:column-visibility'
-const CHANNELS_COLUMN_SIZING_STORAGE_KEY = 'channels:column-sizing'
+const CHANNELS_COLUMN_SIZING_STORAGE_KEY = `channels:column-sizing:v${CHANNELS_COLUMN_SIZING_VERSION}`
 const CHANNELS_VIEW_MODE_STORAGE_KEY = 'channels:view-mode'
 const CHANNELS_STATUS_FILTER_STORAGE_KEY = 'channel-status-filter'
 

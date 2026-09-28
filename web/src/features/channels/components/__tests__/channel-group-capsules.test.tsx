@@ -157,7 +157,7 @@ describe('ChannelGroupCapsules', () => {
     expect(option.closest('div')).toHaveClass('h-8', 'items-center')
   })
 
-  test('colours each popover option like its capsule', async () => {
+  test('lists option names as plain text with the capsule colour left outside', async () => {
     const user = userEvent.setup()
     renderCapsules(channel('CODEX'))
 
@@ -165,10 +165,28 @@ describe('ChannelGroupCapsules', () => {
     const option = await screen.findByRole('checkbox', { name: 'GEM' })
     const options = option.closest('[data-slot="group-options"]') as HTMLElement
 
-    expect(within(options).getByText('GEM')).toHaveClass(
-      listedClassName('GEM'),
-      'text-white'
-    )
+    // The panel identifies groups by weight and contrast, not by colour.
+    const label = within(options).getByText('GEM')
+    expect(label).not.toHaveClass('text-white', 'rounded-md')
+    expect(label.className).not.toContain('bg-')
+    expect(options.querySelector('[data-slot="group-capsule"]')).toBeNull()
+  })
+
+  test('distinguishes a selected option by weight and contrast', async () => {
+    const user = userEvent.setup()
+    // CODEX is on the channel, GEM is not.
+    renderCapsules(channel('CODEX'))
+
+    await user.click(screen.getByRole('button', { name: 'Edit groups: CODEX' }))
+    const options = (
+      await screen.findByRole('checkbox', { name: 'GEM' })
+    ).closest('[data-slot="group-options"]') as HTMLElement
+
+    const selected = within(options).getByText('CODEX')
+    const unselected = within(options).getByText('GEM')
+    expect(selected).toHaveClass('text-foreground', 'font-medium')
+    expect(unselected).toHaveClass('text-muted-foreground')
+    expect(selected.className).not.toBe(unselected.className)
   })
 
   test('opens the same popover from every capsule', async () => {

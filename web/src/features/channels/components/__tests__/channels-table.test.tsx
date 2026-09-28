@@ -260,6 +260,44 @@ afterEach(() => {
   localStorage.clear()
 })
 
+describe('ChannelsTable column sizing storage', () => {
+  // The table renders its widths as colgroup entries, in column order.
+  function columnWidths(): string[] {
+    return Array.from(
+      document.querySelectorAll('colgroup col'),
+      (col) => col.getAttribute('style') ?? ''
+    )
+  }
+
+  test('ignores widths saved before the columns were split', async () => {
+    // A size list from the single "Priority / Weight / Cost ratio" column.
+    localStorage.setItem(
+      'channels:column-sizing',
+      JSON.stringify({ id: 300, name: 500, priority: 900 })
+    )
+    renderTable()
+    await screen.findByText('OpenAI main')
+
+    // The split columns use their own defaults rather than the old widths.
+    const widths = columnWidths()
+    expect(widths.some((width) => width.includes('900px'))).toBe(false)
+    expect(widths.some((width) => width.includes('300px'))).toBe(false)
+  })
+
+  test('restores widths saved under the current column version', async () => {
+    localStorage.setItem(
+      'channels:column-sizing:v2',
+      JSON.stringify({ weight: 140 })
+    )
+    renderTable()
+    await screen.findByText('OpenAI main')
+
+    // A width saved under the current version still wins over the default, so
+    // versioning retires stale records without dropping the user's preferences.
+    expect(columnWidths()).toContain('width: 140px;')
+  })
+})
+
 describe('ChannelsTable group buttons', () => {
   test('clicking a group button requests and shows only that group', async () => {
     const user = userEvent.setup()
