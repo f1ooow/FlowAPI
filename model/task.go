@@ -408,6 +408,23 @@ func GetByTaskIds(userId int, taskIds []any) ([]*Task, error) {
 	return task, nil
 }
 
+// GetTaskForDashboardPreview allows the same admin visibility as the task log,
+// but refuses ambiguous legacy IDs rather than serving an arbitrary result.
+func GetTaskForDashboardPreview(userID int, taskID string, isAdmin bool) (*Task, bool, error) {
+	query := DB.Where("task_id = ?", taskID)
+	if !isAdmin {
+		query = query.Where("user_id = ?", userID)
+	}
+	var tasks []*Task
+	if err := query.Limit(2).Find(&tasks).Error; err != nil {
+		return nil, false, err
+	}
+	if len(tasks) != 1 {
+		return nil, false, nil
+	}
+	return tasks[0], true, nil
+}
+
 func (Task *Task) Insert() error {
 	var err error
 	err = DB.Create(Task).Error

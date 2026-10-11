@@ -37,6 +37,7 @@ import {
 } from '../dialogs/audio-preview-dialog'
 import { FailReasonDialog } from '../dialogs/fail-reason-dialog'
 import { useUsageLogsContext } from '../usage-logs-provider'
+import { VideoPreviewCell } from '../video-preview'
 import {
   createDurationColumn,
   createChannelColumn,
@@ -245,20 +246,13 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
           log.action === TASK_ACTIONS.REFERENCE_GENERATE ||
           log.action === TASK_ACTIONS.REMIX_GENERATE
         const isSuccess = status === TASK_STATUS.SUCCESS
-        const isUrl = failReason?.startsWith('http')
+        const hasVideoResult =
+          /^(https?:\/\/|\/v1\/videos\/[^\s]+\/content(?:\?|$)|data:video\/)/i.test(
+            log.result_url || ''
+          ) || /^https?:\/\//i.test(failReason || '')
 
-        if (isSuccess && isVideoTask && isUrl) {
-          const videoUrl = `/v1/videos/${log.task_id}/content`
-          return (
-            <a
-              href={videoUrl}
-              target='_blank'
-              rel='noopener noreferrer'
-              className='text-foreground text-xs hover:underline'
-            >
-              {t('Click to preview video')}
-            </a>
-          )
+        if (isSuccess && isVideoTask && hasVideoResult) {
+          return <VideoPreviewCell key={log.task_id} taskId={log.task_id} />
         }
 
         if (!failReason) {

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"net/http"
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
@@ -12,6 +13,19 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+func DashboardTaskContent(c *gin.Context) {
+	task, exists, err := model.GetTaskForDashboardPreview(c.GetInt("id"), c.Param("task_id"), c.GetInt("role") >= common.RoleAdminUser)
+	if err != nil {
+		videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to query task")
+		return
+	}
+	if !exists {
+		videoProxyError(c, http.StatusNotFound, "invalid_request_error", "Task not found")
+		return
+	}
+	proxyVideoTask(c, task)
+}
 
 func GetAllTask(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
