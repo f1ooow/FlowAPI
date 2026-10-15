@@ -11,4 +11,4 @@ Implementation and independent Trellis review completed. No outstanding code fin
 - Current runtime is Chinese-only; seven added translation keys target zh.json rather than restoring unsupported locales.
 - Added backend route-history-timing spec and index entry.
 
-No commit, push or deployment performed. Awaiting commit confirmation; task remains in_progress and is not archived.
+Implementation committed as 38a6148ba on feat/admin-route-timing. User authorized commit and remote push. No deployment performed. Browser verification and full lint limitations remain as noted above.
