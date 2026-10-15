@@ -1,0 +1,70 @@
+# 本地验收栈：用已构建的完整镜像（含前端 dist）起一套独立的 FlowAPI，
+# 用于验证媒体渠道修复。与生产（HK）无关，也与 docker-compose.dev.yml 无关。
+#
+# 构建（本机 Apple Silicon 用原生 arm64，amd64 会走模拟、媒体探测很慢）：
+#   docker buildx build --platform linux/arm64 -t flowapi:local-arm64-<sha> --load .
+#
+# 起：
+#   docker compose -f docker-compose.local-test.yml up -d
+# 日志：
+#   docker compose -f docker-compose.local-test.yml logs -f new-api-local
+# 重置数据（清库重来）：
+#   docker compose -f docker-compose.local-test.yml down -v
+
+services:
+  new-api-local:
+    image: ${FLOWAPI_LOCAL_IMAGE:-flowapi:local-arm64-67f816a93}
+    container_name: flowapi-local
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - local_data:/data
+    environment:
+      - SQL_DSN=postgresql://root:123456@postgres-local:5432/new-api
+      - REDIS_CONN_STRING=redis://redis-local
+      - TZ=Asia/Shanghai
+      - BATCH_UPDATE_ENABLED=true
+      - ERROR_LOG_ENABLED=true
+      - NODE_NAME=flowapi-local
+      - SESSION_COOKIE_SECURE=false
+    depends_on:
+      redis-local:
+        condition: service_started
+      postgres-local:
+        condition: service_healthy
+    networks:
+      - local-test-network
+
+  redis-local:
+    image: redis:7-alpine
+    container_name: flowapi-local-redis
+    restart: unless-stopped
+    networks:
+      - local-test-network
+
+  postgres-local:
+    image: postgres:15-alpine
+    container_name: flowapi-local-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: 123456
+      POSTGRES_DB: new-api
+    volumes:
+      - local_pg_data:/var/lib/postgresql/data
+    networks:
+      - local-test-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U root -d new-api"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  local_data:
+  local_pg_data:
+
+networks:
+  local-test-network:
+    driver: bridge
