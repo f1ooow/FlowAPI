@@ -36,6 +36,9 @@ type PriceData struct {
 	UsePrice             bool
 	Quota                int // 按次计费的最终额度（MJ / Task）
 	QuotaToPreConsume    int // 按量计费的预消耗额度
+	// Task image charges are additive; duration/resolution ratios must not multiply them.
+	TaskInputImageCount int
+	TaskInputImagePrice float64
 	// PreConsumeQuotaBeforeGroup is the unrounded route-independent estimate.
 	// Retries multiply it by the newly selected route ratio before reserving.
 	PreConsumeQuotaBeforeGroup float64

@@ -200,6 +200,8 @@ export interface LogOtherData {
   completion_ratio?: number
   model_price?: number
   billing_unit?: string
+  input_image_count?: number
+  input_image_price?: number
   group_ratio?: number
   cache_ratio?: number
   cache_creation_ratio?: number

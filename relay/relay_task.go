@@ -359,7 +359,15 @@ func taskQuotaWithRatios(priceData types.PriceData) (int, *common.QuotaClamp) {
 	if priceData.UsePrice {
 		value = decimal.NewFromFloat(priceData.ModelPrice).Mul(decimal.NewFromFloat(common.QuotaPerUnit))
 	}
-	value = priceData.ApplyOtherRatiosToDecimal(value.Mul(decimal.NewFromFloat(ratio)))
+	value = priceData.ApplyOtherRatiosToDecimal(value)
+	if priceData.TaskInputImageCount > 0 {
+		price := priceData.TaskInputImagePrice
+		if math.IsNaN(price) || math.IsInf(price, 0) || price < 0 {
+			return common.QuotaFromFloatChecked(math.Inf(1))
+		}
+		value = value.Add(decimal.NewFromFloat(price).Mul(decimal.NewFromInt(int64(priceData.TaskInputImageCount))).Mul(decimal.NewFromFloat(common.QuotaPerUnit)))
+	}
+	value = value.Mul(decimal.NewFromFloat(ratio))
 	return common.QuotaFromDecimalChecked(value.Round(6).Truncate(0))
 }
 

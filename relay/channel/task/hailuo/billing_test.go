@@ -112,3 +112,23 @@ func TestH3SettlementTruncatesLikeReservation(t *testing.T) {
 	require.True(t, handled)
 	assert.Equal(t, 215250, quota)
 }
+
+func TestH3MediaSettlementKeepsImageChargeAndFrozenPrices(t *testing.T) {
+	ratio := 1.2
+	task := h3SettlementTask(20, H3HighResolutionRatio, 15, 2400000, `{"task":{"status":"succeeded","usage":{"input_seconds":3,"output_seconds":5,"input_image_count":9}}}`)
+	bc := task.PrivateData.BillingContext
+	bc.BillingUnit = H3MediaBillingUnit
+	bc.ModelPrice = 0.1125
+	bc.EffectiveRatio = &ratio
+	bc.InputImageCount = 4
+	bc.InputImagePrice = 0.0625
+	quota, clamp, handled := (&TaskAdaptor{}).AdjustBillingOnCompleteChecked(task, &relaycommon.TaskInfo{Status: model.TaskStatusSuccess})
+	require.True(t, handled)
+	assert.Nil(t, clamp)
+	// (8 seconds × .1875 + 4 images × .0625) × 1.2 × 500000.
+	assert.Equal(t, 1050000, quota)
+	bc.BillingUnit = H3BillingUnit
+	quota, _, handled = (&TaskAdaptor{}).AdjustBillingOnCompleteChecked(task, &relaycommon.TaskInfo{Status: model.TaskStatusSuccess})
+	require.True(t, handled)
+	assert.Equal(t, 900000, quota, "older snapshots never acquire the new image charge")
+}

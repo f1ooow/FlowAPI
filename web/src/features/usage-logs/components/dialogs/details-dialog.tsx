@@ -290,6 +290,14 @@ function BillingBreakdown(props: {
   }
 
   const effectiveGR = other.group_ratio
+
+  if (other.input_image_count != null && other.input_image_count > 0) {
+    rows.push({ label: t('Paid Input Images'), value: String(other.input_image_count) })
+    if (other.input_image_price != null) {
+      rows.push({ label: t('Input Image Price'), value: fmtPrice(other.input_image_price) })
+    }
+  }
+
   if (effectiveGR != null && Number.isFinite(effectiveGR)) {
     rows.push({
       label: t('Final Ratio'),

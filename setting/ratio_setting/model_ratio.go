@@ -270,6 +270,9 @@ var defaultModelRatio = map[string]float64{
 }
 
 var defaultModelPrice = map[string]float64{
+	"MiniMax-H3":                     0.1125,
+	"MiniMax-H3-Context-IR":          0.0625,
+	"MiniMax-H3-Input-Image":         0.0625,
 	"suno_music":                     0.1,
 	"suno_lyrics":                    0.01,
 	"dall-e-3":                       0.04,

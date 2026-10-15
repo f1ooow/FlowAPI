@@ -121,6 +121,8 @@ type TaskBillingContext struct {
 	Resolution          string             `json:"resolution,omitempty"`
 	OutputVideoDuration float64            `json:"output_video_duration,omitempty"`
 	InputVideoDuration  float64            `json:"input_video_duration,omitempty"`
+	InputImageCount     int                `json:"input_image_count,omitempty"`
+	InputImagePrice     float64            `json:"input_image_price,omitempty"`
 	ModelPrice          float64            `json:"model_price,omitempty"`           // 模型单价
 	GroupRatio          float64            `json:"group_ratio,omitempty"`           // 历史兼容：旧任务中是最终分组倍率
 	BaseGroupRatio      float64            `json:"base_group_ratio,omitempty"`      // 提交时计费分组倍率
@@ -144,6 +146,8 @@ func NewTaskBillingContext(info *commonRelay.RelayInfo) *TaskBillingContext {
 	return &TaskBillingContext{
 		BillingUnit:         info.BillingUnit,
 		ModelPrice:          info.PriceData.ModelPrice,
+		InputImageCount:     info.PriceData.TaskInputImageCount,
+		InputImagePrice:     info.PriceData.TaskInputImagePrice,
 		GroupRatio:          effectiveRatio,
 		BaseGroupRatio:      info.PriceData.GroupRatioInfo.BaseGroupRatio,
 		UserGroupRatio:      info.PriceData.GroupRatioInfo.UserGroupRatio,

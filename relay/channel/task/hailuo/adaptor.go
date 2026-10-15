@@ -5,6 +5,7 @@ import (
 	"fmt"
 	relaykitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -23,6 +24,7 @@ import (
 	taskcommon "github.com/QuantumNous/new-api/relay/channel/task/taskcommon"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
 
 // https://platform.minimaxi.com/docs/api-reference/video-generation-intro
@@ -56,6 +58,9 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 }
 
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	if isH3ContextIRModel(info.OriginModelName) || isH3ContextIRModel(info.UpstreamModelName) {
+		return taskcommon.ResolveEndpointURL(a.baseURL, H3ContextIREndpoint, nil)
+	}
 	if a.taskEndpointOverride != nil && strings.TrimSpace(a.taskEndpointOverride.SubmitPath) != "" {
 		return taskcommon.ResolveEndpointURL(a.baseURL, a.taskEndpointOverride.SubmitPath, nil)
 	}
@@ -260,7 +265,11 @@ func (a *TaskAdaptor) GetChannelName() string {
 
 func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, info *relaycommon.RelayInfo) (any, error) {
 	if isH3Model(info.UpstreamModelName) {
-		payload, err := buildH3Request(req, info.UpstreamModelName)
+		modelName := info.UpstreamModelName
+		if isH3ContextIRModel(info.OriginModelName) {
+			modelName = ModelMiniMaxH3ContextIR
+		}
+		payload, err := buildH3Request(req, modelName)
 		if err != nil {
 			return nil, err
 		}
@@ -271,6 +280,18 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, in
 						return nil, err
 					}
 				}
+			}
+		}
+		if isH3ContextIRModel(modelName) {
+			return &H3ContextIRRequest{Model: ModelMiniMaxH3, Content: payload.Content, Duration: payload.Duration, Ratio: payload.Ratio, CallbackURL: payload.CallbackURL}, nil
+		}
+		for _, item := range payload.Content {
+			if item.ImageURL != nil {
+				price, configured := ratio_setting.GetModelPrice(ModelMiniMaxH3InputImage, false)
+				if configured && (price < 0 || math.IsNaN(price) || math.IsInf(price, 0)) {
+					return nil, fmt.Errorf("invalid H3 input image price")
+				}
+				break
 			}
 		}
 		return payload, nil
@@ -409,7 +430,13 @@ func parseH3TaskResult(respBody []byte) (*relaycommon.TaskInfo, bool, error) {
 		result.Status = model.TaskStatusSuccess
 		result.Progress = "100%"
 		result.Url = firstNonEmpty(task.Content.URL, task.Content.VideoURL, task.Output.URL, task.Output.VideoURL)
-		if result.Url == "" {
+		if task.TaskType == "h3_context_ir" {
+			if strings.TrimSpace(task.Content.Prompt) == "" {
+				return nil, true, fmt.Errorf("MiniMax-H3 Context IR completed without a prompt")
+			}
+			result.ResultType = relaycommon.TaskResultTypeText
+			result.Url = ""
+		} else if result.Url == "" {
 			return nil, true, fmt.Errorf("MiniMax-H3 completed without a video URL")
 		}
 	case "failed", "failure", "cancelled", "canceled":
@@ -444,6 +471,16 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(originTask *model.Task) ([]byte, erro
 		openAIVideo := originTask.ToOpenAIVideo()
 		var h3Resp H3QueryResponse
 		if err := common.Unmarshal(originTask.Data, &h3Resp); err == nil {
+			if task := h3Resp.GetTask(); task != nil && task.Usage != nil {
+				openAIVideo.SetMetadata("usage", task.Usage)
+			}
+			if task := h3Resp.GetTask(); task != nil && task.TaskType == "h3_context_ir" {
+				delete(openAIVideo.Metadata, "url")
+				openAIVideo.SetMetadata("task_type", task.TaskType)
+				if originTask.Status == model.TaskStatusSuccess {
+					openAIVideo.SetMetadata("prompt", task.Content.Prompt)
+				}
+			}
 			if task := h3Resp.GetTask(); task != nil && task.Error != nil {
 				openAIVideo.Error = &relaykitdto.OpenAIVideoError{
 					Message: task.Error.Message,
@@ -550,6 +587,10 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 		return nil
 	}
 	if isH3Model(info.UpstreamModelName) {
+		if isH3ContextIRModel(info.OriginModelName) || isH3ContextIRModel(info.UpstreamModelName) {
+			c.Set("task_billing_unit", "request")
+			return nil
+		}
 		payload, err := buildH3Request(&taskReq, info.UpstreamModelName)
 		if err != nil {
 			return nil
@@ -559,13 +600,27 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 			resolutionRatio = H3HighResolutionRatio
 		}
 		inputSeconds := 0.0
+		imageCount := 0
 		for _, item := range payload.Content {
 			if item.VideoURL != nil {
 				inputSeconds = H3MaxReferenceVideoSeconds
-				break
+			}
+			if item.ImageURL != nil {
+				imageCount++
 			}
 		}
-		c.Set("task_billing_unit", H3BillingUnit)
+		if imageCount > 5 {
+			imagePrice, ok := ratio_setting.GetModelPrice(ModelMiniMaxH3InputImage, false)
+			if !ok {
+				imagePrice = ratio_setting.GetDefaultModelPriceMap()[ModelMiniMaxH3InputImage]
+			}
+			info.PriceData.TaskInputImageCount = imageCount - 5
+			info.PriceData.TaskInputImagePrice = imagePrice
+			if imagePrice > 0 && info.PriceData.GroupRatioInfo.GroupRatio > 0 {
+				info.PriceData.FreeModel = false
+			}
+		}
+		c.Set("task_billing_unit", H3MediaBillingUnit)
 		c.Set(relaycommon.TaskInputVideoSecondsKey, inputSeconds)
 		return map[string]float64{
 			"hailuo-h3-duration":   float64(payload.Duration) + inputSeconds,

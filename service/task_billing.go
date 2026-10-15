@@ -40,6 +40,13 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	other["is_task"] = true
 	other["request_path"] = c.Request.URL.Path
 	other["model_price"] = info.PriceData.ModelPrice
+	if info.BillingUnit != "" {
+		other["billing_unit"] = info.BillingUnit
+	}
+	if info.PriceData.TaskInputImageCount > 0 {
+		other["input_image_count"] = info.PriceData.TaskInputImageCount
+		other["input_image_price"] = info.PriceData.TaskInputImagePrice
+	}
 	if info.PriceData.ModelRatio > 0 {
 		other["model_ratio"] = info.PriceData.ModelRatio
 	}
@@ -124,6 +131,10 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 	other := make(map[string]interface{})
 	if bc := task.PrivateData.BillingContext; bc != nil {
 		other["model_price"] = bc.ModelPrice
+		if bc.InputImageCount > 0 {
+			other["input_image_count"] = bc.InputImageCount
+			other["input_image_price"] = bc.InputImagePrice
+		}
 		if bc.BillingUnit != "" {
 			other["billing_unit"] = bc.BillingUnit
 			other["output_video_duration"] = bc.OutputVideoDuration

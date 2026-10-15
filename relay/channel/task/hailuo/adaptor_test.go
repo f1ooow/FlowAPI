@@ -368,7 +368,7 @@ func TestH3EstimateBilling(t *testing.T) {
 				require.NotNil(t, ratios)
 				assert.Equal(t, tc.wantSeconds, ratios["hailuo-h3-duration"])
 				assert.Equal(t, tc.wantRatio, ratios["hailuo-h3-resolution"])
-				assert.Equal(t, H3BillingUnit, ctx.GetString("task_billing_unit"))
+				assert.Equal(t, H3MediaBillingUnit, ctx.GetString("task_billing_unit"))
 				assert.Equal(t, tc.wantSeconds-float64(duration), ctx.GetFloat64(relaycommon.TaskInputVideoSecondsKey))
 			})
 		}

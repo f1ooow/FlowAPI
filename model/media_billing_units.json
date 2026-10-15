@@ -1,4 +1,8 @@
 {
+  "MiniMax-H3-Context-IR": {
+    "fixed": "request",
+    "task": true
+  },
   "MiniMax-H3": {
     "fixed": "seconds",
     "task": true

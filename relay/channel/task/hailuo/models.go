@@ -64,6 +64,14 @@ type H3VideoRequest struct {
 	AigcWatermark *bool           `json:"aigc_watermark,omitempty"`
 }
 
+type H3ContextIRRequest struct {
+	Model       string          `json:"model"`
+	Content     []H3ContentItem `json:"content"`
+	Duration    int             `json:"duration"`
+	Ratio       string          `json:"ratio,omitempty"`
+	CallbackURL string          `json:"callback_url,omitempty"`
+}
+
 type H3ErrorDetail struct {
 	Type     string `json:"type,omitempty"`
 	Message  string `json:"message,omitempty"`
@@ -83,12 +91,14 @@ type H3CreateResponse struct {
 }
 
 type H3TaskContent struct {
+	Prompt       string `json:"prompt,omitempty"`
 	URL          string `json:"url,omitempty"`
 	VideoURL     string `json:"video_url,omitempty"`
 	LastFrameURL string `json:"last_frame_url,omitempty"`
 }
 
 type H3Task struct {
+	TaskType      string          `json:"task_type,omitempty"`
 	ID            json.RawMessage `json:"id,omitempty"`
 	Status        string          `json:"status,omitempty"`
 	Content       H3TaskContent   `json:"content,omitempty"`
@@ -102,8 +112,10 @@ type H3Task struct {
 
 // H3Usage is the provider's billed seconds for a finished task.
 type H3Usage struct {
-	InputSeconds  *float64 `json:"input_seconds,omitempty"`
-	OutputSeconds *float64 `json:"output_seconds,omitempty"`
+	InputSeconds    *float64 `json:"input_seconds,omitempty"`
+	OutputSeconds   *float64 `json:"output_seconds,omitempty"`
+	TotalSeconds    *float64 `json:"total_seconds,omitempty"`
+	InputImageCount *int     `json:"input_image_count,omitempty"`
 }
 
 type H3QueryResult struct {
@@ -173,7 +185,11 @@ func (e *H3ErrorDetail) StatusCode(fallback int) int {
 }
 
 func isH3Model(model string) bool {
-	return strings.EqualFold(strings.TrimSpace(model), ModelMiniMaxH3)
+	return strings.EqualFold(strings.TrimSpace(model), ModelMiniMaxH3) || isH3ContextIRModel(model)
+}
+
+func isH3ContextIRModel(model string) bool {
+	return strings.EqualFold(strings.TrimSpace(model), ModelMiniMaxH3ContextIR)
 }
 
 func normalizeH3Resolution(size string) (string, error) {
@@ -303,7 +319,7 @@ func buildH3Request(req *relaycommon.TaskSubmitReq, model string) (*H3VideoReque
 	}
 
 	return &H3VideoRequest{
-		Model:         model,
+		Model:         ModelMiniMaxH3,
 		Content:       content,
 		Resolution:    resolution,
 		Duration:      duration,

@@ -1,11 +1,13 @@
 package relay
 
 import (
+	"math"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestTaskQuotaWithRatiosIsExact(t *testing.T) {
@@ -16,6 +18,8 @@ func TestTaskQuotaWithRatiosIsExact(t *testing.T) {
 		ratios     map[string]float64
 		want       int
 	}{
+		{name: "H3 Context IR with group ratio", price: 0.0625, groupRatio: 1.2, want: 37500},
+		{name: "H3 revised 768P baseline with group ratio", price: 0.1125, groupRatio: 1.2, ratios: map[string]float64{"hailuo-h3-duration": 5}, want: 337500},
 		{name: "H3 2K one second", price: 0.15, groupRatio: 1, ratios: map[string]float64{"hailuo-h3-duration": 1, "hailuo-h3-resolution": 5.0 / 3.0}, want: 125000},
 		{name: "H3 768P one second", price: 0.15, groupRatio: 1, ratios: map[string]float64{"hailuo-h3-duration": 1, "hailuo-h3-resolution": 1}, want: 75000},
 		{name: "H3 2K 25 seconds", price: 0.15, groupRatio: 1, ratios: map[string]float64{"hailuo-h3-duration": 25, "hailuo-h3-resolution": 5.0 / 3.0}, want: 25 * 125000},
@@ -40,5 +44,21 @@ func TestTaskQuotaWithRatiosIsExact(t *testing.T) {
 			assert.Nil(t, clamp)
 			assert.Equal(t, tt.want, quota)
 		})
+	}
+}
+
+func TestTaskImageChargesAreAdditiveBeforeGroupRatio(t *testing.T) {
+	price := types.PriceData{ModelPrice: 0.1125, UsePrice: true, TaskInputImageCount: 4, TaskInputImagePrice: 0.0625,
+		GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1.2}}
+	price.AddOtherRatio("hailuo-h3-duration", 5)
+	price.AddOtherRatio("hailuo-h3-resolution", 5.0/3.0)
+	quota, clamp := taskQuotaWithRatios(price)
+	assert.Nil(t, clamp)
+	assert.Equal(t, 712500, quota, "(5 × .1875 + 4 × .0625) × 1.2 × 500000")
+	for _, invalid := range []float64{-1, math.NaN(), math.Inf(1)} {
+		price.TaskInputImagePrice = invalid
+		quota, clamp = taskQuotaWithRatios(price)
+		require.NotNil(t, clamp)
+		assert.Greater(t, quota, 0, "invalid prices must never create a credit")
 	}
 }

@@ -6,6 +6,7 @@ const (
 
 var ModelList = []string{
 	"MiniMax-H3",
+	"MiniMax-H3-Context-IR",
 	"MiniMax-Hailuo-2.3",
 	"MiniMax-Hailuo-2.3-Fast",
 	"MiniMax-Hailuo-02",
@@ -21,10 +22,13 @@ const (
 	TextToVideoEndpoint = "/v1/video_generation"
 	QueryTaskEndpoint   = "/v1/query/video_generation"
 	H3CreateEndpoint    = "/v2/video_generation"
+	H3ContextIREndpoint = "/v2/h3_context_ir"
 	H3QueryEndpoint     = "/v2/query/video_generation/{task_id}"
 )
 
 const ModelMiniMaxH3 = "MiniMax-H3"
+const ModelMiniMaxH3ContextIR = "MiniMax-H3-Context-IR"
+const ModelMiniMaxH3InputImage = "MiniMax-H3-Input-Image"
 
 const (
 	StatusSuccess    = 0
@@ -56,14 +60,15 @@ const (
 	DefaultDuration   = 6
 	DefaultResolution = Resolution720P
 	H3DefaultDuration = 5
-	// H3 2K pricing is ¥0.25/s versus the ¥0.15/s 768P base.
+	// H3 2K baseline is ¥0.1875/s versus ¥0.1125/s for 768P.
 	H3HighResolutionRatio = 5.0 / 3.0
 	// H3MaxReferenceVideoSeconds is the documented total reference-video cap;
 	// submission cannot measure mm_file:// media, so it is reserved in full.
 	H3MaxReferenceVideoSeconds = 15
 	// H3BillingUnit marks snapshots billed as output + reference seconds and
 	// settled from task.usage. Older H3 snapshots keep the flat reservation.
-	H3BillingUnit = "h3_total_seconds"
+	H3BillingUnit      = "h3_total_seconds"
+	H3MediaBillingUnit = "h3_media_v2"
 )
 
 // HailuoTierRatios 是 Hailuo 视频"分辨率 × 时长"分档倍率表。

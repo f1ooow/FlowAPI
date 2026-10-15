@@ -23,6 +23,19 @@ import { usageLogSchema } from '../../data/schema'
 import { DetailsDialog } from '../dialogs/details-dialog'
 
 describe('details dialog billing breakdown', () => {
+  test('shows H3 image charges separately from the video seconds price', () => {
+    const log = usageLogSchema.parse({
+      id: 2, user_id: 1, created_at: 1, type: 2, content: '',
+      prompt_tokens: 0, completion_tokens: 0, quota: 712500,
+      other: JSON.stringify({ model_price: 0.1125, group_ratio: 1.2,
+        billing_unit: 'h3_media_v2', input_image_count: 4, input_image_price: 0.0625 }),
+    })
+    render(<DetailsDialog log={log} isAdmin={false} open onOpenChange={vi.fn()} />)
+    expect(screen.getByText('Paid Input Images')).toBeInTheDocument()
+    expect(screen.getByText('Input Image Price')).toBeInTheDocument()
+    expect(screen.getByText('seconds')).toBeInTheDocument()
+  })
+
   test('shows billing details and dynamic pricing for a tiered consume log', () => {
     const log = usageLogSchema.parse({
       id: 1,

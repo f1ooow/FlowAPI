@@ -19,7 +19,7 @@ func (a *TaskAdaptor) AdjustBillingOnCompleteChecked(task *model.Task, result *r
 		return 0, nil, false
 	}
 	bc := task.PrivateData.BillingContext
-	if bc == nil || bc.BillingUnit != H3BillingUnit {
+	if bc == nil || (bc.BillingUnit != H3BillingUnit && bc.BillingUnit != H3MediaBillingUnit) {
 		return 0, nil, false
 	}
 	var response H3QueryResponse
@@ -52,7 +52,7 @@ func (a *TaskAdaptor) AdjustBillingOnCompleteChecked(task *model.Task, result *r
 		return 0, nil, false
 	}
 	amount := decimal.NewFromFloat(bc.ModelPrice).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).
-		Mul(decimal.NewFromFloat(ratio)).Mul(decimal.NewFromFloat(output + input))
+		Mul(decimal.NewFromFloat(output + input))
 	for name, factor := range bc.OtherRatios {
 		if name == "hailuo-h3-duration" {
 			continue
@@ -62,6 +62,13 @@ func (a *TaskAdaptor) AdjustBillingOnCompleteChecked(task *model.Task, result *r
 		}
 		amount = amount.Mul(decimal.NewFromFloat(factor))
 	}
+	if bc.BillingUnit == H3MediaBillingUnit {
+		if bc.InputImageCount < 0 || bc.InputImageCount > 4 || math.IsNaN(bc.InputImagePrice) || math.IsInf(bc.InputImagePrice, 0) || bc.InputImagePrice < 0 {
+			return 0, nil, false
+		}
+		amount = amount.Add(decimal.NewFromFloat(bc.InputImagePrice).Mul(decimal.NewFromInt(int64(bc.InputImageCount))).Mul(decimal.NewFromFloat(common.QuotaPerUnit)))
+	}
+	amount = amount.Mul(decimal.NewFromFloat(ratio))
 	// Truncate like the reservation so equal seconds give an equal quota.
 	quota, clamp := common.QuotaFromDecimalChecked(amount.Round(6).Truncate(0))
 	if quota <= 0 || quota >= task.Quota {

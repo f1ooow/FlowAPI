@@ -610,3 +610,51 @@ func TestCheckedAdaptorSettlesPerCallSnapshotOnce(t *testing.T) {
 	assert.Equal(t, initialQuota+reserved-actual, getUserQuota(t, 911))
 	assert.Equal(t, initialQuota+reserved-actual, getTokenRemainQuota(t, 912))
 }
+
+type completedResultPollingAdaptor struct {
+	unknownStatusPollingAdaptor
+	resultType string
+}
+
+func (a *completedResultPollingAdaptor) FetchTask(string, string, map[string]any, string) (*http.Response, error) {
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString(`{"task":{"status":"succeeded","task_type":"h3_context_ir","content":{"prompt":"enhanced prompt"}}}`))}, nil
+}
+
+func (a *completedResultPollingAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) {
+	return &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, ResultType: a.resultType}, nil
+}
+
+func TestVideoPollingDistinguishesTextResultsFromProxyVideo(t *testing.T) {
+	for _, resultType := range []string{relaycommon.TaskResultTypeText, ""} {
+		t.Run("result_type="+resultType, func(t *testing.T) {
+			truncate(t)
+			const initialQuota, taskQuota = 1000000, 37500
+			seedUser(t, 921, initialQuota)
+			seedToken(t, 922, 921, "text-result", initialQuota)
+			seedChannel(t, 923)
+			task := makeTask(921, 923, taskQuota, 922, BillingSourceWallet, 0)
+			task.TaskID = "text-result"
+			task.SubmitTime = time.Now().Unix()
+			task.PrivateData.BillingContext.PerCallBilling = true
+			task.PrivateData.ResultURL = "https://flow.example/v1/videos/text-result/content"
+			require.NoError(t, task.Insert())
+			adaptor := &completedResultPollingAdaptor{resultType: resultType}
+			ch := &model.Channel{Id: 923, Type: constant.ChannelTypeMiniMax, Key: "fixture"}
+			require.NoError(t, updateVideoSingleTask(context.Background(), adaptor, ch, task.TaskID, map[string]*model.Task{task.TaskID: task}))
+
+			var stored model.Task
+			require.NoError(t, model.DB.First(&stored, task.ID).Error)
+			assert.Equal(t, model.TaskStatus(model.TaskStatusSuccess), stored.Status)
+			if resultType == relaycommon.TaskResultTypeText {
+				assert.Empty(t, stored.GetResultURL())
+				assert.Contains(t, string(stored.Data), "enhanced prompt")
+			} else {
+				assert.Contains(t, stored.GetResultURL(), "/v1/videos/text-result/content")
+			}
+			assert.Equal(t, taskQuota, stored.Quota)
+			assert.Equal(t, initialQuota, getUserQuota(t, 921))
+			assert.Equal(t, initialQuota, getTokenRemainQuota(t, 922))
+			assert.Zero(t, countLogs(t), "successful per-request tasks are neither recharged nor refunded")
+		})
+	}
+}

@@ -957,7 +957,10 @@ func (t *TaskSubmitReq) UnmarshalMetadata(v any) error {
 	return nil
 }
 
+const TaskResultTypeText = "text"
+
 type TaskInfo struct {
+	ResultType          string  `json:"result_type,omitempty"` // Text tasks have no downloadable video.
 	OutputVideoDuration float64 `json:"output_video_duration,omitempty"`
 	Code                int     `json:"code"`
 	TaskID              string  `json:"task_id"`
