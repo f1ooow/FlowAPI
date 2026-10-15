@@ -533,3 +533,24 @@ Fixed JSON top-level model rewriting for OpenAI, Responses, Claude, image and re
 
 - HK 上线需授权：H3 ModelPrice 0.19→0.15、删 71 号渠道音乐模型与价格、部署后实测 ASR/克隆/H3 参考素材/Wan 参考视频
 - 另建任务部署独立运营的 FlowAPI B（文本/图片接 A，音视频直连）
+
+
+## Session 10: Admin route attempt timing
+
+**Date**: 2026-10-15
+**Task**: Admin route attempt timing
+**Branch**: `feat/admin-route-timing`
+
+### Summary
+
+Added admin-only per-attempt timing snapshots and shared UI. Go tests and 18 frontend tests, typecheck and targeted lint passed. Full lint has baseline errors; browser visual verification blocked. Existing media/H3 edits preserved.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `38a6148ba` | (see git log) |
+
+### Status
+
+[OK] **Completed**
