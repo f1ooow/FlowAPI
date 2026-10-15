@@ -1,5 +1,7 @@
 package service
 
+import "time"
+
 const MaxDistinctChannelsPerRequest = 20
 
 type RouteAttemptOutcome string
@@ -20,12 +22,26 @@ type RouteAttempt struct {
 	StatusCode  int                 `json:"status_code,omitempty"`
 	Priority    int64               `json:"priority,omitempty"`
 	Weight      int                 `json:"weight,omitempty"`
+	Timing      *RouteAttemptTiming `json:"timing,omitempty"`
+}
+
+type RouteAttemptTiming struct {
+	StartedAtMS   int64 `json:"started_at_ms"`
+	EndedAtMS     int64 `json:"ended_at_ms"`
+	StartOffsetMS int64 `json:"start_offset_ms"`
+	EndOffsetMS   int64 `json:"end_offset_ms"`
+	DurationMS    int64 `json:"duration_ms"`
 }
 
 type RouteState struct {
 	ExcludedChannelIDs map[int]struct{}
 	AttemptsByChannel  map[int]int
 	History            []RouteAttempt
+	requestStart       time.Time
+	attemptStart       time.Time
+	channelID          int
+	attemptNumber      int
+	timing             *RouteAttemptTiming
 }
 
 func NewRouteState() *RouteState {
@@ -67,5 +83,32 @@ func (s *RouteState) Record(channelID int, attempt int, outcome RouteAttemptOutc
 }
 
 func (s *RouteState) RecordDetails(attempt RouteAttempt) {
+	attempt.Timing = s.FinishAttemptTiming(attempt.ChannelID, attempt.Attempt, time.Now())
 	s.History = append(s.History, attempt)
+}
+
+func (s *RouteState) StartAttemptTiming(channelID, attempt int, requestStart, startedAt time.Time) {
+	s.requestStart = requestStart
+	s.attemptStart = startedAt
+	s.channelID = channelID
+	s.attemptNumber = attempt
+	s.timing = nil
+}
+
+// FinishAttemptTiming freezes the result once, including when billing records
+// success before the relay helper returns. Returned snapshots are independent.
+func (s *RouteState) FinishAttemptTiming(channelID, attempt int, endedAt time.Time) *RouteAttemptTiming {
+	if s.channelID != channelID || s.attemptNumber != attempt || s.attemptStart.IsZero() || s.requestStart.IsZero() {
+		return nil
+	}
+	if s.timing == nil {
+		s.timing = &RouteAttemptTiming{
+			StartedAtMS: s.attemptStart.UnixMilli(), EndedAtMS: endedAt.UnixMilli(),
+			StartOffsetMS: s.attemptStart.Sub(s.requestStart).Milliseconds(),
+			EndOffsetMS:   endedAt.Sub(s.requestStart).Milliseconds(),
+			DurationMS:    endedAt.Sub(s.attemptStart).Milliseconds(),
+		}
+	}
+	snapshot := *s.timing
+	return &snapshot
 }

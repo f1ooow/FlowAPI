@@ -325,8 +325,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
             ? other.admin_info.route_history
             : []
           const hasRouteDecisionChain =
-            routeHistory.length > 1 ||
-            routeHistory.some((attempt) => attempt.outcome !== 'succeeded')
+            routeHistory.length > 0
           const hasRetryChain = hasRouteDecisionChain || useChannel.length > 1
           const legacyChannelChain =
             !hasRouteDecisionChain && useChannel.length > 1

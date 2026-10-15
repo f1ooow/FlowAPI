@@ -93,6 +93,7 @@ func TestFormatUserLogsHidesRouteHistory(t *testing.T) {
 				"attempt":      1,
 				"outcome":      "retrying_channel",
 				"status_code":  502,
+				"timing":       map[string]interface{}{"started_at_ms": 1700000000000, "duration_ms": 1200},
 			},
 		}),
 	}}
@@ -101,5 +102,6 @@ func TestFormatUserLogsHidesRouteHistory(t *testing.T) {
 
 	assert.Empty(t, logs[0].ChannelName)
 	assert.NotContains(t, logs[0].Other, "route_history")
+	assert.NotContains(t, logs[0].Other, "started_at_ms")
 	assert.NotContains(t, logs[0].Other, "Fastapi Codex")
 }

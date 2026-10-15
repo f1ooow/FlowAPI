@@ -18,6 +18,11 @@ import { CheckCircle2, CircleStop, RefreshCw, XCircle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 import type { RouteHistoryAttempt } from '../types'
@@ -27,6 +32,79 @@ interface RouteHistoryTimelineProps {
   fallbackChannelName?: string
   showChannelNames?: boolean
   compact?: boolean
+}
+
+function AttemptTiming(props: { attempt: RouteHistoryAttempt }) {
+  const { t, i18n } = useTranslation()
+  const timing = props.attempt.timing
+  if (
+    !timing ||
+    !Object.values(timing).every(
+      (value) => Number.isSafeInteger(value) && value >= 0
+    ) ||
+    !Number.isSafeInteger(timing.duration_ms) ||
+    !Number.isSafeInteger(timing.start_offset_ms) ||
+    !Number.isSafeInteger(timing.end_offset_ms) ||
+    !Number.isFinite(new Date(timing.started_at_ms).getTime()) ||
+    !Number.isFinite(new Date(timing.ended_at_ms).getTime()) ||
+    timing.end_offset_ms < timing.start_offset_ms ||
+    timing.ended_at_ms < timing.started_at_ms
+  ) {
+    return (
+      <div className='text-muted-foreground mt-0.5 text-[10px]'>
+        {t('Timing not recorded')}
+      </div>
+    )
+  }
+  let event = t('Failed at +{{seconds}} s', {
+    seconds: (timing.end_offset_ms / 1000).toFixed(2),
+  })
+  if (props.attempt.outcome === 'succeeded') {
+    event = t('Success recorded at +{{seconds}} s', {
+      seconds: (timing.end_offset_ms / 1000).toFixed(2),
+    })
+  } else if (props.attempt.outcome === 'stopped') {
+    event = t('Stopped at +{{seconds}} s', {
+      seconds: (timing.end_offset_ms / 1000).toFixed(2),
+    })
+  }
+  const formatter = new Intl.DateTimeFormat(
+    i18n.language === 'zhCN' ? 'zh-CN' : i18n.language,
+    {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      fractionalSecondDigits: 3,
+      hourCycle: 'h23',
+      timeZoneName: 'longOffset',
+    }
+  )
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={<button type='button' />}
+        className='text-muted-foreground mt-0.5 block max-w-full text-left text-[10px] break-words underline decoration-dotted underline-offset-2'
+      >
+        {event}
+        {' · '}
+        {t('Attempt duration {{seconds}} s', {
+          seconds: (timing.duration_ms / 1000).toFixed(2),
+        })}
+      </TooltipTrigger>
+      <TooltipContent role='tooltip' className='block max-w-sm break-words'>
+        <div>
+          {t('Attempt started')}: {formatter.format(timing.started_at_ms)}
+        </div>
+        <div>
+          {t('Result recorded')}: {formatter.format(timing.ended_at_ms)}
+        </div>
+        <div>{formatter.resolvedOptions().timeZone}</div>
+      </TooltipContent>
+    </Tooltip>
+  )
 }
 
 function getOutcomePresentation(outcome: string) {
@@ -231,6 +309,7 @@ export function RouteHistoryTimeline({
                 )}
               </div>
 
+              <AttemptTiming attempt={attempt} />
               {reason && (
                 <div
                   className='text-muted-foreground mt-0.5 min-w-0 text-[10px] break-words'

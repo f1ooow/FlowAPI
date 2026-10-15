@@ -613,8 +613,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
     ? other.admin_info.route_history
     : []
   const hasRouteDecisionChain =
-    routeHistory.length > 1 ||
-    routeHistory.some((attempt) => attempt.outcome !== 'succeeded')
+    routeHistory.length > 0
   const legacyChannelChain =
     !hasRouteDecisionChain && useChannel && useChannel.length > 1
       ? useChannel.join(' → ')

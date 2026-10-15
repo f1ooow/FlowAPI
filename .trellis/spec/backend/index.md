@@ -16,6 +16,7 @@
 | [channel-list-derived-metrics.md](./channel-list-derived-metrics.md) | 渠道列表从独立日志库补充派生指标的合同 | 项目合同 |
 | [media-channel-deployment.md](./media-channel-deployment.md) | Keli 媒体渠道导入、分组、价格模式和禁用路由合同 | 项目合同 |
 | [testing-concurrency.md](./testing-concurrency.md) | Gin 全局模式、异步测试收尾和共享对象断言的竞态约定 | 项目合同 |
+| [route-history-timing.md](./route-history-timing.md) | 管理员调用链计时、成功日志快照时序与权限边界 | 项目合同 |
 
 ## 如何填写
 

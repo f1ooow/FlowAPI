@@ -191,6 +191,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}()
 
 	routeState := service.NewRouteState()
+	requestStart := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
+	if requestStart.IsZero() {
+		requestStart = time.Now()
+		common.SetContextKey(c, constant.ContextKeyRequestStartTime, requestStart)
+	}
 	c.Set("resilient_route_started", true)
 	c.Set("route_state", routeState)
 	retryParam := &service.RetryParam{
@@ -275,6 +280,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			c.Request.Body = io.NopCloser(bodyStorage)
 
 			attemptStart := time.Now()
+			routeState.StartAttemptTiming(channel.Id, attempt, requestStart, attemptStart)
 			switch relayFormat {
 			case types.RelayFormatOpenAIRealtime:
 				newAPIError = relay.WssHelper(c, relayInfo)
@@ -285,6 +291,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			default:
 				newAPIError = relayHandler(c, relayInfo)
 			}
+			routeState.FinishAttemptTiming(channel.Id, attempt, time.Now())
 			// attempt 级打点：这一行同时覆盖本次尝试的成功与失败，紧贴上游调用，
 			// 是文本 relay 里唯一的 attempt 汇合点。
 			perfmetrics.RecordChannelAttempt(relayInfo, channel.Id, attemptStart, newAPIError == nil)

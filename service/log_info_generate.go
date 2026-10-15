@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -145,6 +146,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 					StatusCode:  200,
 					Priority:    ctx.GetInt64("route_attempt_priority"),
 					Weight:      ctx.GetInt("route_attempt_weight"),
+					Timing:      routeState.FinishAttemptTiming(ctx.GetInt("route_attempt_channel_id"), ctx.GetInt("route_attempt_number"), time.Now()),
 				})
 			}
 			adminInfo["route_history"] = history

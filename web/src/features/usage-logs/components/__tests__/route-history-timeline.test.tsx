@@ -15,8 +15,11 @@ You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import i18next from 'i18next'
 import { beforeAll, describe, expect, test } from 'vitest'
+
+import { TooltipProvider } from '@/components/ui/tooltip'
 
 import { RouteHistoryTimeline } from '../route-history-timeline'
 
@@ -108,4 +111,116 @@ describe('route history timeline', () => {
     expect(screen.getAllByText('#301')).toHaveLength(2)
     expect(screen.getAllByText('#302')).toHaveLength(2)
   })
+})
+
+const timing = {
+  started_at_ms: 1700000000150,
+  ended_at_ms: 1700000012300,
+  start_offset_ms: 150,
+  end_offset_ms: 12300,
+  duration_ms: 12150,
+}
+
+describe('route attempt timing', () => {
+  test.each([
+    ['retrying_channel', 'Failed at +12.30 s'],
+    ['channel_exhausted', 'Failed at +12.30 s'],
+    ['stopped', 'Stopped at +12.30 s'],
+    ['succeeded', 'Success recorded at +12.30 s'],
+  ])(
+    'shows relative result time and attempt duration for %s',
+    async (outcome, label) => {
+      render(
+        <TooltipProvider>
+          <RouteHistoryTimeline
+            attempts={[{ channel_id: 1, attempt: 1, outcome, timing }]}
+          />
+        </TooltipProvider>
+      )
+      const trigger = screen.getByRole('button', {
+        name: `${label} · Attempt duration 12.15 s`,
+      })
+      await userEvent.setup().tab()
+      expect(trigger).toHaveFocus()
+      const tooltip = await screen.findByRole('tooltip')
+      expect(tooltip).toHaveTextContent('Attempt started')
+      expect(tooltip).toHaveTextContent('Result recorded')
+      expect(tooltip).toHaveTextContent('2023')
+      expect(tooltip).toHaveTextContent('.150')
+      expect(tooltip).toHaveTextContent('.300')
+      expect(tooltip).toHaveTextContent(
+        Intl.DateTimeFormat().resolvedOptions().timeZone
+      )
+    }
+  )
+
+  test('renders genuine zero times and long durations without changing units', () => {
+    render(
+      <TooltipProvider>
+        <RouteHistoryTimeline
+          compact
+          attempts={[
+            {
+              channel_id: 1,
+              attempt: 1,
+              outcome: 'retrying_channel',
+              timing: {
+                ...timing,
+                start_offset_ms: 0,
+                end_offset_ms: 0,
+                duration_ms: 0,
+              },
+            },
+            {
+              channel_id: 2,
+              attempt: 1,
+              outcome: 'succeeded',
+              timing: {
+                ...timing,
+                end_offset_ms: 3600123,
+                duration_ms: 3600000,
+              },
+            },
+          ]}
+        />
+      </TooltipProvider>
+    )
+    expect(
+      screen.getByRole('button', {
+        name: 'Failed at +0.00 s · Attempt duration 0.00 s',
+      })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', {
+        name: 'Success recorded at +3600.12 s · Attempt duration 3600.00 s',
+      })
+    ).toBeInTheDocument()
+  })
+
+  test.each([
+    undefined,
+    { ...timing, duration_ms: -1 },
+    { ...timing, end_offset_ms: Number.NaN },
+    { ...timing, started_at_ms: Number.POSITIVE_INFINITY },
+    { ...timing, ended_at_ms: 9e15 },
+    { ...timing, end_offset_ms: 100 },
+  ])(
+    'shows missing-time fallback for historical or invalid timing %j',
+    (invalidTiming) => {
+      render(
+        <RouteHistoryTimeline
+          attempts={[
+            {
+              channel_id: 1,
+              attempt: 1,
+              outcome: 'succeeded',
+              timing: invalidTiming,
+            },
+          ]}
+        />
+      )
+      expect(screen.getByText('Timing not recorded')).toBeInTheDocument()
+      expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    }
+  )
 })

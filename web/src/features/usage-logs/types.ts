@@ -102,6 +102,13 @@ export interface RouteHistoryAttempt {
   status_code?: number
   priority?: number
   weight?: number
+  timing?: {
+    started_at_ms: number
+    ended_at_ms: number
+    start_offset_ms: number
+    end_offset_ms: number
+    duration_ms: number
+  }
 }
 
 export const USAGE_BILLING_PATH = {
