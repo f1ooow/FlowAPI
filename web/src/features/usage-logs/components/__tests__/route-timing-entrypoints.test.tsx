@@ -25,7 +25,7 @@ import { describe, expect, test, vi } from 'vitest'
 
 import { TooltipProvider } from '@/components/ui/tooltip'
 
-import { usageLogSchema } from '../../data/schema'
+import { usageLogSchema, type UsageLog } from '../../data/schema'
 import { useCommonLogsColumns } from '../columns/common-logs-columns'
 import { DetailsDialog } from '../dialogs/details-dialog'
 import { UsageLogsProvider } from '../usage-logs-provider'
@@ -65,10 +65,10 @@ const log = usageLogSchema.parse({
   }),
 })
 
-function ChannelCell(props: { isAdmin: boolean }) {
+function ChannelCell(props: { isAdmin: boolean; log?: UsageLog }) {
   const columns = useCommonLogsColumns(props.isAdmin)
   const table = useReactTable({
-    data: [log],
+    data: [props.log ?? log],
     columns,
     getCoreRowModel: getCoreRowModel(),
   })
@@ -80,7 +80,7 @@ function ChannelCell(props: { isAdmin: boolean }) {
 }
 
 describe('admin route timing entrypoints', () => {
-  test('shows direct-success timing in the channel popover', async () => {
+  test('hides the retry badge for a direct success', () => {
     render(
       <TooltipProvider>
         <UsageLogsProvider>
@@ -88,14 +88,76 @@ describe('admin route timing entrypoints', () => {
         </UsageLogsProvider>
       </TooltipProvider>
     )
+
+    expect(
+      screen.queryByRole('button', { name: 'Retry Chain' })
+    ).not.toBeInTheDocument()
+  })
+
+  test('hides the retry badge for a terminal failure without retrying', () => {
+    const failedLog = usageLogSchema.parse({
+      ...log,
+      other: JSON.stringify({
+        admin_info: {
+          route_history: [
+            {
+              channel_id: 11,
+              attempt: 1,
+              outcome: 'stopped',
+              status_code: 400,
+            },
+          ],
+        },
+      }),
+    })
+    render(
+      <TooltipProvider>
+        <UsageLogsProvider>
+          <ChannelCell isAdmin log={failedLog} />
+        </UsageLogsProvider>
+      </TooltipProvider>
+    )
+
+    expect(
+      screen.queryByRole('button', { name: 'Retry Chain' })
+    ).not.toBeInTheDocument()
+  })
+
+  test('shows the retry badge and chain for a retried request', async () => {
+    const retriedLog = usageLogSchema.parse({
+      ...log,
+      other: JSON.stringify({
+        admin_info: {
+          route_history: [
+            {
+              channel_id: 11,
+              attempt: 1,
+              outcome: 'retrying_channel',
+              status_code: 503,
+            },
+            {
+              channel_id: 11,
+              attempt: 2,
+              outcome: 'succeeded',
+              status_code: 200,
+            },
+          ],
+        },
+      }),
+    })
+    render(
+      <TooltipProvider>
+        <UsageLogsProvider>
+          <ChannelCell isAdmin log={retriedLog} />
+        </UsageLogsProvider>
+      </TooltipProvider>
+    )
+
     await userEvent
       .setup()
       .click(screen.getByRole('button', { name: 'Retry Chain' }))
-    expect(
-      screen.getByRole('button', {
-        name: 'Success recorded at +12.30 s · Attempt duration 12.30 s',
-      })
-    ).toBeInTheDocument()
+    expect(screen.getByText('HTTP 503')).toBeInTheDocument()
+    expect(screen.getByText('HTTP 200')).toBeInTheDocument()
   })
 
   test('shows direct-success timing in the admin details dialog', () => {
