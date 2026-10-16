@@ -10,7 +10,7 @@ Read when modifying global passthrough settings, channel header overrides, relay
 - `PUT /api/option/`: existing privileged option API, `{ "key": "global.pass_through_headers_enabled", "value": true }`.
 - `GET /api/channel/passthrough`: `AdminAuth` plus `authz.ChannelRead`, returning `{ "success": true, "data": { "pass_through_request_enabled": true, "pass_through_headers_enabled": false } }`.
 - `relay/common.GetEffectiveHeaderOverride(*RelayInfo) map[string]interface{}` merges the effective source before `relay/channel.ResolveHeaderOverride` resolves it.
-- `relay/helper.NewPassthroughBody(common.BodyStorage, *RelayInfo, string) (common.ReplayableBody, io.Closer, error)` keeps no-op bodies on original storage and returns caller-owned storage only when rewriting JSON.
+- `relay/helper.NewPassthroughBody(common.BodyStorage, *RelayInfo, string) (common.ReplayableBody, io.Closer, error)` keeps no-op bodies on original storage and returns caller-owned storage only when rewriting an outbound JSON or supported multipart body.
 
 ## Contracts
 
@@ -21,7 +21,7 @@ Read when modifying global passthrough settings, channel header overrides, relay
 - Body passthrough in supported handlers is global OR local. It bypasses adapter conversion, parameter overrides and system prompt injection. For OpenAI-compatible text, Responses (including compact), Claude, image JSON, and rerank requests, an actual channel model redirect must still rewrite the top-level `model` to the configured target. Do not describe passthrough as compatible with arbitrary upstream protocols.
 - Model rewriting preserves unknown fields and numeric precision through raw JSON values; never round-trip arbitrary payloads through `map[string]any`. Without a matched redirect, retain original bytes and replayable storage. Nested `model` fields are not routing identities and must remain unchanged.
 - Rewritten bodies belong to the outbound attempt. Never mutate or replace inbound body storage: every retry attempt must start from the original client payload. Adapter-only suffix normalization must not change a passthrough model or reinterpret a configured redirect target.
-- Multipart payloads, URL-based Gemini model handling, WebSockets and asynchronous tasks keep their existing behavior; this JSON rewrite does not extend their support.
+- Multipart payloads keep their original files and fields; when a matched redirect exists, supported image multipart requests rewrite only the top-level `model` field for the outbound attempt. URL-based Gemini model handling, WebSockets and asynchronous tasks keep their existing behavior.
 - Channel display reads only the two flags, not privileged system options. A globally enabled body switch appears on and disabled without changing the saved local preference; successful option mutation invalidates `['channel-passthrough']`.
 - Existing `delete_header` operations remove map entries, not individual headers later expanded from `*`. Do not claim they are wildcard exclusion filters.
 
@@ -64,6 +64,7 @@ Read when modifying global passthrough settings, channel header overrides, relay
 - Independently updated registered boolean combinations and response shape: `controller/channel_passthrough_test.go`.
 - Settings save/invalidation and inherited channel preference restoration: frontend passthrough tests under feature `__tests__/` directories.
 - Body redirect regressions: `relay/helper/passthrough_body_test.go` and `relay/passthrough_model_test.go`. Assert captured outbound JSON across the supported handlers, global/local switch inheritance, byte-identical no-op bodies, unknown field precision, nested model preservation, invalid object rejection, replayability and cross-channel isolation.
+- Multipart image redirect regression: assert the mapped top-level `model` reaches the upstream while uploaded files, other fields, and the original replay storage remain unchanged.
 
 ## Wrong vs Correct
 

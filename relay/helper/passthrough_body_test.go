@@ -1,8 +1,12 @@
 package helper
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
+	"mime/multipart"
+	"net/http/httptest"
+	"net/textproto"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -19,7 +23,6 @@ func TestNewPassthroughBodyPreservesUnmappedAndNonJSONBodies(t *testing.T) {
 		{"no match", "application/json", " {\n\"model\" : \"client\", \"n\":1e2 }\n", "client", false},
 		{"same target", "application/json", " {\"model\":\"client\"} ", "client", true},
 		{"incidental normalization is not a redirect", "application/json", " {\"model\":\"client\"} ", "normalized", false},
-		{"multipart", "multipart/form-data", "--boundary\r\nraw model=client\r\n", "upstream", true},
 		{"form", "application/x-www-form-urlencoded", "model=client&unknown=1", "upstream", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -43,6 +46,53 @@ func TestNewPassthroughBodyPreservesUnmappedAndNonJSONBodies(t *testing.T) {
 			assert.Equal(t, actual, replayed)
 		})
 	}
+}
+
+func TestNewPassthroughBodyRedirectsMultipartModelWithoutMutatingStorage(t *testing.T) {
+	var payload bytes.Buffer
+	writer := multipart.NewWriter(&payload)
+	require.NoError(t, writer.WriteField("model", "client"))
+	require.NoError(t, writer.WriteField("prompt", "edit this"))
+	part, err := writer.CreatePart(textproto.MIMEHeader{
+		"Content-Disposition": {`form-data; name="image"; filename="source.png"`},
+		"Content-Type":        {"image/png"},
+	})
+	require.NoError(t, err)
+	_, err = part.Write([]byte("image-bytes"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	original := append([]byte(nil), payload.Bytes()...)
+	contentType := writer.FormDataContentType()
+	storage, err := common.CreateBodyStorage(original)
+	require.NoError(t, err)
+	defer storage.Close()
+	info := &relaycommon.RelayInfo{OriginModelName: "client", ChannelMeta: &relaycommon.ChannelMeta{
+		IsModelMapped: true, UpstreamModelName: "upstream",
+	}}
+
+	body, closer, err := NewPassthroughBody(storage, info, contentType)
+	require.NoError(t, err)
+	require.NotNil(t, closer)
+	defer closer.Close()
+
+	rewritten, err := io.ReadAll(body)
+	require.NoError(t, err)
+	rewrittenRequest := httptest.NewRequest("POST", "/v1/images/edits", bytes.NewReader(rewritten))
+	rewrittenRequest.Header.Set("Content-Type", contentType)
+	require.NoError(t, rewrittenRequest.ParseMultipartForm(1<<20))
+	assert.Equal(t, "upstream", rewrittenRequest.FormValue("model"))
+	assert.Equal(t, "edit this", rewrittenRequest.FormValue("prompt"))
+	file, _, err := rewrittenRequest.FormFile("image")
+	require.NoError(t, err)
+	defer file.Close()
+	imageBytes, err := io.ReadAll(file)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("image-bytes"), imageBytes)
+
+	replayed, err := storage.Bytes()
+	require.NoError(t, err)
+	assert.Equal(t, original, replayed)
 }
 
 func TestNewPassthroughBodyRedirectPreservesFieldsAndIndependentAttempts(t *testing.T) {
