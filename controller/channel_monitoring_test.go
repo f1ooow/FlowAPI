@@ -341,6 +341,63 @@ func TestGetChannelMonitoringSummaryReadsChannelMetrics(t *testing.T) {
 	assert.EqualValues(t, 30, payload.Data.Overall.CacheHitRate)
 }
 
+func TestGetChannelMonitoringSummaryIncludesConfiguredGroups(t *testing.T) {
+	db := setupChannelMonitoringTestDB(t)
+	overridePerfMetricsSetting(t, "5min", 5)
+	require.NoError(t, db.Create(&[]model.Channel{
+		{Id: 11, Name: "shared", Group: ",default, vip,,"},
+		{Id: 22, Name: "single", Group: "vip-plus"},
+		{Id: 33, Name: "blank", Group: ", ,"},
+		{Id: 44, Name: "empty"},
+	}).Error)
+	require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", 44).Update("group", "").Error)
+
+	step := channelMonitoringStepSeconds(channelMonitoringWindows["24h"].stepSeconds)
+	sampleTs := channelMonitoringSeriesEnd(time.Now().Unix(), step) - 4*step
+	require.NoError(t, model.UpsertChannelMetric(&model.ChannelMetric{
+		ChannelId: 11, BucketTs: sampleTs, AttemptCount: 2, SuccessCount: 1,
+	}))
+	require.NoError(t, model.UpsertChannelMetric(&model.ChannelMetric{
+		ChannelId: 99, BucketTs: sampleTs, AttemptCount: 1, SuccessCount: 1,
+	}))
+	todayStart, _ := channelTodayTimeRange(time.Now())
+	require.NoError(t, db.Create(&model.Log{
+		ChannelId: 11, CreatedAt: todayStart, Type: model.LogTypeConsume, Group: "request-only-group",
+	}).Error)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/channel-monitoring/summary?range=24h", nil)
+	GetChannelMonitoringSummary(c)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var payload struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+		Data    struct {
+			Overall  channelMonitoringOverall `json:"overall"`
+			Channels []struct {
+				ChannelId int      `json:"channel_id"`
+				Groups    []string `json:"groups"`
+			} `json:"channels"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
+	require.True(t, payload.Success, payload.Message)
+	groupsByChannel := make(map[int][]string, len(payload.Data.Channels))
+	for _, channel := range payload.Data.Channels {
+		groupsByChannel[channel.ChannelId] = channel.Groups
+	}
+	assert.Equal(t, map[int][]string{
+		11: {"default", "vip"},
+		22: {"vip-plus"},
+		33: {},
+		44: {},
+		99: {},
+	}, groupsByChannel, "memberships come from current channel configuration; deleted history remains ungrouped")
+	assert.EqualValues(t, 3, payload.Data.Overall.AttemptCount, "group metadata does not filter the fleet-wide counters")
+}
+
 func TestGetChannelMonitoringSummaryLeavesTodayQuotaNullWhenConsumeLoggingIsDisabled(t *testing.T) {
 	setupChannelMonitoringTestDB(t)
 	require.NoError(t, model.DB.Create(&model.Channel{Id: 11, Name: "primary"}).Error)

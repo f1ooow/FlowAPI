@@ -37,6 +37,7 @@ function channel(
   return {
     channel_id: 1,
     channel_name: 'Primary',
+    groups: ['default'],
     today_used_quota: 500_000,
     today_cost_quota: 200_000,
     has_data: true,
@@ -117,11 +118,17 @@ function totals(overrides: Partial<ChannelMonitoringTotalsWindow> = {}) {
     cost_has_estimate: false,
     ...overrides,
   }
-  return { available: true as const, totals: { today: window, month: window, total: window } }
+  return {
+    available: true as const,
+    totals: { today: window, month: window, total: window },
+  }
 }
 
 function renderPage(
-  options: { totals?: ChannelMonitoringTotalsResponse } = {}
+  options: {
+    totals?: ChannelMonitoringTotalsResponse
+    channels?: ChannelMonitoringChannelSummary[]
+  } = {}
 ) {
   const requestedRanges: string[] = []
   vi.spyOn(api, 'get').mockImplementation(async (url, config) => {
@@ -134,7 +141,9 @@ function renderPage(
       (config?.params as Record<string, unknown> | undefined)?.range ?? ''
     )
     requestedRanges.push(range)
-    return { data: { success: true, data: summary(range) } } as never
+    const data = summary(range)
+    if (options.channels) data.channels = options.channels
+    return { data: { success: true, data } } as never
   })
 
   const queryClient = new QueryClient({
@@ -192,6 +201,143 @@ describe('ChannelMonitoring page', () => {
 
     await user.clear(search)
     await user.type(search, '1')
+    expect(screen.getByText('Primary')).toBeInTheDocument()
+  })
+
+  test('filters by exact group membership and restores all active channels when cleared', async () => {
+    const user = userEvent.setup()
+    renderPage({
+      channels: [
+        channel({ groups: ['default', 'vip'] }),
+        channel({
+          channel_id: 2,
+          channel_name: 'VIP Plus',
+          groups: ['vip-plus'],
+        }),
+        channel({ channel_id: 3, channel_name: 'Ungrouped', groups: [] }),
+        channel({
+          channel_id: 4,
+          channel_name: 'Idle',
+          groups: ['vip'],
+          has_data: false,
+        }),
+      ],
+    })
+    await screen.findByText('Primary')
+
+    const groupFilter = screen.getByRole('combobox', {
+      name: 'Filter by group',
+    })
+    await user.click(groupFilter)
+    await user.click(await screen.findByRole('option', { name: 'vip' }))
+
+    expect(screen.getByText('Primary')).toBeInTheDocument()
+    expect(screen.queryByText('VIP Plus')).not.toBeInTheDocument()
+    expect(screen.queryByText('Ungrouped')).not.toBeInTheDocument()
+    expect(screen.queryByText('Idle')).not.toBeInTheDocument()
+
+    await user.click(groupFilter)
+    await user.click(await screen.findByRole('option', { name: 'All Groups' }))
+    expect(screen.getByText('VIP Plus')).toBeInTheDocument()
+    expect(screen.getByText('Ungrouped')).toBeInTheDocument()
+    expect(screen.queryByText('Idle')).not.toBeInTheDocument()
+  })
+
+  test('combines the group filter with search and preserves it when the time range changes', async () => {
+    const user = userEvent.setup()
+    const requestedRanges = renderPage({
+      channels: [
+        channel({ groups: ['vip'], cache_hit_rate: 50 }),
+        channel({
+          channel_id: 2,
+          channel_name: 'Secondary',
+          groups: ['default'],
+        }),
+      ],
+    })
+    await screen.findByText('Primary')
+    const groupFilter = screen.getByRole('combobox', {
+      name: 'Filter by group',
+    })
+    await user.click(groupFilter)
+    await user.click(await screen.findByRole('option', { name: 'vip' }))
+
+    const search = screen.getByRole('textbox', { name: 'Search channels' })
+    await user.type(search, 'Secondary')
+    expect(
+      screen.getByText('No channels match your search')
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Secondary')).not.toBeInTheDocument()
+
+    await user.clear(search)
+    await user.type(search, '1')
+    expect(screen.getByText('Primary')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '7d' }))
+    await waitFor(() => expect(requestedRanges).toContain('7d'))
+    expect(groupFilter).toHaveTextContent('vip')
+    expect(screen.getByText('Primary')).toBeInTheDocument()
+    expect(screen.queryByText('Secondary')).not.toBeInTheDocument()
+
+    // These are fleet-wide summaries, not request-group statistics.
+    expect(screen.getByText('2 with traffic')).toBeInTheDocument()
+    expect(screen.getByText('62.50%')).toBeInTheDocument()
+    expect(screen.getAllByText('Consumption')).toHaveLength(3)
+  })
+
+  test('allows keyboard group selection and shows an empty state for a group without traffic', async () => {
+    const user = userEvent.setup()
+    renderPage({
+      channels: [
+        channel({ groups: ['default'] }),
+        channel({
+          channel_id: 2,
+          channel_name: 'Idle',
+          groups: ['idle'],
+          has_data: false,
+        }),
+      ],
+    })
+    await screen.findByText('Primary')
+    const groupFilter = screen.getByRole('combobox', {
+      name: 'Filter by group',
+    })
+    groupFilter.focus()
+    await user.keyboard('{ArrowDown}')
+    expect(groupFilter).toHaveAttribute('aria-expanded', 'true')
+    await screen.findByRole('option', { name: 'idle' })
+    await user.keyboard('{End}{Enter}')
+
+    expect(groupFilter).toHaveTextContent('idle')
+    expect(groupFilter).toHaveAttribute('aria-expanded', 'false')
+    expect(
+      screen.getByText('No channel received traffic in this window')
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Primary')).not.toBeInTheDocument()
+    expect(screen.queryByText('Idle')).not.toBeInTheDocument()
+  })
+
+  test('keeps long group labels accessible without widening the responsive filters', async () => {
+    const user = userEvent.setup()
+    const group =
+      'long-group-name-for-mobile-overflow-validation-abcdefghijklmnop'
+    renderPage({ channels: [channel({ groups: [group] })] })
+    await screen.findByText('Primary')
+
+    const groupFilter = screen.getByRole('combobox', {
+      name: 'Filter by group',
+    })
+    expect(groupFilter).toHaveClass('w-full', 'sm:w-48')
+    expect(groupFilter.parentElement).toHaveClass('flex-col', 'sm:flex-row')
+    await user.click(groupFilter)
+    const option = await screen.findByRole('option', { name: group })
+    expect(within(option).getByText(group)).toHaveClass(
+      'wrap-anywhere',
+      'whitespace-normal'
+    )
+    await user.click(option)
+
+    expect(within(groupFilter).getByTitle(group)).toHaveTextContent(group)
+    expect(within(groupFilter).getByText(group)).toHaveClass('truncate')
     expect(screen.getByText('Primary')).toBeInTheDocument()
   })
 

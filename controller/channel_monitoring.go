@@ -90,17 +90,18 @@ type channelMonitoringCacheStats struct {
 }
 
 type channelMonitoringChannelSummary struct {
-	ChannelId        int     `json:"channel_id"`
-	ChannelName      string  `json:"channel_name"`
-	TodayUsedQuota   *int64  `json:"today_used_quota"`
-	TodayCostQuota   *int64  `json:"today_cost_quota"`
-	HasData          bool    `json:"has_data"`
-	State            string  `json:"state"`
-	AvailabilityRate float64 `json:"availability_rate"`
-	ErrorRate        float64 `json:"error_rate"`
-	AvgLatencyMs     int64   `json:"avg_latency_ms"`
-	AttemptCount     int64   `json:"attempt_count"`
-	SuccessCount     int64   `json:"success_count"`
+	ChannelId        int      `json:"channel_id"`
+	ChannelName      string   `json:"channel_name"`
+	Groups           []string `json:"groups"`
+	TodayUsedQuota   *int64   `json:"today_used_quota"`
+	TodayCostQuota   *int64   `json:"today_cost_quota"`
+	HasData          bool     `json:"has_data"`
+	State            string   `json:"state"`
+	AvailabilityRate float64  `json:"availability_rate"`
+	ErrorRate        float64  `json:"error_rate"`
+	AvgLatencyMs     int64    `json:"avg_latency_ms"`
+	AttemptCount     int64    `json:"attempt_count"`
+	SuccessCount     int64    `json:"success_count"`
 	channelMonitoringCacheStats
 	Buckets []channelMonitoringBucket `json:"buckets"`
 }
@@ -356,14 +357,14 @@ func buildChannelMonitoringChannels(rows []model.ChannelMetricBucket, identities
 
 	// A channel deleted after producing samples keeps its row with an empty
 	// name so the history is not silently dropped; the UI falls back to the id.
-	names := make(map[int]string, len(identities))
+	identitiesById := make(map[int]model.ChannelIdentity, len(identities))
 	channelIds := make([]int, 0, len(identities)+len(rolled))
 	for _, identity := range identities {
-		names[identity.Id] = identity.Name
+		identitiesById[identity.Id] = identity
 		channelIds = append(channelIds, identity.Id)
 	}
 	for channelId := range rolled {
-		if _, ok := names[channelId]; !ok {
+		if _, ok := identitiesById[channelId]; !ok {
 			channelIds = append(channelIds, channelId)
 		}
 	}
@@ -371,6 +372,14 @@ func buildChannelMonitoringChannels(rows []model.ChannelMetricBucket, identities
 	overall := channelMonitoringCounters{}
 	summaries := make([]channelMonitoringChannelSummary, 0, len(channelIds))
 	for _, channelId := range channelIds {
+		identity := identitiesById[channelId]
+		channel := model.Channel{Group: identity.Group}
+		groups := make([]string, 0)
+		for _, group := range channel.GetGroups() {
+			if group != "" {
+				groups = append(groups, group)
+			}
+		}
 		buckets := rolled[channelId]
 		total := channelMonitoringCounters{}
 		series := make([]channelMonitoringBucket, bucketCount)
@@ -393,7 +402,8 @@ func buildChannelMonitoringChannels(rows []model.ChannelMetricBucket, identities
 
 		summary := channelMonitoringChannelSummary{
 			ChannelId:                   channelId,
-			ChannelName:                 names[channelId],
+			ChannelName:                 identity.Name,
+			Groups:                      groups,
 			HasData:                     total.attemptCount > 0,
 			State:                       channelMonitoringStateNoData,
 			AttemptCount:                total.attemptCount,

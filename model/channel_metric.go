@@ -130,21 +130,22 @@ func GetChannelMetricBuckets(startTs int64, endTs int64, stepSeconds int64) ([]C
 	return buckets, err
 }
 
-// ChannelIdentity is the minimal channel row the monitoring page needs. The
-// names are resolved with a separate query and mapped back in Go rather than
-// joined, matching how GetAllLogs enriches channel names.
+// ChannelIdentity is the minimal channel row the monitoring page needs. Names
+// and current group memberships are resolved separately and mapped back in Go
+// rather than joined, matching how GetAllLogs enriches channel names.
 //
 // It deliberately carries no cost ratio. Cost figures are priced from the
 // ratio snapshotted onto each consume log, so reading the channel's current
 // configuration at aggregation time has no place on this path.
 type ChannelIdentity struct {
-	Id   int    `json:"id" gorm:"column:id"`
-	Name string `json:"name" gorm:"column:name"`
+	Id    int    `json:"id" gorm:"column:id"`
+	Name  string `json:"name" gorm:"column:name"`
+	Group string `json:"group" gorm:"column:group"`
 }
 
 func GetChannelIdentities() ([]ChannelIdentity, error) {
 	identities := make([]ChannelIdentity, 0)
-	err := DB.Table("channels").Select("id, name").Order("id ASC").Find(&identities).Error
+	err := DB.Table("channels").Select([]string{"id", "name", "group"}).Order("id ASC").Find(&identities).Error
 	return identities, err
 }
 

@@ -31,14 +31,21 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 
 import { getChannelMonitoringSummary, getChannelMonitoringTotals } from './api'
+import { ChannelAvailabilityRow } from './components/channel-availability-row'
 import {
   ChannelMonitoringTotalsBoard,
   type TotalsWindowKey,
 } from './components/channel-monitoring-totals-board'
-import { ChannelAvailabilityRow } from './components/channel-availability-row'
 import { MonitoringOverviewCards } from './components/monitoring-overview-cards'
 import { RangeSelector } from './components/range-selector'
 
@@ -51,6 +58,7 @@ export function ChannelMonitoring() {
   const { t } = useTranslation()
   const [range, setRange] = useState(DEFAULT_RANGE)
   const [search, setSearch] = useState('')
+  const [group, setGroup] = useState<string | null>(null)
   // The board always shows all three windows; this only picks which one is
   // emphasised and which sub-caption ("since midnight" / "since the 1st") is
   // shown. It defaults to the short window an operator checks most often.
@@ -82,6 +90,11 @@ export function ChannelMonitoring() {
 
   const totals = totalsQuery.data?.available ? totalsQuery.data : undefined
 
+  const groupOptions = useMemo(() => {
+    const groups = new Set(channels.flatMap((channel) => channel.groups))
+    return [...groups].sort((left, right) => left.localeCompare(right))
+  }, [channels])
+
   const trafficChannels = useMemo(
     () => channels.filter((channel) => channel.has_data),
     [channels]
@@ -90,13 +103,14 @@ export function ChannelMonitoring() {
   const visibleChannels = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase()
     return trafficChannels.filter((channel) => {
+      if (group !== null && !channel.groups.includes(group)) return false
       if (!keyword) return true
       return (
         channel.channel_name.toLocaleLowerCase().includes(keyword) ||
         String(channel.channel_id).includes(keyword)
       )
     })
-  }, [search, trafficChannels])
+  }, [group, search, trafficChannels])
 
   const issueCount = trafficChannels.filter(
     (channel) => channel.state === 'down' || channel.state === 'degraded'
@@ -214,7 +228,27 @@ export function ChannelMonitoring() {
             onSelectWindow={setTotalsWindow}
           />
 
-          <div className='flex justify-end'>
+          <div className='flex flex-col gap-2 sm:flex-row sm:justify-end'>
+            <Select value={group} onValueChange={setGroup}>
+              <SelectTrigger
+                className='w-full sm:w-48'
+                aria-label={t('Filter by group')}
+              >
+                <SelectValue className='min-w-0' title={group ?? undefined}>
+                  <span className='truncate'>{group ?? t('All Groups')}</span>
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false}>
+                <SelectItem value={null}>{t('All Groups')}</SelectItem>
+                {groupOptions.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    <span className='min-w-0 wrap-anywhere whitespace-normal'>
+                      {option}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <div className='relative w-full sm:w-72'>
               <Search
                 className='text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2'

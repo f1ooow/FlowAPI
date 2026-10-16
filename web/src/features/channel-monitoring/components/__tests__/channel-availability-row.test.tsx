@@ -43,6 +43,7 @@ function buckets(count: number): ChannelMonitoringBucket[] {
 const healthyChannel: ChannelMonitoringChannelSummary = {
   channel_id: 12,
   channel_name: 'FAST CODEX',
+  groups: ['default'],
   today_used_quota: 1_250_000,
   today_cost_quota: 500_000,
   has_data: true,
