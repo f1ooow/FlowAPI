@@ -61,7 +61,13 @@ export const userSchema = z.object({
 })
 export type User = z.infer<typeof userSchema>
 
-export const userListSchema = z.array(userSchema)
+export const userListItemSchema = userSchema.extend({
+  cost_quota: z.number().nullable(),
+  cost_incomplete: z.boolean(),
+})
+export type UserListItem = z.infer<typeof userListItemSchema>
+
+export const userListSchema = z.array(userListItemSchema)
 
 // ============================================================================
 // API Request/Response Types
@@ -95,7 +101,7 @@ export interface GetUsersResponse {
   success: boolean
   message?: string
   data?: {
-    items: User[]
+    items: UserListItem[]
     total: number
     page: number
     page_size: number

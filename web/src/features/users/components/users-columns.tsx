@@ -38,11 +38,12 @@ import {
   USER_ROLES,
   isUserDeleted,
 } from '../constants'
-import type { User } from '../types'
+import type { UserListItem } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
+import { UserCostCell } from './user-cost-cell'
 import { UserQuotaCell } from './user-quota-cell'
 
-export function useUsersColumns(): ColumnDef<User>[] {
+export function useUsersColumns(): ColumnDef<UserListItem>[] {
   const { t } = useTranslation()
   return [
     {
@@ -177,6 +178,20 @@ export function useUsersColumns(): ColumnDef<User>[] {
       size: 300,
       minSize: 260,
       meta: { mobileOrder: 40 },
+    },
+    {
+      id: 'cost_quota',
+      accessorKey: 'cost_quota',
+      header: t('Upstream Cost'),
+      cell: ({ row }) => (
+        <UserCostCell
+          quota={row.original.cost_quota}
+          incomplete={row.original.cost_incomplete}
+        />
+      ),
+      enableSorting: false,
+      size: 160,
+      meta: { mobileOrder: 50 },
     },
     {
       accessorKey: 'group',
