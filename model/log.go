@@ -232,6 +232,66 @@ func SumChannelQuotaUsage(ctx context.Context, channelIds []int, startTimestamp 
 	return usageByChannel, nil
 }
 
+// UserCostQuota includes only costs verifiable from observed request-time
+// snapshots. Incomplete history is excluded, never repriced from channels.
+type UserCostQuota struct {
+	CostQuota      int64
+	CostIncomplete bool
+}
+
+type userCostQuotaRow struct {
+	UserId                    int
+	ChannelCostRatio          int64
+	ChannelCostRatioEstimated *bool
+	BaseQuotaMissing          bool
+	BaseQuotaSum              int64
+}
+
+func SumUserCostQuota(ctx context.Context, userIds []int) (map[int]UserCostQuota, error) {
+	uniqueIds := make([]int, 0, len(userIds))
+	seen := make(map[int]struct{}, len(userIds))
+	for _, userId := range userIds {
+		if userId <= 0 {
+			continue
+		}
+		if _, ok := seen[userId]; ok {
+			continue
+		}
+		seen[userId] = struct{}{}
+		uniqueIds = append(uniqueIds, userId)
+	}
+
+	// A zero charge may belong to a free user group despite nonzero upstream
+	// cost. A nonpositive/NULL base therefore cannot prove an exact zero cost.
+	const baseQuotaMissing = "CASE WHEN base_quota > 0 THEN 0 ELSE 1 END"
+	usageByUser := make(map[int]UserCostQuota, len(uniqueIds))
+	for start := 0; start < len(uniqueIds); start += channelQuotaAggregationBatchSize {
+		end := min(start+channelQuotaAggregationBatchSize, len(uniqueIds))
+		var rows []userCostQuotaRow
+		err := LOG_DB.WithContext(ctx).
+			Table("logs").
+			Select("user_id, channel_cost_ratio, channel_cost_ratio_estimated, "+baseQuotaMissing+" AS base_quota_missing, SUM(base_quota) AS base_quota_sum").
+			Where("user_id IN ?", uniqueIds[start:end]).
+			Where("type = ?", LogTypeConsume).
+			Group("user_id, channel_cost_ratio, channel_cost_ratio_estimated, " + baseQuotaMissing).
+			Scan(&rows).Error
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			usage := usageByUser[row.UserId]
+			bucket := NewChannelCostRatioBucket(row.ChannelCostRatio, row.ChannelCostRatioEstimated == nil || *row.ChannelCostRatioEstimated)
+			if bucket.IsEstimate() || row.BaseQuotaMissing {
+				usage.CostIncomplete = true
+			} else {
+				usage.CostQuota = common.AggregateQuotaRound(float64(usage.CostQuota + bucket.CostQuota(row.BaseQuotaSum)))
+			}
+			usageByUser[row.UserId] = usage
+		}
+	}
+	return usageByUser, nil
+}
+
 // GlobalQuotaUsage totals consume logs across every channel in a time range,
 // without consulting the channel table at all.
 //

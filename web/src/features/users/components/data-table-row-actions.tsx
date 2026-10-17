@@ -49,11 +49,11 @@ import {
   isUserDeleted,
 } from '../constants'
 import { getUserActionMessage } from '../lib'
-import type { User, ManageUserAction } from '../types'
+import type { UserListItem, ManageUserAction } from '../types'
 import { useUsers } from './users-provider'
 
 interface DataTableRowActionsProps {
-  row: Row<User>
+  row: Row<UserListItem>
 }
 
 export function DataTableRowActions({ row }: DataTableRowActionsProps) {

@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/channel-list-derived-metrics.md", "reason": "Batch aggregation and separate log DB"}
+{"file": ".trellis/spec/backend/billing-ratio-routing.md", "reason": "Historical snapshots"}
+{"file": ".trellis/spec/frontend/testing-environment.md", "reason": "UI verification"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Admin response boundaries"}

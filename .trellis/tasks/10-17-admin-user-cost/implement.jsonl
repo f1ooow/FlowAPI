@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/backend/api-patterns.md", "reason": "Admin-only response contracts"}
+{"file": ".trellis/spec/backend/quality.md", "reason": "Backend quality"}
+{"file": ".trellis/spec/backend/channel-list-derived-metrics.md", "reason": "Separate log database and batch aggregation"}
+{"file": ".trellis/spec/backend/billing-ratio-routing.md", "reason": "Historical cost snapshots"}
+{"file": ".trellis/spec/frontend/quality.md", "reason": "Frontend quality"}
+{"file": ".trellis/spec/frontend/testing-environment.md", "reason": "Component test environment"}
+{"file": ".trellis/spec/guides/pre-implementation-checklist.md", "reason": "Required checklist"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer response and display"}

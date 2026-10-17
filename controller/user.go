@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -270,6 +271,37 @@ func Register(c *gin.Context) {
 	return
 }
 
+// Cost fields belong only to the administrator list/search DTO, not User or
+// the shared self/login responses.
+type adminUserListItem struct {
+	*model.User
+	CostQuota      *int64 `json:"cost_quota"`
+	CostIncomplete bool   `json:"cost_incomplete"`
+}
+
+func adminUsersWithCost(ctx context.Context, users []*model.User) []adminUserListItem {
+	items := make([]adminUserListItem, len(users))
+	userIds := make([]int, 0, len(users))
+	for i, user := range users {
+		items[i] = adminUserListItem{User: user, CostIncomplete: true}
+		userIds = append(userIds, user.Id)
+	}
+	if len(users) == 0 || !common.LogConsumeEnabled {
+		return items
+	}
+	usageByUser, err := model.SumUserCostQuota(ctx, userIds)
+	if err != nil {
+		common.SysError("failed to query user historical cost: " + err.Error())
+		return items
+	}
+	for i, user := range users {
+		usage := usageByUser[user.Id]
+		items[i].CostQuota = common.GetPointer(usage.CostQuota)
+		items[i].CostIncomplete = usage.CostIncomplete
+	}
+	return items
+}
+
 func GetAllUsers(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	sortOptions := model.NewUserSortOptions(c.Query("sort_by"), c.Query("sort_order"))
@@ -280,7 +312,7 @@ func GetAllUsers(c *gin.Context) {
 	}
 
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(users)
+	pageInfo.SetItems(adminUsersWithCost(c.Request.Context(), users))
 
 	common.ApiSuccess(c, pageInfo)
 	return
@@ -310,7 +342,7 @@ func SearchUsers(c *gin.Context) {
 	}
 
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(users)
+	pageInfo.SetItems(adminUsersWithCost(c.Request.Context(), users))
 	common.ApiSuccess(c, pageInfo)
 	return
 }
