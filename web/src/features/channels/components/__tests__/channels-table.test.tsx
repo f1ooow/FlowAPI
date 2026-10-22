@@ -24,6 +24,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { api } from '@/lib/api'
 
 import { channelSchema, type Channel } from '../../types'
+import { ChannelHealthProvider } from '../channel-health-provider'
 import { ChannelsProvider } from '../channels-provider'
 import { ChannelsTable } from '../channels-table'
 
@@ -193,6 +194,14 @@ function renderTable() {
     if (url === '/api/group/') {
       return { data: { success: true, data: ['default', 'vip'] } }
     }
+    if (url === '/api/channel-monitoring/summary') {
+      return {
+        data: {
+          success: true,
+          data: { range: '24h', ranges: ['24h'], channels: [] },
+        },
+      }
+    }
     if (url === '/api/channel/passthrough') {
       return {
         data: {
@@ -232,7 +241,9 @@ function renderTable() {
   render(
     <QueryClientProvider client={queryClient}>
       <ChannelsProvider>
-        <ChannelsTable />
+        <ChannelHealthProvider>
+          <ChannelsTable />
+        </ChannelHealthProvider>
       </ChannelsProvider>
     </QueryClientProvider>
   )
@@ -273,6 +284,7 @@ describe('ChannelsTable column sizing storage', () => {
     { key: 'channels:column-sizing', version: 'the routing split' },
     // A size list from before the groups and quota columns were split out.
     { key: 'channels:column-sizing:v2', version: 'the groups and quota split' },
+    { key: 'channels:column-sizing:v3', version: 'the health column' },
   ])('ignores widths saved before $version', async ({ key }) => {
     localStorage.setItem(
       key,
@@ -289,7 +301,7 @@ describe('ChannelsTable column sizing storage', () => {
 
   test('restores widths saved under the current column version', async () => {
     localStorage.setItem(
-      'channels:column-sizing:v3',
+      'channels:column-sizing:v4',
       JSON.stringify({ weight: 140 })
     )
     renderTable()
@@ -698,6 +710,7 @@ describe('ChannelsTable group column', () => {
   })
 
   test('shows nothing in the groups column of a tag row', async () => {
+    const user = userEvent.setup()
     channels = channels.map((channel) =>
       channel.id === 1 || channel.id === 3
         ? { ...channel, tag: 'pool' }
@@ -714,10 +727,31 @@ describe('ChannelsTable group column', () => {
     expect(
       tagRow.querySelector('[data-column-id="groups"]')
     ).toBeEmptyDOMElement()
+    const healthCell = tagRow.querySelector<HTMLElement>(
+      '[data-column-id="health"]'
+    )
+    expect(healthCell).toHaveTextContent('Expand to view channel health')
+    expect(healthCell).not.toHaveTextContent('0.00%')
+    if (!healthCell) {
+      throw new Error('Missing tag health cell')
+    }
+    await user.click(within(healthCell).getByRole('button'))
+    expect(await screen.findByText('OpenAI main')).toBeInTheDocument()
   })
 })
 
 describe('ChannelsTable card view', () => {
+  test('card mode retains the same channel health entry point as the table', async () => {
+    localStorage.setItem('channels:view-mode', 'card')
+    renderTable()
+
+    expect(
+      await screen.findByRole('button', {
+        name: 'View channel health for OpenAI main',
+      })
+    ).toBeInTheDocument()
+    expect(screen.getAllByText('No data')).toHaveLength(initialChannels.length)
+  })
   test('shows the groups under the name as quiet text', async () => {
     localStorage.setItem('channels:view-mode', 'card')
     renderTable()

@@ -14,7 +14,7 @@ func TestGetPerfMetricGroupBucketsKeepsGroupAndTtftCounters(t *testing.T) {
 	t.Cleanup(func() { DB.Exec("DELETE FROM perf_metrics") })
 
 	rows := []PerfMetric{
-		{ModelName: "gpt-4o-mini", Group: "default", BucketTs: 300, RequestCount: 10, SuccessCount: 9, TotalLatencyMs: 2000, TtftSumMs: 500, TtftCount: 10},
+		{ModelName: "gpt-4o-mini", Group: "default", BucketTs: 300, RequestCount: 10, SuccessCount: 9, TotalLatencyMs: 2000, TtftSumMs: 500, TtftCount: 10, OutputTokens: 1000, GenerationMs: 20000},
 		{ModelName: "gpt-4o-mini", Group: "vip", BucketTs: 300, RequestCount: 4, SuccessCount: 4, TotalLatencyMs: 400, TtftSumMs: 80, TtftCount: 4},
 		{ModelName: "gpt-image-2", Group: "default", BucketTs: 600, RequestCount: 3, SuccessCount: 2, TotalLatencyMs: 300000},
 		{ModelName: "gpt-4o-mini", Group: "hidden", BucketTs: 300, RequestCount: 7, SuccessCount: 7, TotalLatencyMs: 700},
@@ -41,6 +41,8 @@ func TestGetPerfMetricGroupBucketsKeepsGroupAndTtftCounters(t *testing.T) {
 	assert.EqualValues(t, 2000, chat.TotalLatencyMs)
 	assert.EqualValues(t, 500, chat.TtftSumMs)
 	assert.EqualValues(t, 10, chat.TtftCount)
+	assert.EqualValues(t, 1000, chat.OutputTokens)
+	assert.EqualValues(t, 20000, chat.GenerationMs)
 
 	vip := byKey["vip/gpt-4o-mini"]
 	assert.EqualValues(t, 4, vip.RequestCount, "the same model in another group must stay a separate row")

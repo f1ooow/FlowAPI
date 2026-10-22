@@ -7,92 +7,94 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 
-import { ChevronDown, ChevronRight, EyeOff } from 'lucide-react'
+import { EyeOff } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import type {
   GroupMonitoringGroupSummary,
+  GroupMonitoringModelSummary,
+  GroupMonitoringRange,
   GroupMonitoringThresholds,
 } from '../types'
 import { ModelStatusCard } from './model-status-card'
+import { ModelTrendSheet } from './model-trend-sheet'
 
-/**
- * A monitored group renders as one collapsible card: the group name and its
- * administrator-provided description in the header, then a responsive grid of
- * model cards inside.
- */
+function formatRate(value: number, hasData: boolean) {
+  return hasData ? `${value.toFixed(2)}%` : '—'
+}
+
 export function GroupStatusSection(props: {
   group: GroupMonitoringGroupSummary
   bucketMinutes: number
   windowHours: number
+  range: GroupMonitoringRange
   thresholds: GroupMonitoringThresholds
 }) {
   const { t } = useTranslation()
-  const [open, setOpen] = useState(true)
+  const user = useAuthStore((state) => state.auth.user)
+  const isAdmin = (user?.role ?? 0) >= ROLE.ADMIN
+  const [selectedModel, setSelectedModel] =
+    useState<GroupMonitoringModelSummary | null>(null)
   const issueCount = props.group.models.filter(
     (model) => model.state === 'down' || model.state === 'degraded'
   ).length
-
-  // null means the group has no visibility restriction, so nothing to flag.
-  const allowList = props.group.visible_to_groups
+  const sources = props.group.source_groups
   let visibilityBadge = ''
-  if (allowList?.length) {
+  if (props.group.visible_to_groups?.length) {
     visibilityBadge = t('Visible to {{groups}}', {
-      groups: allowList.join(', '),
+      groups: props.group.visible_to_groups.join(', '),
     })
-  } else if (allowList) {
+  } else if (props.group.visible_to_groups) {
     visibilityBadge = t('Administrators only')
   }
 
   return (
-    <Card className='rounded-xl'>
-      <Collapsible open={open} onOpenChange={setOpen}>
-        <CardHeader className='grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3'>
-          <CollapsibleTrigger
-            render={<Button variant='ghost' size='icon-sm' />}
-            aria-label={t('Toggle {{group}}', {
-              group: props.group.group_name,
-            })}
-          >
-            {open ? (
-              <ChevronDown aria-hidden='true' />
-            ) : (
-              <ChevronRight aria-hidden='true' />
-            )}
-          </CollapsibleTrigger>
-          <div className='min-w-0'>
-            <h2 className='truncate text-base font-semibold'>
+    <Card className='min-w-0 rounded-xl'>
+      <CardHeader className='space-y-3 border-b pb-4'>
+        <div className='flex flex-wrap items-start justify-between gap-3'>
+          <div className='min-w-0 space-y-1'>
+            <h2 className='text-base font-semibold [overflow-wrap:anywhere]'>
               {props.group.group_name}
             </h2>
             {props.group.description && (
-              <p className='text-muted-foreground mt-0.5 text-xs'>
+              <p className='text-muted-foreground text-sm'>
                 {props.group.description}
               </p>
             )}
+            {isAdmin && sources && sources.length > 0 && (
+              <p className='text-muted-foreground text-xs'>
+                {t('Sources: {{groups}}', { groups: sources.join(', ') })}
+              </p>
+            )}
           </div>
-          <div className='flex shrink-0 flex-wrap items-center justify-end gap-1.5'>
-            {/* Only an administrator ever receives the allow list, and only for
-                a group that restricts visibility. */}
-            {visibilityBadge && (
-              <Badge
-                variant='outline'
-                className='text-muted-foreground max-w-56'
-                title={visibilityBadge}
-              >
+          <div className='flex flex-wrap items-center gap-2'>
+            {isAdmin && visibilityBadge && (
+              <Badge variant='outline' className='text-muted-foreground'>
                 <EyeOff aria-hidden='true' />
-                <span className='truncate'>{visibilityBadge}</span>
+                {visibilityBadge}
               </Badge>
             )}
+            <Badge variant='outline' className='font-mono tabular-nums'>
+              {formatRate(
+                props.group.availability_rate,
+                props.group.request_count > 0
+              )}{' '}
+              {t('success')}
+            </Badge>
+            <Badge
+              variant='outline'
+              className='text-muted-foreground tabular-nums'
+            >
+              {t('{{count}} requests', {
+                count: (props.group.request_count ?? 0).toLocaleString(),
+              })}
+            </Badge>
             <Badge variant='outline' className='text-muted-foreground'>
               {t('{{count}} models', { count: props.group.models.length })}
             </Badge>
@@ -105,29 +107,44 @@ export function GroupStatusSection(props: {
               </Badge>
             )}
           </div>
-        </CardHeader>
-        <CollapsibleContent>
-          <CardContent>
-            {props.group.models.length === 0 ? (
-              <div className='text-muted-foreground rounded-lg border border-dashed p-5 text-center text-sm'>
-                {t('No models configured for this group')}
-              </div>
-            ) : (
-              <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
-                {props.group.models.map((model) => (
-                  <ModelStatusCard
-                    key={model.model_name}
-                    model={model}
-                    bucketMinutes={props.bucketMinutes}
-                    windowHours={props.windowHours}
-                    thresholds={props.thresholds}
-                  />
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </CollapsibleContent>
-      </Collapsible>
+        </div>
+        <div className='text-muted-foreground hidden grid-cols-[minmax(0,1fr)_minmax(28rem,38rem)] gap-3 px-0.5 text-xs lg:grid'>
+          <span>{t('Model')}</span>
+          <div className='grid grid-cols-4 text-right'>
+            <span>{t('Success rate')}</span>
+            <span>{t('Requests')}</span>
+            <span>{t('TTFT')}</span>
+            <span>{t('Output speed')}</span>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className='divide-y px-4'>
+        {props.group.models.length === 0 ? (
+          <div className='text-muted-foreground rounded-lg border border-dashed p-5 text-center text-sm'>
+            {t('No models configured for this monitor')}
+          </div>
+        ) : (
+          props.group.models.map((model) => (
+            <ModelStatusCard
+              key={model.model_name}
+              model={model}
+              bucketMinutes={props.bucketMinutes}
+              windowHours={props.windowHours}
+              thresholds={props.thresholds}
+              onOpenDetails={setSelectedModel}
+            />
+          ))
+        )}
+      </CardContent>
+      <ModelTrendSheet
+        model={selectedModel}
+        open={selectedModel !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedModel(null)
+        }}
+        range={props.range}
+        bucketMinutes={props.bucketMinutes}
+      />
     </Card>
   )
 }

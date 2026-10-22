@@ -1,15 +1,269 @@
 package controller
 
 import (
+	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/perf_metrics_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestBuildGroupMonitoringGroupsCombinesSourcesWithoutDoubleCountingOverall(t *testing.T) {
+	groups := []operation_setting.GroupMonitoringGroup{
+		{ID: "cloud", Name: "Cloud Max", Groups: []string{"default", "vip"}, Models: []string{"chat"}},
+		{ID: "premium", Name: "Premium", Groups: []string{"vip"}, Models: []string{"chat"}},
+		{ID: "images", Name: "Image", Groups: []string{"image"}, Models: []string{"image-model"}},
+	}
+	rows := []model.PerfMetricGroupBucket{
+		{Group: "default", ModelName: "chat", RequestCount: 10, SuccessCount: 10, TotalLatencyMs: 1000, TtftSumMs: 100, TtftCount: 1, OutputTokens: 100, GenerationMs: 1000},
+		{Group: "vip", ModelName: "chat", RequestCount: 90, SuccessCount: 45, TotalLatencyMs: 18000, TtftSumMs: 9000, TtftCount: 9, OutputTokens: 900, GenerationMs: 9000},
+		{Group: "image", ModelName: "image-model", RequestCount: 5, SuccessCount: 5, TotalLatencyMs: 5000},
+		// The IN(group)/IN(model) query can return this unselected combination.
+		{Group: "image", ModelName: "chat", RequestCount: 1000, SuccessCount: 0},
+	}
+	summaries, overall := buildGroupMonitoringGroups(rows, groups, nil, 0, 2, 300, 0)
+	require.Len(t, summaries, 3)
+	cloud := summaries[0]
+	assert.Equal(t, "cloud", cloud.ID)
+	assert.Equal(t, "Cloud Max", cloud.GroupName)
+	assert.Equal(t, []string{"default", "vip"}, cloud.SourceGroups)
+	assert.EqualValues(t, 100, cloud.RequestCount)
+	assert.EqualValues(t, 55, cloud.SuccessCount)
+	assert.EqualValues(t, 55, cloud.AvailabilityRate)
+	chat := cloud.Models[0]
+	require.NotNil(t, chat.AvgOutputTps)
+	assert.EqualValues(t, 100, *chat.AvgOutputTps)
+	require.NotNil(t, chat.AvgTtftMsWindow)
+	assert.EqualValues(t, 910, *chat.AvgTtftMsWindow)
+	require.NotNil(t, chat.Buckets[0].AvgLatencyMs)
+	assert.EqualValues(t, 190, *chat.Buckets[0].AvgLatencyMs)
+	require.NotNil(t, chat.Buckets[0].AvgTtftMs)
+	assert.EqualValues(t, 910, *chat.Buckets[0].AvgTtftMs)
+	require.NotNil(t, chat.Buckets[0].AvgOutputTps)
+	assert.EqualValues(t, 100, *chat.Buckets[0].AvgOutputTps)
+	assert.Nil(t, chat.Buckets[1].AvgLatencyMs)
+	assert.Nil(t, chat.Buckets[1].AvgTtftMs)
+	assert.Nil(t, chat.Buckets[1].AvgOutputTps)
+	assert.Nil(t, summaries[2].Models[0].AvgOutputTps, "image requests have no generation speed sample")
+	assert.EqualValues(t, 90, summaries[1].RequestCount)
+	assert.EqualValues(t, 105, overall.RequestCount, "overlapping monitor cards must not count the same source/model twice")
+	assert.EqualValues(t, 60, overall.SuccessCount)
+	assert.EqualValues(t, 57.14, overall.AvailabilityRate)
+}
+
+func TestBuildGroupMonitoringGroupsKeepsActual24hTtftOn72hRange(t *testing.T) {
+	groups := []operation_setting.GroupMonitoringGroup{{ID: "cloud", Name: "Cloud", Groups: []string{"default"}, Models: []string{"chat"}}}
+	const end = int64(72 * 3600)
+	rows := []model.PerfMetricGroupBucket{
+		{Group: "default", ModelName: "chat", BucketTs: end - 48*3600, RequestCount: 10, SuccessCount: 0, TtftSumMs: 10000, TtftCount: 10},
+		{Group: "default", ModelName: "chat", BucketTs: end - 24*3600, RequestCount: 2, SuccessCount: 2, TtftSumMs: 0, TtftCount: 2},
+		{Group: "default", ModelName: "chat", BucketTs: end - 300, RequestCount: 3, SuccessCount: 3, TtftSumMs: 1500, TtftCount: 3},
+	}
+	summaries, _ := buildGroupMonitoringGroups(rows, groups, nil, 0, 72, 3600, end-3600)
+	chat := summaries[0].Models[0]
+	assert.EqualValues(t, 15, chat.RequestCount)
+	assert.EqualValues(t, 5, chat.SuccessCount)
+	require.NotNil(t, chat.AvgTtftMs)
+	assert.EqualValues(t, 500, *chat.AvgTtftMs)
+	assert.EqualValues(t, 3, chat.TtftSampleCount)
+	require.NotNil(t, chat.AvgTtftMs24h)
+	assert.EqualValues(t, 300, *chat.AvgTtftMs24h)
+	assert.EqualValues(t, 5, chat.TtftSampleCount24h)
+	require.NotNil(t, chat.AvgTtftMsWindow)
+	assert.EqualValues(t, 766, *chat.AvgTtftMsWindow)
+	assert.EqualValues(t, 15, chat.TtftSampleCountWindow)
+	require.NotNil(t, chat.Buckets[48].AvgTtftMs)
+	assert.Zero(t, *chat.Buckets[48].AvgTtftMs, "a real zero TTFT sample is not missing data")
+}
+
+func TestGetGroupMonitoringSummaryFiltersBeforeAggregationAndHidesSources(t *testing.T) {
+	previousDB, previousLogDB := model.DB, model.LOG_DB
+	previousMainType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
+	previousRedis := common.RedisEnabled
+	t.Cleanup(func() {
+		model.DB, model.LOG_DB = previousDB, previousLogDB
+		common.SetDatabaseTypes(previousMainType, previousLogType)
+		common.RedisEnabled = previousRedis
+		model.InvalidatePricingCache()
+	})
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.PerfMetric{}))
+	overridePerfMetricsSetting(t, "5min", 5)
+	setting, ok := config.GlobalConfig.Get("group_monitoring_setting").(*operation_setting.GroupMonitoringSetting)
+	require.True(t, ok)
+	previousSetting := *setting
+	t.Cleanup(func() { *setting = previousSetting })
+	*setting = operation_setting.GroupMonitoringSetting{
+		Enabled: true, BucketMinutes: 5,
+		Groups: []operation_setting.GroupMonitoringGroup{
+			{ID: "public", Name: "Cloud Max", Groups: []string{"retail", "wholesale"}, Models: []string{"chat"}},
+			{ID: "shared", Name: "Shared", Groups: []string{"wholesale"}, VisibleToGroups: []string{"vip"}, Models: []string{"chat"}},
+			{ID: "private", Name: "Hidden", Groups: []string{"secret"}, VisibleToGroups: []string{}, Models: []string{"chat"}},
+		},
+	}
+	end := groupMonitoringSeriesEnd(time.Now().Unix(), 300)
+	for _, row := range []model.PerfMetric{
+		{Group: "retail", ModelName: "chat", BucketTs: end - 48*3600, RequestCount: 10, SuccessCount: 5},
+		{Group: "wholesale", ModelName: "chat", BucketTs: end - 3600, RequestCount: 20, SuccessCount: 20},
+		{Group: "secret", ModelName: "chat", BucketTs: end - 3600, RequestCount: 100, SuccessCount: 0},
+	} {
+		require.NoError(t, model.UpsertPerfMetric(&row))
+	}
+	model.InvalidatePricingCache()
+
+	for _, test := range []struct {
+		name       string
+		query      string
+		role       int
+		wantCards  int
+		wantCount  int64
+		wantWindow int
+	}{
+		{name: "regular 72h", query: "?range=72h", role: common.RoleCommonUser, wantCards: 2, wantCount: 30, wantWindow: 72},
+		{name: "default 24h", role: common.RoleCommonUser, wantCards: 2, wantCount: 20, wantWindow: 24},
+		{name: "admin 72h", query: "?range=72h", role: common.RoleAdminUser, wantCards: 3, wantCount: 130, wantWindow: 72},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodGet, "/api/group-monitoring/summary"+test.query, nil)
+			c.Set("role", test.role)
+			c.Set(string(constant.ContextKeyUserGroup), "vip")
+			GetGroupMonitoringSummary(c)
+			require.Equal(t, http.StatusOK, recorder.Code)
+			var payload struct {
+				Success bool                           `json:"success"`
+				Data    groupMonitoringSummaryResponse `json:"data"`
+			}
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
+			require.True(t, payload.Success)
+			require.Len(t, payload.Data.Groups, test.wantCards)
+			assert.Equal(t, test.wantWindow, payload.Data.WindowHours)
+			assert.Equal(t, test.wantCount, payload.Data.Overall.RequestCount)
+			assert.Equal(t, []string{"24h", "72h"}, payload.Data.Ranges)
+			assert.LessOrEqual(t, payload.Data.UpdatedAt, time.Now().Unix()-300)
+			assert.EqualValues(t, 0, payload.Data.UpdatedAt%300)
+			assert.Equal(t, "Cloud Max", payload.Data.Groups[0].GroupName)
+			if test.role < common.RoleAdminUser {
+				assert.NotContains(t, recorder.Body.String(), `"source_groups"`)
+				assert.NotContains(t, recorder.Body.String(), "retail")
+				assert.NotContains(t, recorder.Body.String(), "wholesale")
+				assert.NotContains(t, recorder.Body.String(), "secret")
+				assert.Nil(t, payload.Data.Groups[1].VisibleToGroups)
+			} else {
+				assert.Equal(t, []string{"retail", "wholesale"}, payload.Data.Groups[0].SourceGroups)
+				require.NotNil(t, payload.Data.Groups[2].VisibleToGroups)
+				assert.Empty(t, payload.Data.Groups[2].VisibleToGroups)
+			}
+		})
+	}
+}
+
+func TestGetGroupMonitoringSummaryRejectsUnknownRange(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/group-monitoring/summary?range=7d", nil)
+	GetGroupMonitoringSummary(c)
+	assert.Equal(t, http.StatusBadRequest, recorder.Code)
+}
+
+func TestUpdateGroupMonitoringAdminRequiresCommonModelsAndPersistsCanonicalMonitor(t *testing.T) {
+	previousDB, previousLogDB := model.DB, model.LOG_DB
+	previousMainType, previousLogType := common.MainDatabaseType(), common.LogDatabaseType()
+	previousRedis := common.RedisEnabled
+	previousRatios := ratio_setting.GroupRatio2JSONString()
+	setting, ok := config.GlobalConfig.Get("group_monitoring_setting").(*operation_setting.GroupMonitoringSetting)
+	require.True(t, ok)
+	previousSetting := *setting
+	common.OptionMapRWMutex.Lock()
+	previousOptions := make(map[string]string, len(common.OptionMap))
+	for key, value := range common.OptionMap {
+		previousOptions[key] = value
+	}
+	if common.OptionMap == nil {
+		common.OptionMap = make(map[string]string)
+	}
+	common.OptionMapRWMutex.Unlock()
+	t.Cleanup(func() {
+		model.DB, model.LOG_DB = previousDB, previousLogDB
+		common.SetDatabaseTypes(previousMainType, previousLogType)
+		common.RedisEnabled = previousRedis
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(previousRatios))
+		*setting = previousSetting
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap = previousOptions
+		common.OptionMapRWMutex.Unlock()
+	})
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Option{}))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"retail":1,"wholesale":2,"vip":1}`))
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "retail", Model: "Chat", ChannelId: 1, Enabled: true},
+		{Group: "wholesale", Model: "Chat", ChannelId: 1, Enabled: true},
+		{Group: "retail", Model: "exclusive", ChannelId: 2, Enabled: true},
+	}).Error)
+	for _, test := range []struct {
+		name       string
+		models     []string
+		groups     []string
+		visibility []string
+		wantStatus int
+	}{
+		{name: "model missing in one source", models: []string{"exclusive"}, groups: []string{"retail", "wholesale"}, wantStatus: http.StatusBadRequest},
+		{name: "unknown source", models: []string{"Chat"}, groups: []string{"missing"}, wantStatus: http.StatusBadRequest},
+		{name: "unknown visibility account group", models: []string{"Chat"}, groups: []string{"retail"}, visibility: []string{"missing"}, wantStatus: http.StatusBadRequest},
+		{name: "case normalization cannot introduce duplicate models", models: []string{"chat", "Chat"}, groups: []string{"retail", "wholesale"}, wantStatus: http.StatusBadRequest},
+		{name: "common model saves", models: []string{"chat"}, groups: []string{"retail", "wholesale"}, visibility: []string{}, wantStatus: http.StatusOK},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := operation_setting.GroupMonitoringSetting{
+				Enabled: true, BucketMinutes: 15,
+				Groups: []operation_setting.GroupMonitoringGroup{{ID: "cloud-max", Name: "Cloud Max", Groups: test.groups, VisibleToGroups: test.visibility, Models: test.models}},
+			}
+			body, err := common.Marshal(request)
+			require.NoError(t, err)
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPut, "/api/group-monitoring/admin", bytes.NewReader(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			UpdateGroupMonitoringAdmin(c)
+			require.Equal(t, test.wantStatus, recorder.Code, recorder.Body.String())
+			var options []model.Option
+			require.NoError(t, db.Find(&options).Error)
+			if test.wantStatus != http.StatusOK {
+				assert.Empty(t, options, "invalid settings must not partially persist")
+				return
+			}
+			require.Len(t, options, 3)
+			saved := operation_setting.GetGroupMonitoringSetting()
+			require.Len(t, saved.Groups, 1)
+			assert.Equal(t, "cloud-max", saved.Groups[0].ID)
+			assert.Equal(t, "Cloud Max", saved.Groups[0].Name)
+			assert.Equal(t, []string{"retail", "wholesale"}, saved.Groups[0].Groups)
+			assert.Equal(t, []string{"Chat"}, saved.Groups[0].Models)
+			require.NotNil(t, saved.Groups[0].VisibleToGroups)
+			assert.Empty(t, saved.Groups[0].VisibleToGroups)
+		})
+	}
+	legacyBody := []byte(`{"enabled":true,"bucket_minutes":15,"groups":[{"group":"retail","models":["Chat"]}]}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/group-monitoring/admin", bytes.NewReader(legacyBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+	UpdateGroupMonitoringAdmin(c)
+	assert.Equal(t, http.StatusBadRequest, recorder.Code, "legacy config is migrated when loaded, not accepted as the new admin write contract")
+}
 
 // overridePerfMetricsSetting rewrites the registered perf metrics config for one
 // test. The storage bucket width and the flush interval both feed the display
@@ -109,8 +363,8 @@ func TestGroupMonitoringSeriesEndDropsUnflushedBuckets(t *testing.T) {
 
 func TestBuildGroupMonitoringGroupsRollsUpStorageBuckets(t *testing.T) {
 	groups := []operation_setting.GroupMonitoringGroup{
-		{Group: "default", Description: "shared pool", Models: []string{"gpt-4o-mini", "gpt-image-2", "unused-model"}},
-		{Group: "vip", Description: "priority pool", Models: []string{"gpt-4o-mini"}},
+		{ID: "default", Name: "default", Groups: []string{"default"}, Description: "shared pool", Models: []string{"gpt-4o-mini", "gpt-image-2", "unused-model"}},
+		{ID: "vip", Name: "vip", Groups: []string{"vip"}, Description: "priority pool", Models: []string{"gpt-4o-mini"}},
 	}
 	rows := []model.PerfMetricGroupBucket{
 		{Group: "default", ModelName: "gpt-4o-mini", BucketTs: 0, RequestCount: 10, SuccessCount: 10, TotalLatencyMs: 1000, TtftSumMs: 500, TtftCount: 10},
@@ -130,7 +384,7 @@ func TestBuildGroupMonitoringGroupsRollsUpStorageBuckets(t *testing.T) {
 	// 15 minute display buckets over a one hour window. The latency window
 	// covers the whole series here, so latency and availability read the same
 	// samples; the narrower latency window is exercised separately below.
-	summaries := buildGroupMonitoringGroups(rows, groups, metas, 0, 4, 900, 0)
+	summaries, _ := buildGroupMonitoringGroups(rows, groups, metas, 0, 4, 900, 0)
 	require.Len(t, summaries, 2)
 
 	assert.Equal(t, "default", summaries[0].GroupName)
@@ -208,7 +462,7 @@ func TestBuildGroupMonitoringGroupsBucketStateThresholds(t *testing.T) {
 		{name: "just below degraded threshold", requestCount: 100, successCount: 79, want: groupMonitoringStateDown},
 	}
 
-	groups := []operation_setting.GroupMonitoringGroup{{Group: "default", Models: []string{"gpt-4o-mini"}}}
+	groups := []operation_setting.GroupMonitoringGroup{{ID: "default", Name: "default", Groups: []string{"default"}, Models: []string{"gpt-4o-mini"}}}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			rows := []model.PerfMetricGroupBucket{{
@@ -218,7 +472,7 @@ func TestBuildGroupMonitoringGroupsBucketStateThresholds(t *testing.T) {
 				RequestCount: test.requestCount,
 				SuccessCount: test.successCount,
 			}}
-			summaries := buildGroupMonitoringGroups(rows, groups, nil, 0, 1, 300, 0)
+			summaries, _ := buildGroupMonitoringGroups(rows, groups, nil, 0, 1, 300, 0)
 			require.Len(t, summaries, 1)
 			require.Len(t, summaries[0].Models[0].Buckets, 1)
 			assert.Equal(t, test.want, summaries[0].Models[0].Buckets[0].State)
@@ -234,10 +488,10 @@ func TestGroupMonitoringVisibleGroups(t *testing.T) {
 	groups := []operation_setting.GroupMonitoringGroup{
 		// Configured before the allow list existed: a nil list must stay visible
 		// to everyone, otherwise an upgrade blanks the page for every non-admin.
-		{Group: "legacy", Models: []string{"gpt-4o-mini"}},
-		{Group: "admin-only", VisibleToGroups: []string{}, Models: []string{"gpt-4o-mini"}},
-		{Group: "codex-pro", VisibleToGroups: []string{"vip", "internal"}, Models: []string{"gpt-4o-mini"}},
-		{Group: "vip-only", VisibleToGroups: []string{"vip"}, Models: []string{"gpt-4o-mini"}},
+		{ID: "legacy", Name: "legacy", Groups: []string{"legacy"}, Models: []string{"gpt-4o-mini"}},
+		{ID: "admin-only", Name: "admin-only", Groups: []string{"admin-only"}, VisibleToGroups: []string{}, Models: []string{"gpt-4o-mini"}},
+		{ID: "codex-pro", Name: "codex-pro", Groups: []string{"codex-pro"}, VisibleToGroups: []string{"vip", "internal"}, Models: []string{"gpt-4o-mini"}},
+		{ID: "vip-only", Name: "vip-only", Groups: []string{"vip-only"}, VisibleToGroups: []string{"vip"}, Models: []string{"gpt-4o-mini"}},
 	}
 
 	tests := []struct {
@@ -309,7 +563,7 @@ func TestGroupMonitoringLatencyStart(t *testing.T) {
 
 func TestBuildGroupMonitoringGroupsLatencyUsesRecentWindowOnly(t *testing.T) {
 	groups := []operation_setting.GroupMonitoringGroup{{
-		Group:  "default",
+		ID: "default", Name: "default", Groups: []string{"default"},
 		Models: []string{"streaming-model", "image-model", "quiet-model", "idle-model"},
 	}}
 	// Two hours of 5 minute storage buckets rendered as 30 minute display
@@ -331,7 +585,7 @@ func TestBuildGroupMonitoringGroupsLatencyUsesRecentWindowOnly(t *testing.T) {
 		{Group: "default", ModelName: "idle-model", BucketTs: 0, RequestCount: 20, SuccessCount: 20, TotalLatencyMs: 40_000, TtftSumMs: 20_000, TtftCount: 20},
 	}
 
-	summaries := buildGroupMonitoringGroups(rows, groups, nil, 0, 4, 1800, 3600)
+	summaries, _ := buildGroupMonitoringGroups(rows, groups, nil, 0, 4, 1800, 3600)
 	require.Len(t, summaries, 1)
 	require.Len(t, summaries[0].Models, 4)
 
@@ -382,7 +636,7 @@ func TestBuildGroupMonitoringGroupsLatencyUsesRecentWindowOnly(t *testing.T) {
 func groupMonitoringGroupNames(groups []operation_setting.GroupMonitoringGroup) []string {
 	names := make([]string, 0, len(groups))
 	for _, group := range groups {
-		names = append(names, group.Group)
+		names = append(names, group.Name)
 	}
 	return names
 }

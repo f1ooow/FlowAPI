@@ -32,6 +32,9 @@ import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getChannelOps } from './api'
+import { ChannelHealthDrawer } from './components/channel-health-drawer'
+import { ChannelHealthOverview } from './components/channel-health-overview'
+import { ChannelHealthProvider } from './components/channel-health-provider'
 import { ChannelsDialogs } from './components/channels-dialogs'
 import { ChannelsPrimaryButtons } from './components/channels-primary-buttons'
 import { ChannelsProvider } from './components/channels-provider'
@@ -88,22 +91,30 @@ export function Channels() {
 
   return (
     <ChannelsProvider>
-      <SectionPageLayout fixedContent>
-        <SectionPageLayout.Title>
-          <span className='flex min-w-0 items-center gap-2'>
-            <span className='truncate'>{t('Channels')}</span>
-            {retryBadge}
-          </span>
-        </SectionPageLayout.Title>
-        <SectionPageLayout.Actions>
-          <ChannelsPrimaryButtons />
-        </SectionPageLayout.Actions>
-        <SectionPageLayout.Content>
-          <ChannelsTable />
-        </SectionPageLayout.Content>
-      </SectionPageLayout>
+      <ChannelHealthProvider>
+        <SectionPageLayout fixedContent>
+          <SectionPageLayout.Title>
+            <span className='flex min-w-0 items-center gap-2'>
+              <span className='truncate'>{t('Channels')}</span>
+              {retryBadge}
+            </span>
+          </SectionPageLayout.Title>
+          <SectionPageLayout.Actions>
+            <ChannelsPrimaryButtons />
+          </SectionPageLayout.Actions>
+          <SectionPageLayout.Content>
+            <div className='flex h-full min-h-0 flex-col gap-2.5 sm:gap-3'>
+              <ChannelHealthOverview />
+              <div className='min-h-0 flex-1'>
+                <ChannelsTable />
+              </div>
+            </div>
+          </SectionPageLayout.Content>
+        </SectionPageLayout>
 
-      <ChannelsDialogs />
+        <ChannelsDialogs />
+        <ChannelHealthDrawer />
+      </ChannelHealthProvider>
     </ChannelsProvider>
   )
 }

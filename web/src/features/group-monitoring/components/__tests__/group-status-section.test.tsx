@@ -9,7 +9,9 @@ License, or (at your option) any later version.
 
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, test, vi } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
+
+import { useAuthStore } from '@/stores/auth-store'
 
 import type {
   GroupMonitoringGroupSummary,
@@ -20,6 +22,12 @@ import { GroupStatusSection } from '../group-status-section'
 
 // The brand icon package uses directory imports unsupported by Node's ESM loader.
 vi.mock('@lobehub/icons', () => new Proxy({}, { has: () => true }))
+
+const INITIAL_AUTH_STATE = useAuthStore.getState()
+const setRole = (role: number) =>
+  useAuthStore.getState().auth.setUser({ id: 1, username: 'tester', role })
+
+afterEach(() => useAuthStore.setState(INITIAL_AUTH_STATE))
 
 const THRESHOLDS: GroupMonitoringThresholds = {
   healthy_rate: 99,
@@ -42,15 +50,32 @@ function model(
     ttft_sample_count: 10,
     avg_ttft_ms_24h: 450,
     ttft_sample_count_24h: 240,
+    avg_ttft_ms_window: 450,
+    ttft_sample_count_window: 240,
+    avg_output_tps: 60,
     request_count: 100,
+    success_count: 99,
     buckets: [
-      { ts: 0, request_count: 10, success_count: 10, state: 'healthy' },
+      {
+        ts: 0,
+        request_count: 10,
+        success_count: 10,
+        state: 'healthy',
+        avg_ttft_ms: 400,
+        avg_latency_ms: 1200,
+        avg_output_tps: 60,
+      },
     ],
   }
 }
 
 const GROUP: GroupMonitoringGroupSummary = {
-  group_name: 'default',
+  id: 'monitor-1',
+  group_name: 'Claude Max',
+  source_groups: ['default', 'vip'],
+  request_count: 200,
+  success_count: 198,
+  availability_rate: 99,
   description: 'shared pool',
   visible_to_groups: null,
   models: [model('gpt-4o-mini', 'healthy'), model('gpt-image-2', 'down')],
@@ -62,16 +87,19 @@ function renderSection(group: GroupMonitoringGroupSummary = GROUP) {
       group={group}
       bucketMinutes={5}
       windowHours={24}
+      range='24h'
       thresholds={THRESHOLDS}
     />
   )
 }
 
 describe('GroupStatusSection', () => {
-  test('shows the group name, description and model count in the header', () => {
+  test('shows the independent monitor name, description and model count in the header', () => {
     renderSection()
 
-    expect(screen.getByRole('heading', { name: 'default' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'Claude Max' })
+    ).toBeInTheDocument()
     expect(screen.getByText('shared pool')).toBeInTheDocument()
     expect(screen.getByText('2 models')).toBeInTheDocument()
   })
@@ -88,27 +116,40 @@ describe('GroupStatusSection', () => {
     expect(screen.queryByText(/with issues/)).toBeNull()
   })
 
-  test('collapses and restores the model cards from the header toggle', async () => {
+  test('opens the selected model trend sheet and closes with Escape', async () => {
     const user = userEvent.setup()
     renderSection()
+    await user.click(
+      screen.getByRole('button', { name: 'View trends for gpt-4o-mini' })
+    )
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'gpt-4o-mini' })
+    ).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
 
-    const toggle = screen.getByRole('button', { name: 'Toggle default' })
-    expect(screen.getByText('gpt-4o-mini')).toBeInTheDocument()
+  test('does not expose source pricing groups to a regular user', () => {
+    renderSection()
+    expect(screen.queryByText('Sources: default, vip')).toBeNull()
+  })
 
-    await user.click(toggle)
-    expect(screen.queryByText('gpt-4o-mini')).toBeNull()
-
-    await user.click(toggle)
-    expect(screen.getByText('gpt-4o-mini')).toBeInTheDocument()
+  test('shows source groups to administrators', () => {
+    setRole(100)
+    renderSection()
+    expect(screen.getByText('Sources: default, vip')).toBeInTheDocument()
   })
 
   test('marks a group restricted to an allow list', () => {
+    setRole(100)
     renderSection({ ...GROUP, visible_to_groups: ['vip', 'internal'] })
 
     expect(screen.getByText('Visible to vip, internal')).toBeInTheDocument()
   })
 
   test('marks a group with an empty allow list as administrators only', () => {
+    setRole(100)
     renderSection({ ...GROUP, visible_to_groups: [] })
 
     expect(screen.getByText('Administrators only')).toBeInTheDocument()
@@ -124,7 +165,7 @@ describe('GroupStatusSection', () => {
     renderSection({ ...GROUP, models: [] })
 
     expect(
-      screen.getByText('No models configured for this group')
+      screen.getByText('No models configured for this monitor')
     ).toBeInTheDocument()
   })
 })

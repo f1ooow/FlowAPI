@@ -8,27 +8,34 @@ or (at your option) any later version.
 */
 
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Save } from 'lucide-react'
-import { useEffect } from 'react'
+import { ArrowDown, ArrowUp, Plus, Save, Trash2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useFieldArray, useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
-import { MultiSelect } from '@/components/multi-select'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import {
   Field,
   FieldDescription,
   FieldError,
   FieldLabel,
 } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Switch } from '@/components/ui/switch'
 
 import {
   groupMonitoringFormSchema,
-  MAX_GROUP_DESCRIPTION_LENGTH,
+  MAX_MONITORED_GROUPS,
   type GroupMonitoringFormValues,
 } from '../lib/form-schema'
 import {
@@ -36,14 +43,11 @@ import {
   type GroupMonitoringBucketMinutes,
   type GroupMonitoringSetting,
 } from '../types'
+import { MonitorConfigFields } from './monitor-config-fields'
 
 type MonitoringSettingsPanelProps = {
   availableGroups: string[]
   availableModelsByGroup: Record<string, string[]>
-  /**
-   * Physical perf_metrics bucket width. A timeline bucket narrower than this
-   * cannot be produced, so those options are disabled.
-   */
   storageBucketMinutes: number
   setting: GroupMonitoringSetting
   saving: boolean
@@ -57,21 +61,8 @@ function toFormValues(
     setting.bucket_minutes as GroupMonitoringBucketMinutes
   )
     ? (setting.bucket_minutes as GroupMonitoringBucketMinutes)
-    : GROUP_MONITORING_BUCKET_MINUTE_OPTIONS[0]
-  return {
-    enabled: setting.enabled,
-    bucket_minutes: bucketMinutes,
-    groups: (setting.groups ?? []).map((group) => ({
-      group: group.group,
-      description: group.description ?? '',
-      // Keep null as null: it is "visible to everyone", which an empty array
-      // would silently turn into "administrators only".
-      visible_to_groups: group.visible_to_groups
-        ? [...group.visible_to_groups]
-        : null,
-      models: [...(group.models ?? [])],
-    })),
-  }
+    : 5
+  return { ...setting, bucket_minutes: bucketMinutes }
 }
 
 export function MonitoringSettingsPanel(props: MonitoringSettingsPanelProps) {
@@ -80,291 +71,233 @@ export function MonitoringSettingsPanel(props: MonitoringSettingsPanelProps) {
     resolver: zodResolver(groupMonitoringFormSchema),
     defaultValues: toFormValues(props.setting),
   })
-  const groups = useFieldArray({ control: form.control, name: 'groups' })
-  const watchedGroups = form.watch('groups')
+  const monitors = useFieldArray({
+    control: form.control,
+    name: 'groups',
+    keyName: 'formKey',
+  })
+  const [deleteIndex, setDeleteIndex] = useState<number | null>(null)
+  const watched = form.watch('groups')
 
   useEffect(() => {
     form.reset(toFormValues(props.setting))
   }, [form, props.setting])
 
-  // A group that was configured before it disappeared from the group ratio
-  // settings would otherwise be invisible here while still being submitted,
-  // and the API rejects unknown groups. Listing it keeps it uncheckable-away.
-  const listedGroups = [
-    ...props.availableGroups,
-    ...watchedGroups
-      .map((group) => group.group)
-      .filter((group) => !props.availableGroups.includes(group)),
-  ]
-
-  const toggleGroup = (groupName: string, monitored: boolean) => {
-    const current = form.getValues('groups')
-    const index = current.findIndex((group) => group.group === groupName)
-    if (!monitored) {
-      if (index >= 0) groups.remove(index)
-      return
-    }
-    if (index >= 0) return
-    // Keep the stored order aligned with the order shown here, which is also
-    // the order the monitoring page renders the sections in.
-    const position = listedGroups.indexOf(groupName)
-    const insertAt = current.filter(
-      (group) => listedGroups.indexOf(group.group) < position
-    ).length
-    groups.insert(insertAt, {
-      group: groupName,
-      description: '',
-      visible_to_groups: null,
-      models: props.availableModelsByGroup[groupName]?.slice(0, 1) ?? [],
+  const save = (values: GroupMonitoringFormValues) => {
+    let invalid = false
+    values.groups.forEach((monitor, index) => {
+      if (
+        monitor.groups.some((group) => !props.availableGroups.includes(group))
+      ) {
+        form.setError(`groups.${index}.groups`, {
+          message: t('Remove unavailable source groups before saving'),
+        })
+        invalid = true
+      }
+      if (
+        monitor.models.some((model) =>
+          monitor.groups.some(
+            (group) => !props.availableModelsByGroup[group]?.includes(model)
+          )
+        )
+      ) {
+        form.setError(`groups.${index}.models`, {
+          message: t('Choose models available in every source group'),
+        })
+        invalid = true
+      }
+      if (
+        monitor.visible_to_groups?.some(
+          (group) => !props.availableGroups.includes(group)
+        )
+      ) {
+        form.setError(`groups.${index}.visible_to_groups`, {
+          message: t('Remove unavailable user groups before saving'),
+        })
+        invalid = true
+      }
     })
+    if (!invalid) props.onSave(values)
   }
 
   return (
-    <form
-      className='space-y-6'
-      onSubmit={form.handleSubmit((values) => props.onSave(values))}
-    >
-      <div className='grid gap-4 sm:grid-cols-[minmax(0,20rem)_auto] sm:items-start'>
-        <Field data-invalid={Boolean(form.formState.errors.bucket_minutes)}>
-          <FieldLabel htmlFor='monitoring-bucket-minutes'>
-            {t('Timeline bucket')}
-          </FieldLabel>
-          <NativeSelect
-            id='monitoring-bucket-minutes'
-            value={String(form.watch('bucket_minutes'))}
-            onChange={(event) =>
-              form.setValue(
-                'bucket_minutes',
-                Number(event.target.value) as GroupMonitoringBucketMinutes,
-                { shouldDirty: true, shouldValidate: true }
-              )
-            }
-          >
-            {GROUP_MONITORING_BUCKET_MINUTE_OPTIONS.map((minutes) => (
-              <NativeSelectOption
-                key={minutes}
-                value={String(minutes)}
-                disabled={minutes < props.storageBucketMinutes}
-              >
-                {t('{{minutes}} minutes', { minutes })}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
-          <FieldDescription>
-            {t(
-              'Each timeline bar covers this much time. Buckets narrower than the global perf metrics bucket ({{minutes}} minutes) cannot be served and are disabled.',
-              { minutes: props.storageBucketMinutes }
-            )}
-          </FieldDescription>
-          <FieldError errors={[form.formState.errors.bucket_minutes]} />
-        </Field>
-        <Field orientation='horizontal' className='min-h-9 sm:pt-7'>
-          <Switch
-            id='monitoring-enabled'
-            checked={form.watch('enabled')}
-            onCheckedChange={(checked) =>
-              form.setValue('enabled', checked, { shouldDirty: true })
-            }
-          />
-          <FieldLabel
-            htmlFor='monitoring-enabled'
-            className='whitespace-nowrap'
-          >
-            {t('Enable monitoring')}
-          </FieldLabel>
-        </Field>
-      </div>
-
-      <div className='space-y-3'>
-        <div>
-          <FieldLabel>{t('Monitored groups')}</FieldLabel>
-          <FieldDescription>
-            {t(
-              'Pick the groups to show on the monitoring page, then choose which models to track inside each one.'
-            )}
-          </FieldDescription>
-          <FieldDescription>
-            {t(
-              'Administrators always see every monitored group, regardless of the visibility restrictions below.'
-            )}
-          </FieldDescription>
+    <form onSubmit={form.handleSubmit(save)}>
+      <fieldset disabled={props.saving} className='min-w-0 space-y-6'>
+        <div className='grid gap-4 sm:grid-cols-[minmax(0,20rem)_auto] sm:items-start'>
+          <Field data-invalid={Boolean(form.formState.errors.bucket_minutes)}>
+            <FieldLabel htmlFor='monitoring-bucket-minutes'>
+              {t('Timeline bucket')}
+            </FieldLabel>
+            <NativeSelect
+              id='monitoring-bucket-minutes'
+              value={String(form.watch('bucket_minutes'))}
+              onChange={(event) =>
+                form.setValue(
+                  'bucket_minutes',
+                  Number(event.target.value) as GroupMonitoringBucketMinutes,
+                  { shouldDirty: true, shouldValidate: true }
+                )
+              }
+            >
+              {GROUP_MONITORING_BUCKET_MINUTE_OPTIONS.map((minutes) => (
+                <NativeSelectOption
+                  key={minutes}
+                  value={String(minutes)}
+                  disabled={minutes < props.storageBucketMinutes}
+                >
+                  {t('{{minutes}} minutes', { minutes })}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+            <FieldDescription>
+              {t(
+                'Timeline resolution cannot be finer than storage ({{minutes}} minutes).',
+                { minutes: props.storageBucketMinutes }
+              )}
+            </FieldDescription>
+            <FieldError errors={[form.formState.errors.bucket_minutes]} />
+          </Field>
+          <Field orientation='horizontal' className='min-h-9 sm:pt-7'>
+            <Switch
+              id='monitoring-enabled'
+              checked={form.watch('enabled')}
+              disabled={props.saving}
+              onCheckedChange={(checked) =>
+                form.setValue('enabled', checked, { shouldDirty: true })
+              }
+            />
+            <FieldLabel htmlFor='monitoring-enabled'>
+              {t('Enable monitoring')}
+            </FieldLabel>
+          </Field>
         </div>
 
-        {listedGroups.length === 0 ? (
-          <div className='text-muted-foreground rounded-lg border border-dashed p-5 text-center text-sm'>
-            {t('No groups available')}
-          </div>
-        ) : (
-          <div className='space-y-3'>
-            {listedGroups.map((groupName) => {
-              const index = watchedGroups.findIndex(
-                (group) => group.group === groupName
-              )
-              const monitored = index >= 0
-              const models = props.availableModelsByGroup[groupName] ?? []
-              const groupErrors = form.formState.errors.groups?.[index]
-              // null is "no restriction"; an array (even an empty one) means
-              // the allow list decides.
-              const allowList = watchedGroups[index]?.visible_to_groups ?? null
-              // A user group that disappeared from the group ratio settings is
-              // still listed while selected, otherwise it could never be
-              // removed and every save would be rejected as unknown.
-              const userGroupOptions = [
-                ...props.availableGroups,
-                ...(allowList ?? []).filter(
-                  (group) => !props.availableGroups.includes(group)
-                ),
-              ]
-              let visibilityHint = t('Visible to all logged-in users')
-              if (allowList?.length) {
-                visibilityHint = t(
-                  'Visible to administrators and the selected user groups'
-                )
-              } else if (allowList) {
-                visibilityHint = t('Visible to administrators only')
+        <div className='space-y-4'>
+          <div className='flex flex-wrap items-start justify-between gap-3'>
+            <div className='space-y-1'>
+              <h3 className='font-medium'>{t('Monitors')}</h3>
+              <p className='text-muted-foreground max-w-2xl text-sm'>
+                {t(
+                  'Give each monitor a name, combine source groups, and select their shared models. Source groups are never shown to regular users.'
+                )}
+              </p>
+            </div>
+            <Button
+              type='button'
+              variant='outline'
+              disabled={
+                props.saving || monitors.fields.length >= MAX_MONITORED_GROUPS
               }
-
-              return (
-                <div key={groupName} className='rounded-lg border p-3'>
-                  <div className='flex flex-wrap items-center justify-between gap-2'>
-                    <div className='flex min-w-0 items-center gap-2'>
-                      <Checkbox
-                        id={`monitoring-group-${groupName}`}
-                        checked={monitored}
-                        onCheckedChange={(checked) =>
-                          toggleGroup(groupName, checked === true)
-                        }
-                      />
-                      <FieldLabel
-                        htmlFor={`monitoring-group-${groupName}`}
-                        className='min-w-0 truncate'
-                      >
-                        {groupName}
-                      </FieldLabel>
-                    </div>
-                    {monitored && (
-                      <div className='flex items-center gap-2'>
-                        <Switch
-                          id={`monitoring-restricted-${groupName}`}
-                          checked={allowList !== null}
-                          onCheckedChange={(checked) =>
-                            form.setValue(
-                              `groups.${index}.visible_to_groups`,
-                              // Turning the restriction on starts from an empty
-                              // allow list, which is "administrators only".
-                              checked ? [] : null,
-                              { shouldDirty: true, shouldValidate: true }
-                            )
-                          }
-                        />
-                        <FieldLabel
-                          htmlFor={`monitoring-restricted-${groupName}`}
-                          className='text-muted-foreground font-normal'
-                        >
-                          {t('Restrict visibility')}
-                        </FieldLabel>
-                      </div>
-                    )}
-                  </div>
-
-                  {monitored && (
-                    <div className='mt-3 space-y-3'>
-                      <div className='grid gap-3 lg:grid-cols-2'>
-                        <Field data-invalid={Boolean(groupErrors?.models)}>
-                          <FieldLabel
-                            htmlFor={`monitoring-models-${groupName}`}
-                          >
-                            {t('Monitored models')}
-                          </FieldLabel>
-                          <MultiSelect
-                            id={`monitoring-models-${groupName}`}
-                            options={models.map((model) => ({
-                              label: model,
-                              value: model,
-                            }))}
-                            selected={watchedGroups[index]?.models ?? []}
-                            onChange={(values) =>
-                              form.setValue(`groups.${index}.models`, values, {
-                                shouldDirty: true,
-                                shouldValidate: true,
-                              })
-                            }
-                            placeholder={t('Select models to monitor')}
-                            emptyText={t('No models available')}
-                            maxVisibleChips={8}
-                          />
-                          <FieldError errors={[groupErrors?.models]} />
-                        </Field>
-
-                        <Field data-invalid={Boolean(groupErrors?.description)}>
-                          <FieldLabel
-                            htmlFor={`monitoring-description-${groupName}`}
-                          >
-                            {t('Description')}
-                          </FieldLabel>
-                          <Input
-                            id={`monitoring-description-${groupName}`}
-                            maxLength={MAX_GROUP_DESCRIPTION_LENGTH}
-                            placeholder={t(
-                              'Shown above this group on the monitoring page'
-                            )}
-                            {...form.register(`groups.${index}.description`)}
-                          />
-                          <FieldError errors={[groupErrors?.description]} />
-                        </Field>
-                      </div>
-
-                      <Field
-                        data-invalid={Boolean(groupErrors?.visible_to_groups)}
-                      >
-                        {allowList !== null && (
-                          <>
-                            <FieldLabel
-                              htmlFor={`monitoring-visible-groups-${groupName}`}
-                            >
-                              {t('Visible to user groups')}
-                            </FieldLabel>
-                            <MultiSelect
-                              id={`monitoring-visible-groups-${groupName}`}
-                              options={userGroupOptions.map((group) => ({
-                                label: group,
-                                value: group,
-                              }))}
-                              selected={allowList}
-                              onChange={(values) =>
-                                form.setValue(
-                                  `groups.${index}.visible_to_groups`,
-                                  values,
-                                  { shouldDirty: true, shouldValidate: true }
-                                )
-                              }
-                              placeholder={t('Select user groups')}
-                              emptyText={t('No groups available')}
-                              maxVisibleChips={8}
-                            />
-                          </>
-                        )}
-                        <FieldDescription>{visibilityHint}</FieldDescription>
-                        <FieldError
-                          errors={[groupErrors?.visible_to_groups?.root]}
-                        />
-                      </Field>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+              onClick={() =>
+                monitors.append({
+                  id: crypto.randomUUID(),
+                  name: '',
+                  groups: [],
+                  models: [],
+                  description: '',
+                  visible_to_groups: null,
+                })
+              }
+            >
+              <Plus aria-hidden='true' />
+              {t('Add monitor')}
+            </Button>
           </div>
-        )}
-        <FieldError errors={[form.formState.errors.groups?.root]} />
-      </div>
-
-      <div className='flex justify-end border-t pt-4'>
-        <Button type='submit' disabled={props.saving}>
-          <Save aria-hidden='true' />
-          {props.saving ? t('Saving...') : t('Save settings')}
-        </Button>
-      </div>
+          {monitors.fields.length === 0 && (
+            <p className='text-muted-foreground rounded-xl border border-dashed p-6 text-center text-sm'>
+              {t(
+                'No monitors configured. Add a monitor to combine related groups.'
+              )}
+            </p>
+          )}
+          {monitors.fields.map((field, index) => (
+            <section key={field.formKey} className='min-w-0 rounded-xl border'>
+              <div className='bg-muted/30 flex items-center justify-between gap-3 rounded-t-xl border-b px-4 py-3'>
+                <h4 className='min-w-0 font-medium [overflow-wrap:anywhere]'>
+                  {watched[index]?.name || t('New monitor')}
+                </h4>
+                <div className='flex shrink-0 gap-1'>
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='icon-sm'
+                    disabled={props.saving || index === 0}
+                    aria-label={t('Move monitor up')}
+                    onClick={() => monitors.move(index, index - 1)}
+                  >
+                    <ArrowUp aria-hidden='true' />
+                  </Button>
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='icon-sm'
+                    disabled={
+                      props.saving || index === monitors.fields.length - 1
+                    }
+                    aria-label={t('Move monitor down')}
+                    onClick={() => monitors.move(index, index + 1)}
+                  >
+                    <ArrowDown aria-hidden='true' />
+                  </Button>
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='icon-sm'
+                    disabled={props.saving}
+                    aria-label={t('Delete monitor')}
+                    onClick={() => setDeleteIndex(index)}
+                  >
+                    <Trash2 aria-hidden='true' />
+                  </Button>
+                </div>
+              </div>
+              <MonitorConfigFields
+                form={form}
+                index={index}
+                availableGroups={props.availableGroups}
+                availableModelsByGroup={props.availableModelsByGroup}
+                disabled={props.saving}
+              />
+            </section>
+          ))}
+          <FieldError errors={[form.formState.errors.groups?.root]} />
+        </div>
+        <div className='flex justify-end border-t pt-4'>
+          <Button type='submit' disabled={props.saving}>
+            <Save aria-hidden='true' />
+            {props.saving ? t('Saving...') : t('Save settings')}
+          </Button>
+        </div>
+      </fieldset>
+      <AlertDialog
+        open={deleteIndex !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteIndex(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('Delete monitor?')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(
+                'This removes the monitor configuration only. Historical request data is not deleted.'
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('Cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              variant='destructive'
+              onClick={() => {
+                if (deleteIndex !== null) monitors.remove(deleteIndex)
+                setDeleteIndex(null)
+              }}
+            >
+              {t('Delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </form>
   )
 }

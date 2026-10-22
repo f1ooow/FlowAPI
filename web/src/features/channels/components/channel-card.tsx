@@ -66,6 +66,7 @@ function ChannelCardComponent({
   const typeCell = renderCell('channel_type')
   const nameCell = renderCell('name')
   const groupsCell = isTagRow ? null : renderCell('groups')
+  const healthCell = renderCell('health')
   const actionsCell = renderCell('actions')
   // The table splits priority, weight and cost ratio into three columns; the
   // card lays the same three cells out in one row instead.
@@ -121,6 +122,12 @@ function ChannelCardComponent({
         {routingCells.length > 0 && (
           <div className='flex flex-wrap items-center gap-x-3 gap-y-1'>
             {routingCells}
+          </div>
+        )}
+        {healthCell && (
+          <div className='border-y py-2'>
+            <div className={cn('mb-1', labelClass)}>{t('Health')}</div>
+            {healthCell}
           </div>
         )}
 

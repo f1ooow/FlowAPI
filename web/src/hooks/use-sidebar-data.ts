@@ -29,7 +29,6 @@ import {
   Radio,
   ServerCog,
   Settings,
-  SquareActivity,
   Ticket,
   User,
   Users,
@@ -118,11 +117,6 @@ export function useSidebarData(): SidebarData {
             title: t('Channels'),
             url: '/channels',
             icon: Radio,
-          },
-          {
-            title: t('Channel Availability'),
-            url: '/channel-monitoring',
-            icon: SquareActivity,
           },
           {
             title: t('Models'),

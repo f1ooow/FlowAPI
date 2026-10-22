@@ -25,6 +25,9 @@ export type GroupMonitoringBucket = {
   request_count: number
   success_count: number
   state: GroupMonitoringState
+  avg_ttft_ms: number | null
+  avg_latency_ms: number | null
+  avg_output_tps: number | null
 }
 
 /**
@@ -49,10 +52,10 @@ export type GroupMonitoringModelSummary = {
   vendor_name?: string
   /** @lobehub/icons key of the vendor, used when the model has no icon. */
   vendor_icon?: string
-  /** Whether the model served any request in the 24 hour window. */
+  /** Whether the model served any request in the selected summary window. */
   has_data: boolean
   state: GroupMonitoringState
-  /** Percentage in [0, 100] over 24 hours. Only meaningful when `has_data`. */
+  /** Percentage in [0, 100] over the selected window. Only meaningful when `has_data`. */
   availability_rate: number
   /**
    * Average total request latency over the last hour, never a time-to-first
@@ -81,8 +84,14 @@ export type GroupMonitoringModelSummary = {
    * sample all day" (a model that does not stream at all).
    */
   ttft_sample_count_24h: number
-  /** Requests over the 24 hour window. */
+  /** Mean time to first token over the selected summary window. */
+  avg_ttft_ms_window: number | null
+  ttft_sample_count_window: number
+  /** Output tokens / generation duration over the selected window. */
+  avg_output_tps: number | null
+  /** Requests over the selected summary window. */
   request_count: number
+  success_count: number
   buckets: GroupMonitoringBucket[]
 }
 
@@ -99,11 +108,19 @@ export type GroupMonitoringModelSummary = {
 export type GroupMonitoringVisibility = string[] | null
 
 export type GroupMonitoringGroupSummary = {
+  id: string
   group_name: string
+  /** Only administrators receive source groups. Never displayed publicly. */
+  source_groups?: string[]
   description: string
   visible_to_groups: GroupMonitoringVisibility
   models: GroupMonitoringModelSummary[]
+  request_count: number
+  success_count: number
+  availability_rate: number
 }
+
+export type GroupMonitoringRange = '24h' | '72h'
 
 export type GroupMonitoringSummary = {
   enabled: boolean
@@ -112,10 +129,21 @@ export type GroupMonitoringSummary = {
   window_hours: number
   thresholds: GroupMonitoringThresholds
   groups: GroupMonitoringGroupSummary[]
+  range: GroupMonitoringRange
+  ranges: GroupMonitoringRange[]
+  updated_at: number
+  /** Unique (source group, model) requests, not a sum of overlapping cards. */
+  overall: {
+    request_count: number
+    success_count: number
+    availability_rate: number
+  }
 }
 
 export type GroupMonitoringGroupConfig = {
-  group: string
+  id: string
+  name: string
+  groups: string[]
   description: string
   /** User-group allow list; see {@link GroupMonitoringVisibility}. */
   visible_to_groups: GroupMonitoringVisibility

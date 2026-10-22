@@ -13,15 +13,17 @@ import type {
   ApiResponse,
   GroupMonitoringAdminData,
   GroupMonitoringSetting,
+  GroupMonitoringRange,
   GroupMonitoringSummary,
 } from './types'
 
 /**
- * The window is fixed to 24 hours server-side, so no query parameters are sent.
+ * The range parameter selects the request aggregation window, not chart granularity.
  */
-export async function getGroupMonitoringSummary() {
+export async function getGroupMonitoringSummary(range: GroupMonitoringRange) {
   const response = await api.get<ApiResponse<GroupMonitoringSummary>>(
-    '/api/group-monitoring/summary'
+    '/api/group-monitoring/summary',
+    { params: { range } }
   )
   return response.data.data
 }

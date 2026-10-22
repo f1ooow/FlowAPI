@@ -64,6 +64,7 @@ import {
 import { parseUpstreamUpdateMeta } from '../lib/upstream-update-utils'
 import type { Channel } from '../types'
 import { ChannelGroupsCell } from './channel-groups-cell'
+import { ChannelHealthCell } from './channel-health-cell'
 import { ChannelQuotaValueCell } from './channel-quota-summary-cell'
 import { ChannelQuotaSummaryHeader } from './channel-quota-summary-header'
 import { ChannelRoutingValueCell } from './channel-routing-cell'
@@ -510,6 +511,21 @@ export function useChannelsColumns(
         size: 160,
         // The cell's constant `w-24` plus the cell padding.
         minSize: 112,
+      },
+
+      {
+        id: 'health',
+        header: t('Health'),
+        meta: { mobileHidden: true },
+        cell: ({ row }) => (
+          <ChannelHealthCell
+            channel={row.original}
+            onExpand={row.getToggleExpandedHandler()}
+          />
+        ),
+        size: 200,
+        minSize: 168,
+        enableSorting: false,
       },
 
       // Channel type. Never shown as a table column (the name cell carries the

@@ -1,6 +1,7 @@
 package operation_setting
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"strings"
 
@@ -14,6 +15,8 @@ const (
 	MaxGroupMonitoringModelsPerGroup    = 50
 	MaxGroupMonitoringDescriptionLength = 500
 	groupMonitoringMaxGroupNameLength   = 64
+	groupMonitoringMaxIDLength          = 128
+	groupMonitoringMaxNameLength        = 120
 	groupMonitoringMaxModelNameLength   = 255
 )
 
@@ -23,11 +26,13 @@ const (
 var GroupMonitoringBucketMinuteOptions = []int{5, 15, 30, 60}
 
 type GroupMonitoringGroup struct {
-	Group       string `json:"group"`
-	Description string `json:"description"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Groups      []string `json:"groups"`
+	Description string   `json:"description"`
 	// VisibleToGroups is the allow list of *user* groups that may see this
 	// monitored group on the user-facing page. Both sides are called "group"
-	// but mean different things: Group above names the channel pool being
+	// but mean different things: Groups above name the request pools being
 	// measured, while these name the user populations allowed to look at it.
 	// Administrators always see every monitored group.
 	//
@@ -56,10 +61,18 @@ func (group *GroupMonitoringGroup) UnmarshalJSON(data []byte) error {
 	*group = GroupMonitoringGroup{}
 	payload := struct {
 		*plainGroupMonitoringGroup
-		LegacyVisibleToUsers *bool `json:"visible_to_users"`
+		LegacyGroup          string `json:"group"`
+		LegacyVisibleToUsers *bool  `json:"visible_to_users"`
 	}{plainGroupMonitoringGroup: (*plainGroupMonitoringGroup)(group)}
 	if err := common.Unmarshal(data, &payload); err != nil {
 		return err
+	}
+	if payload.LegacyGroup != "" && group.ID == "" && group.Name == "" && group.Groups == nil {
+		name := strings.TrimSpace(payload.LegacyGroup)
+		digest := sha256.Sum256([]byte(name))
+		group.ID = fmt.Sprintf("legacy-%x", digest[:16])
+		group.Name = name
+		group.Groups = []string{name}
 	}
 	if payload.LegacyVisibleToUsers != nil && group.VisibleToGroups == nil && !*payload.LegacyVisibleToUsers {
 		group.VisibleToGroups = []string{}
@@ -104,7 +117,9 @@ func GetGroupMonitoringSetting() GroupMonitoringSetting {
 	setting.Groups = make([]GroupMonitoringGroup, 0, len(groupMonitoringSetting.Groups))
 	for _, group := range groupMonitoringSetting.Groups {
 		copied := GroupMonitoringGroup{
-			Group:       group.Group,
+			ID:          group.ID,
+			Name:        group.Name,
+			Groups:      append([]string(nil), group.Groups...),
 			Description: group.Description,
 			Models:      append([]string(nil), group.Models...),
 		}
@@ -135,19 +150,37 @@ func ValidateGroupMonitoringSetting(setting GroupMonitoringSetting) error {
 	if len(setting.Groups) > MaxGroupMonitoringGroups {
 		return fmt.Errorf("group monitoring supports at most %d groups", MaxGroupMonitoringGroups)
 	}
-	seenGroups := make(map[string]struct{}, len(setting.Groups))
+	seenIDs := make(map[string]struct{}, len(setting.Groups))
 	for _, group := range setting.Groups {
-		name := strings.TrimSpace(group.Group)
+		id := strings.TrimSpace(group.ID)
+		if id == "" || len(id) > groupMonitoringMaxIDLength {
+			return fmt.Errorf("each monitor requires an ID of at most %d characters", groupMonitoringMaxIDLength)
+		}
+		if _, ok := seenIDs[id]; ok {
+			return fmt.Errorf("group monitoring ID %q is duplicated", id)
+		}
+		seenIDs[id] = struct{}{}
+		name := strings.TrimSpace(group.Name)
 		if name == "" {
-			return fmt.Errorf("each monitored group requires a group name")
+			return fmt.Errorf("each monitor requires a name")
 		}
-		if len(name) > groupMonitoringMaxGroupNameLength {
-			return fmt.Errorf("group monitoring group must not exceed %d characters", groupMonitoringMaxGroupNameLength)
+		if len(name) > groupMonitoringMaxNameLength {
+			return fmt.Errorf("monitor name must not exceed %d characters", groupMonitoringMaxNameLength)
 		}
-		if _, ok := seenGroups[name]; ok {
-			return fmt.Errorf("group monitoring group %q is duplicated", name)
+		if len(group.Groups) == 0 || len(group.Groups) > MaxGroupMonitoringGroups {
+			return fmt.Errorf("monitor %q requires between 1 and %d source groups", name, MaxGroupMonitoringGroups)
 		}
-		seenGroups[name] = struct{}{}
+		seenSources := make(map[string]struct{}, len(group.Groups))
+		for _, source := range group.Groups {
+			source = strings.TrimSpace(source)
+			if source == "" || len(source) > groupMonitoringMaxGroupNameLength {
+				return fmt.Errorf("source group must contain between 1 and %d characters", groupMonitoringMaxGroupNameLength)
+			}
+			if _, ok := seenSources[source]; ok {
+				return fmt.Errorf("source group %q is duplicated in monitor %q", source, name)
+			}
+			seenSources[source] = struct{}{}
+		}
 		if len(group.Description) > MaxGroupMonitoringDescriptionLength {
 			return fmt.Errorf("group monitoring description must not exceed %d characters", MaxGroupMonitoringDescriptionLength)
 		}

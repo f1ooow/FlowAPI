@@ -108,6 +108,8 @@ export type ChannelMonitoringSummary = {
   /** Effective bucket width; wider than the nominal step when storage is coarser. */
   step_minutes: number
   window_seconds: number
+  /** Exclusive end of the last complete reporting bucket, in Unix seconds. */
+  updated_at?: number
   overall: ChannelMonitoringOverall
   /** Pre-sorted worst-availability first, channels without data last. */
   channels: ChannelMonitoringChannelSummary[]

@@ -120,6 +120,7 @@ type channelMonitoringSummaryResponse struct {
 	Ranges        []string                          `json:"ranges"`
 	StepMinutes   int                               `json:"step_minutes"`
 	WindowSeconds int64                             `json:"window_seconds"`
+	UpdatedAt     int64                             `json:"updated_at"`
 	Overall       channelMonitoringOverall          `json:"overall"`
 	Channels      []channelMonitoringChannelSummary `json:"channels"`
 }
@@ -483,6 +484,7 @@ func GetChannelMonitoringSummary(c *gin.Context) {
 		Ranges:        channelMonitoringRangeKeys,
 		StepMinutes:   int(stepSeconds / 60),
 		WindowSeconds: int64(bucketCount) * stepSeconds,
+		UpdatedAt:     seriesEnd,
 		Overall: channelMonitoringOverall{
 			HasData:                     overall.attemptCount > 0,
 			AttemptCount:                overall.attemptCount,

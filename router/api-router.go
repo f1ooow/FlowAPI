@@ -3,6 +3,7 @@ package router
 import (
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/service/authz"
 
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
@@ -32,10 +33,9 @@ func SetApiRouter(router *gin.Engine) {
 				groupMonitoringAdminRoute.PUT("", controller.UpdateGroupMonitoringAdmin)
 			}
 		}
-		// Channel availability is admin-only, matching /api/channel (see
-		// channel-router.go). No public or anonymous entry point.
+		// Health and financial summaries share the channel list's read boundary.
 		channelMonitoringRoute := apiRouter.Group("/channel-monitoring")
-		channelMonitoringRoute.Use(middleware.AdminAuth())
+		channelMonitoringRoute.Use(middleware.AdminAuth(), middleware.RequirePermission(authz.ChannelRead))
 		{
 			channelMonitoringRoute.GET("/summary", controller.GetChannelMonitoringSummary)
 			channelMonitoringRoute.GET("/totals", controller.GetChannelMonitoringTotals)

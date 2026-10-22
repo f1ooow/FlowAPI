@@ -7,10 +7,10 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 
+import { ChartNoAxesCombined } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
@@ -21,150 +21,133 @@ import type {
 } from '../types'
 import { AvailabilityTimeline } from './availability-timeline'
 
-/** Shown wherever a metric has no sample to report. */
-const NO_VALUE = '—'
-
-function formatMilliseconds(
-  value: number,
-  translate: (key: string, options: Record<string, unknown>) => string
-) {
-  if (value >= 10_000) {
-    return translate('{{value}} s', { value: (value / 1000).toFixed(1) })
-  }
-  return translate('{{value}} ms', { value: Math.round(value) })
-}
-
-/**
- * One monitored model: identity on top, the two headline metrics in the middle
- * and the availability timeline at the bottom.
- */
 export function ModelStatusCard(props: {
   model: GroupMonitoringModelSummary
   bucketMinutes: number
   windowHours: number
   thresholds: GroupMonitoringThresholds
+  onOpenDetails: (model: GroupMonitoringModelSummary) => void
 }) {
   const { t } = useTranslation()
-  const hasData = props.model.has_data
-  const avgTtftMs = props.model.avg_ttft_ms
-  const avgTtft24hMs = props.model.avg_ttft_ms_24h
-  const avgLatencyMs = props.model.avg_latency_ms
-
-  const availability = hasData
-    ? `${props.model.availability_rate.toFixed(2)}%`
-    : NO_VALUE
-
-  // Availability covers 24 hours, latency only the last one: a day-long mean
-  // says nothing about how the model feels right now. The two are deliberately
-  // on different windows, so the labels must say which one they are on.
-  //
-  // First-token latency has three tiers, and the label always names the window
-  // the number came from. Do not collapse these back into "fall back to total
-  // latency as soon as the last hour has no streamed sample": a streaming model
-  // that served a single non-streamed request in a quiet hour would then look
-  // like an image model, which is exactly the confusion this tiers apart.
-  //
-  //   1. streamed sample in the last hour      -> TTFT (1H)
-  //   2. none in the last hour, some in 24h    -> TTFT (24H)
-  //   3. no streamed sample in 24h at all      -> total latency (1H)
-  //
-  // Tier 3 is decided by the 24h sample count, never by the last hour alone.
-  let latencyLabel = t('Latency (1H)')
-  let latencyValue = NO_VALUE
-  let latencyHint = hasData
-    ? t('No requests in the last hour')
-    : t('No requests in the last 24 hours')
-  if (avgTtftMs !== null) {
-    latencyLabel = t('TTFT (1H)')
-    latencyValue = formatMilliseconds(avgTtftMs, t)
-    latencyHint = t(
-      'Average time to first token over {{count}} streamed requests in the last hour',
-      { count: props.model.ttft_sample_count }
+  const ttft = props.model.avg_ttft_ms_window
+  const latency = props.model.avg_latency_ms
+  let timingLabel = t('TTFT')
+  let timingValue = '—'
+  let timingHint = t('No streamed samples in this window')
+  if (ttft !== null) {
+    timingValue = t('{{value}} ms', {
+      value: Math.round(ttft).toLocaleString(),
+    })
+    timingHint = t(
+      'Mean time to first token over {{count}} streamed requests in {{hours}} hours',
+      { count: props.model.ttft_sample_count_window, hours: props.windowHours }
     )
-  } else if (avgTtft24hMs !== null) {
-    latencyLabel = t('TTFT (24H)')
-    latencyValue = formatMilliseconds(avgTtft24hMs, t)
-    latencyHint = t(
-      'No streamed requests in the last hour. Showing the 24 hour average over {{count}} streamed requests instead.',
-      { count: props.model.ttft_sample_count_24h }
-    )
-  } else if (avgLatencyMs !== null) {
-    latencyValue = formatMilliseconds(avgLatencyMs, t)
-    latencyHint = t(
-      'Average total request latency over the last hour. This model produced no streamed sample in the last 24 hours.'
+  } else if (latency !== null) {
+    timingLabel = t('Total latency (1H)')
+    timingValue = t('{{value}} ms', {
+      value: Math.round(latency).toLocaleString(),
+    })
+    timingHint = t(
+      'No streamed samples in this window. Showing mean total request latency over the last hour, not TTFT.'
     )
   }
 
-  // The model icon and its vendor fall back to each other so a model without
-  // its own artwork still shows the vendor's.
-  const iconKey = props.model.icon || props.model.vendor_icon
-
   return (
-    <Card size='sm' className='rounded-xl'>
-      <CardHeader className='grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2'>
-        <span
-          className='bg-muted/50 flex size-8 shrink-0 items-center justify-center rounded-lg'
-          aria-hidden='true'
-        >
-          {getLobeIcon(iconKey, 18)}
-        </span>
-        <span className='min-w-0'>
+    <div className='min-w-0 space-y-3 py-4'>
+      <div className='grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(28rem,38rem)] lg:items-center'>
+        <div className='flex min-w-0 items-center gap-2.5'>
           <span
-            className='block truncate font-mono text-sm font-medium'
-            title={props.model.model_name}
+            className='bg-muted/50 flex size-8 shrink-0 items-center justify-center rounded-lg'
+            aria-hidden='true'
           >
-            {props.model.model_name}
+            {getLobeIcon(props.model.icon || props.model.vendor_icon, 18)}
           </span>
-          <span className='text-muted-foreground block truncate text-xs'>
-            {props.model.vendor_name || t('Unknown provider')}
-          </span>
-        </span>
-        <Badge
-          variant='outline'
-          data-state={props.model.state}
-          className={cn('shrink-0', stateTextClassName(props.model.state))}
-        >
-          {t(stateLabelKey(props.model.state))}
-        </Badge>
-      </CardHeader>
-      <CardContent className='space-y-3'>
-        <div className='grid grid-cols-2 gap-2'>
-          <div
-            className='rounded-lg border px-2.5 py-2'
-            title={t('{{count}} requests in the last {{hours}} hours', {
-              count: props.model.request_count,
-              hours: props.windowHours,
-            })}
+          <div className='min-w-0 flex-1'>
+            <button
+              type='button'
+              className='hover:text-primary focus-visible:ring-ring inline-flex min-h-9 max-w-full cursor-pointer items-center gap-2 rounded text-left focus-visible:ring-2 focus-visible:outline-none'
+              aria-label={t('View trends for {{model}}', {
+                model: props.model.model_name,
+              })}
+              onClick={() => props.onOpenDetails(props.model)}
+            >
+              <span className='min-w-0 font-mono text-sm font-semibold [overflow-wrap:anywhere]'>
+                {props.model.model_name}
+              </span>
+              <ChartNoAxesCombined
+                className='text-muted-foreground size-4 shrink-0'
+                aria-hidden='true'
+              />
+            </button>
+            <p className='text-muted-foreground text-xs'>
+              {props.model.vendor_name || t('Unknown provider')}
+            </p>
+          </div>
+          <Badge
+            variant='outline'
+            className={cn(
+              'shrink-0 lg:hidden',
+              stateTextClassName(props.model.state)
+            )}
           >
-            <div className='text-muted-foreground truncate text-[11px]'>
-              {t('Uptime (24H)')}
-            </div>
-            <div
+            {t(stateLabelKey(props.model.state))}
+          </Badge>
+        </div>
+        <dl className='grid min-w-0 grid-cols-2 gap-x-3 gap-y-2 text-sm sm:grid-cols-4 lg:text-right'>
+          <div>
+            <dt className='text-muted-foreground text-xs lg:sr-only'>
+              {t('Success rate')}
+            </dt>
+            <dd
               className={cn(
-                'mt-1 font-mono text-lg leading-none font-semibold',
+                'font-semibold tabular-nums',
                 stateTextClassName(props.model.state)
               )}
             >
-              {availability}
-            </div>
+              {props.model.has_data
+                ? `${props.model.availability_rate.toFixed(2)}%`
+                : '—'}
+            </dd>
           </div>
-          <div className='rounded-lg border px-2.5 py-2' title={latencyHint}>
-            <div className='text-muted-foreground truncate text-[11px]'>
-              {latencyLabel}
-            </div>
-            <div className='mt-1 font-mono text-lg leading-none font-semibold'>
-              {latencyValue}
-            </div>
+          <div>
+            <dt className='text-muted-foreground text-xs lg:sr-only'>
+              {t('Requests')}
+            </dt>
+            <dd className='tabular-nums'>
+              {props.model.request_count.toLocaleString()}
+            </dd>
           </div>
-        </div>
-
-        <AvailabilityTimeline
-          buckets={props.model.buckets}
-          bucketMinutes={props.bucketMinutes}
-          windowHours={props.windowHours}
-          thresholds={props.thresholds}
-        />
-      </CardContent>
-    </Card>
+          <div title={timingHint}>
+            <dt className='text-muted-foreground text-xs lg:sr-only'>
+              {timingLabel}
+            </dt>
+            <dd className='tabular-nums'>{timingValue}</dd>
+            {ttft === null && latency !== null && (
+              <span className='text-muted-foreground text-[11px]'>
+                {timingLabel}
+              </span>
+            )}
+          </div>
+          <div>
+            <dt className='text-muted-foreground text-xs lg:sr-only'>
+              {t('Output speed')}
+            </dt>
+            <dd className='tabular-nums'>
+              {props.model.avg_output_tps === null
+                ? '—'
+                : t('{{value}} token/s', {
+                    value: props.model.avg_output_tps.toFixed(1),
+                  })}
+            </dd>
+          </div>
+        </dl>
+      </div>
+      <AvailabilityTimeline
+        buckets={props.model.buckets}
+        bucketMinutes={props.bucketMinutes}
+        windowHours={props.windowHours}
+        thresholds={props.thresholds}
+      />
+    </div>
   )
 }

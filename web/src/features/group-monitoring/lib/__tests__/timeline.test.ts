@@ -37,6 +37,9 @@ function bucket(
     request_count,
     success_count,
     state,
+    avg_ttft_ms: null,
+    avg_latency_ms: null,
+    avg_output_tps: null,
   }
 }
 

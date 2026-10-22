@@ -8,12 +8,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestGroupMonitoringLegacyGroupMigratesToNamedMonitor(t *testing.T) {
+	var monitor GroupMonitoringGroup
+	require.NoError(t, common.Unmarshal([]byte(`{"group":"default","visible_to_users":false,"models":["gpt-4o-mini"]}`), &monitor))
+	encoded, err := common.Marshal(monitor)
+	require.NoError(t, err)
+	var saved map[string]any
+	require.NoError(t, common.Unmarshal(encoded, &saved))
+	assert.Equal(t, "default", saved["name"])
+	assert.Equal(t, []any{"default"}, saved["groups"])
+	assert.NotEmpty(t, saved["id"])
+	assert.NotContains(t, saved, "group")
+	assert.Equal(t, []any{}, saved["visible_to_groups"])
+
+	var reloaded GroupMonitoringGroup
+	require.NoError(t, common.Unmarshal(encoded, &reloaded))
+	assert.Equal(t, monitor, reloaded, "saving must preserve the migrated monitor identity and visibility")
+}
+
 func TestValidateGroupMonitoringSetting(t *testing.T) {
 	valid := GroupMonitoringSetting{
 		Enabled:       true,
 		BucketMinutes: 15,
 		Groups: []GroupMonitoringGroup{
-			{Group: "default", Description: "shared pool", Models: []string{"gpt-4o-mini", "claude-3-haiku"}},
+			{ID: "default", Name: "default", Groups: []string{"default"}, Description: "shared pool", Models: []string{"gpt-4o-mini", "claude-3-haiku"}},
 		},
 	}
 
@@ -37,16 +55,37 @@ func TestValidateGroupMonitoringSetting(t *testing.T) {
 		{
 			name: "rejects blank group name",
 			mutate: func(setting *GroupMonitoringSetting) {
-				setting.Groups[0].Group = ""
+				setting.Groups[0].Name = ""
 			},
-			message: "requires a group name",
+			message: "requires a name",
 		},
 		{
 			name: "rejects duplicate groups",
 			mutate: func(setting *GroupMonitoringSetting) {
-				setting.Groups = append(setting.Groups, GroupMonitoringGroup{Group: "default", Models: []string{"gpt-4o-mini"}})
+				setting.Groups = append(setting.Groups, GroupMonitoringGroup{ID: "default", Name: "default", Groups: []string{"default"}, Models: []string{"gpt-4o-mini"}})
 			},
 			message: "duplicated",
+		},
+		{
+			name: "rejects missing monitor identity",
+			mutate: func(setting *GroupMonitoringSetting) {
+				setting.Groups[0].ID = ""
+			},
+			message: "requires an ID",
+		},
+		{
+			name: "rejects monitor without source groups",
+			mutate: func(setting *GroupMonitoringSetting) {
+				setting.Groups[0].Groups = nil
+			},
+			message: "source groups",
+		},
+		{
+			name: "rejects repeated source group inside a monitor",
+			mutate: func(setting *GroupMonitoringSetting) {
+				setting.Groups[0].Groups = []string{"default", "default"}
+			},
+			message: "source group \"default\" is duplicated",
 		},
 		{
 			name: "rejects group without models",
@@ -72,7 +111,7 @@ func TestValidateGroupMonitoringSetting(t *testing.T) {
 		{
 			name: "rejects oversized group names",
 			mutate: func(setting *GroupMonitoringSetting) {
-				setting.Groups[0].Group = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abc"
+				setting.Groups[0].Groups = []string{"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abc"}
 			},
 			message: "64 characters",
 		},
@@ -103,6 +142,13 @@ func TestValidateGroupMonitoringSetting(t *testing.T) {
 			assert.Contains(t, err.Error(), test.message)
 		})
 	}
+
+	sharedSources := valid
+	sharedSources.Groups = append([]GroupMonitoringGroup(nil), valid.Groups...)
+	sharedSources.Groups = append(sharedSources.Groups, GroupMonitoringGroup{
+		ID: "another", Name: "Different display name", Groups: []string{"default", "vip"}, Models: []string{"gpt-4o-mini"},
+	})
+	assert.NoError(t, ValidateGroupMonitoringSetting(sharedSources), "source groups may be shared by independent monitor cards")
 }
 
 func TestGetGroupMonitoringSettingIsAnIsolatedCopy(t *testing.T) {
@@ -110,7 +156,7 @@ func TestGetGroupMonitoringSettingIsAnIsolatedCopy(t *testing.T) {
 	groupMonitoringSetting = GroupMonitoringSetting{
 		BucketMinutes: 0,
 		Groups: []GroupMonitoringGroup{
-			{Group: "default", Models: []string{"gpt-4o-mini"}},
+			{ID: "default", Name: "default", Groups: []string{"default"}, Models: []string{"gpt-4o-mini"}},
 		},
 	}
 	t.Cleanup(func() { groupMonitoringSetting = previous })
@@ -120,7 +166,9 @@ func TestGetGroupMonitoringSettingIsAnIsolatedCopy(t *testing.T) {
 	require.Len(t, setting.Groups, 1)
 
 	setting.Groups[0].Models[0] = "mutated"
+	setting.Groups[0].Groups[0] = "mutated"
 	assert.Equal(t, "gpt-4o-mini", groupMonitoringSetting.Groups[0].Models[0])
+	assert.Equal(t, "default", groupMonitoringSetting.Groups[0].Groups[0])
 	assert.Equal(t, 0, groupMonitoringSetting.BucketMinutes)
 }
 
@@ -172,7 +220,8 @@ func TestGroupMonitoringGroupUnmarshalJSONVisibility(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			var group GroupMonitoringGroup
 			require.NoError(t, common.Unmarshal([]byte(test.payload), &group))
-			assert.Equal(t, "default", group.Group)
+			assert.Equal(t, "default", group.Name)
+			assert.Equal(t, []string{"default"}, group.Groups)
 			if test.want == nil {
 				assert.Nil(t, group.VisibleToGroups)
 			} else {
@@ -185,9 +234,9 @@ func TestGroupMonitoringGroupUnmarshalJSONVisibility(t *testing.T) {
 
 func TestGroupMonitoringGroupVisibilitySurvivesRoundTrip(t *testing.T) {
 	groups := []GroupMonitoringGroup{
-		{Group: "everyone", Models: []string{"gpt-4o-mini"}},
-		{Group: "admin-only", VisibleToGroups: []string{}, Models: []string{"gpt-4o-mini"}},
-		{Group: "vip-only", VisibleToGroups: []string{"vip"}, Models: []string{"gpt-4o-mini"}},
+		{ID: "everyone", Name: "everyone", Groups: []string{"everyone"}, Models: []string{"gpt-4o-mini"}},
+		{ID: "admin-only", Name: "admin-only", Groups: []string{"admin-only"}, VisibleToGroups: []string{}, Models: []string{"gpt-4o-mini"}},
+		{ID: "vip-only", Name: "vip-only", Groups: []string{"vip-only"}, VisibleToGroups: []string{"vip"}, Models: []string{"gpt-4o-mini"}},
 	}
 
 	encoded, err := common.Marshal(groups)
@@ -199,7 +248,7 @@ func TestGroupMonitoringGroupVisibilitySurvivesRoundTrip(t *testing.T) {
 
 	// Decoding reuses the existing backing array, so a stale allow list must not
 	// bleed into a group that no longer has one.
-	decoded := []GroupMonitoringGroup{{Group: "stale", VisibleToGroups: []string{"leftover"}}}
+	decoded := []GroupMonitoringGroup{{ID: "stale", Name: "stale", Groups: []string{"stale"}, VisibleToGroups: []string{"leftover"}}}
 	require.NoError(t, common.Unmarshal(encoded, &decoded))
 	require.Len(t, decoded, 3)
 	assert.Nil(t, decoded[0].VisibleToGroups)
@@ -222,9 +271,9 @@ func TestGetGroupMonitoringSettingKeepsVisibilityStates(t *testing.T) {
 	groupMonitoringSetting = GroupMonitoringSetting{
 		BucketMinutes: 5,
 		Groups: []GroupMonitoringGroup{
-			{Group: "everyone", Models: []string{"gpt-4o-mini"}},
-			{Group: "admin-only", VisibleToGroups: []string{}, Models: []string{"gpt-4o-mini"}},
-			{Group: "vip-only", VisibleToGroups: []string{"vip"}, Models: []string{"gpt-4o-mini"}},
+			{ID: "everyone", Name: "everyone", Groups: []string{"everyone"}, Models: []string{"gpt-4o-mini"}},
+			{ID: "admin-only", Name: "admin-only", Groups: []string{"admin-only"}, VisibleToGroups: []string{}, Models: []string{"gpt-4o-mini"}},
+			{ID: "vip-only", Name: "vip-only", Groups: []string{"vip-only"}, VisibleToGroups: []string{"vip"}, Models: []string{"gpt-4o-mini"}},
 		},
 	}
 	t.Cleanup(func() { groupMonitoringSetting = previous })

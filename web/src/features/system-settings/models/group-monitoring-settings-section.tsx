@@ -81,7 +81,7 @@ export function GroupMonitoringSettingsSection() {
       <div className='space-y-4'>
         <p className='text-muted-foreground text-sm'>
           {t(
-            'Availability is aggregated from real user traffic over the last 24 hours, latency over the last hour. No probe requests are sent, so a model without calls in the window shows as no data.'
+            'Availability and performance use real requests from the selected source groups. The monitoring page lets you compare 24-hour and 72-hour windows; no synthetic probes are sent.'
           )}
         </p>
         {settingsContent}

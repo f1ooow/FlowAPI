@@ -79,8 +79,9 @@ const route = getRouteApi('/_authenticated/channels/')
  *
  * 2: priority split into the priority / weight / cost ratio columns.
  * 3: groups column added; cost / consumption / profit split into three columns.
+ * 4: real channel-health column added.
  */
-const CHANNELS_COLUMN_SIZING_VERSION = 3
+const CHANNELS_COLUMN_SIZING_VERSION = 4
 
 const CHANNELS_COLUMN_VISIBILITY_STORAGE_KEY = 'channels:column-visibility'
 const CHANNELS_COLUMN_SIZING_STORAGE_KEY = `channels:column-sizing:v${CHANNELS_COLUMN_SIZING_VERSION}`
