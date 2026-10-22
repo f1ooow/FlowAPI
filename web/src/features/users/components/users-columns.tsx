@@ -183,12 +183,7 @@ export function useUsersColumns(): ColumnDef<UserListItem>[] {
       id: 'cost_quota',
       accessorKey: 'cost_quota',
       header: t('Upstream Cost'),
-      cell: ({ row }) => (
-        <UserCostCell
-          quota={row.original.cost_quota}
-          incomplete={row.original.cost_incomplete}
-        />
-      ),
+      cell: ({ row }) => <UserCostCell quota={row.original.cost_quota} />,
       enableSorting: false,
       size: 160,
       meta: { mobileOrder: 50 },

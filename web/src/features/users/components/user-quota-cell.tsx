@@ -95,6 +95,9 @@ export function UserQuotaCell(props: UserQuotaCellProps) {
           value={percentage}
           className={cn('h-1.5', getQuotaProgressColor(percentage))}
         />
+        <div className='text-muted-foreground text-xs tabular-nums'>
+          {t('Used:')} {formatQuota(props.used)}
+        </div>
       </TooltipTrigger>
       <TooltipContent>
         <div className='space-y-1 text-xs'>

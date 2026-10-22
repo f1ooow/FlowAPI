@@ -21,7 +21,7 @@ import {
   getCoreRowModel,
   useReactTable,
 } from '@tanstack/react-table'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 
@@ -133,51 +133,31 @@ describe('admin user cost column', () => {
     expect(screen.getByText('¥17.5')).toBeInTheDocument()
   })
 
-  test('marks incomplete cost history and explains excluded records on keyboard focus', async () => {
+  test('shows plain cost without explanatory controls when cost history is incomplete', async () => {
     render(<UserAccountingTable costQuota={625_000} incomplete />)
 
-    const marker = screen.getByRole('button', {
-      name: /Incomplete cost history/,
-    })
-    await userEvent.setup().tab()
-    await userEvent.setup().tab()
-
-    expect(marker).toHaveFocus()
-    expect(await screen.findByRole('tooltip')).toHaveTextContent(
-      'Historical records without a verified request-time cost ratio or base quota are excluded.'
-    )
-    expect(screen.getByText('¥8.75')).toBeInTheDocument()
+    const cost = screen.getByRole('cell', { name: /^¥8.75/ })
+    expect(cost).toHaveTextContent(/^¥8.75$/)
+    expect(within(cost).queryByRole('button')).not.toBeInTheDocument()
+    await userEvent.setup().hover(cost)
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
   })
 
-  test('shows unavailable cost rather than a monetary zero when log statistics cannot be read', async () => {
+  test('shows unavailable cost as a plain dash rather than a monetary zero', () => {
     render(<UserAccountingTable costQuota={null} incomplete />)
 
-    const unavailable = screen.getByRole('button', { name: 'Cost unavailable' })
-    await userEvent.setup().tab()
-    await userEvent.setup().tab()
-
-    expect(unavailable).toHaveTextContent('-')
+    const unavailable = screen.getByRole('cell', { name: '-' })
+    expect(unavailable).toHaveTextContent(/^-$/)
+    expect(within(unavailable).queryByRole('button')).not.toBeInTheDocument()
     expect(screen.queryByText('¥0')).not.toBeInTheDocument()
-    expect(await screen.findByRole('tooltip')).toHaveTextContent(
-      'Cost is unavailable because consume logging is disabled or log statistics could not be read.'
-    )
   })
 
-  test('keeps a verified zero distinct from unavailable or incomplete cost and discloses retained-log scope', async () => {
+  test('keeps a verified zero distinct from unavailable cost without annotations', () => {
     render(<UserAccountingTable costQuota={0} />)
 
-    const cost = screen.getByRole('button', { name: '¥0' })
-    await userEvent.setup().tab()
-    await userEvent.setup().tab()
-
-    expect(cost).toHaveFocus()
-    expect(await screen.findByRole('tooltip')).toHaveTextContent(
-      "Cumulative upstream cost from retained consume logs, using each request's recorded base quota and channel cost ratio."
-    )
-    expect(
-      screen.queryByText('Incomplete cost history')
-    ).not.toBeInTheDocument()
-    expect(screen.queryByText('Cost unavailable')).not.toBeInTheDocument()
+    const cost = screen.getByRole('cell', { name: '¥0' })
+    expect(cost).toHaveTextContent(/^¥0$/)
+    expect(within(cost).queryByRole('button')).not.toBeInTheDocument()
   })
 
   test('allows hiding the cost column without hiding or changing user quota', async () => {
@@ -202,5 +182,6 @@ describe('admin user cost column', () => {
     expect(screen.getByText('Upstream Cost')).toBeInTheDocument()
     expect(screen.getByText('¥8.75')).toBeInTheDocument()
     expect(screen.getByText('Quota')).toBeInTheDocument()
+    expect(screen.getByText('Used: ¥3.5')).toBeVisible()
   })
 })
