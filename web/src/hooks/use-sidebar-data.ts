@@ -21,7 +21,6 @@ import {
   CircleDollarSign,
   Box,
   FileText,
-  Image,
   Key,
   LayoutDashboard,
   ListTodo,
@@ -68,11 +67,6 @@ export function useSidebarData(): SidebarData {
             title: t('API Keys'),
             url: '/keys',
             icon: Key,
-          },
-          {
-            title: t('生图工作台'),
-            url: '/playground',
-            icon: Image,
           },
           {
             title: t('Usage Logs'),
