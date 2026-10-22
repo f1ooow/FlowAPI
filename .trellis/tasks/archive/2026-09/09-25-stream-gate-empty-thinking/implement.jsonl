@@ -1,6 +1,0 @@
-{"file": ".trellis/tasks/09-01-resilient-routing-model-redirects/design.md", "reason": "闸门原始设计合同：放行前只保留最小前缀，放行前失败可透明切换渠道"}
-{"file": ".trellis/spec/backend/channel-reliability.md", "reason": "渠道可靠性设置合同：settings.reliability 唯一来源、保存校验、回写保留、静默超时填 0 用全局默认"}
-{"file": ".trellis/spec/backend/quality.md", "reason": "后端代码质量标准"}
-{"file": ".trellis/tasks/09-25-stream-gate-empty-thinking/research/other-protocols.md", "reason": "各协议判定缺口、补发安全性、竞速赢家占位与生产时间分布数据"}
-{"file": ".trellis/tasks/09-25-stream-gate-empty-thinking/research/hedge-config.md", "reason": "可靠性设置读写点、生产非默认值、校验与回写路径、竞速资格拦截"}
-{"file": ".trellis/tasks/09-25-stream-gate-empty-thinking/research/hedge-removal.md", "reason": "竞速移除清单：逐文件 DELETE/EDIT/KEEP、需迁移的合同、与 A/B 同文件冲突点"}

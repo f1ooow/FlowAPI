@@ -1,5 +1,0 @@
-{"file": ".trellis/spec/backend/channel-reliability.md", "reason": "Retry behavior must remain unchanged"}
-{"file": ".trellis/spec/backend/testing-concurrency.md", "reason": "Deterministic lifecycle and snapshot tests"}
-{"file": ".trellis/spec/frontend/testing-environment.md", "reason": "Frontend test environment"}
-{"file": ".trellis/tasks/10-15-admin-route-timing/design.md", "reason": "Timing contract and write-order design"}
-{"file": ".trellis/tasks/10-15-admin-route-timing/prd.md", "reason": "User-approved display direction and acceptance"}
