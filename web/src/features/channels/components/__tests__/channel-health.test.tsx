@@ -28,7 +28,7 @@ import { api } from '@/lib/api'
 import { channelSchema } from '../../types'
 import { ChannelHealthCell } from '../channel-health-cell'
 import { ChannelHealthDrawer } from '../channel-health-drawer'
-import { ChannelHealthOverview } from '../channel-health-overview'
+import { ChannelHealthHistory } from '../channel-health-history'
 import { ChannelHealthProvider } from '../channel-health-provider'
 
 const channel = channelSchema.parse({
@@ -243,11 +243,8 @@ describe('Channel health', () => {
         },
       }
     })
-    const user = userEvent.setup()
-    renderHealth(<ChannelHealthOverview />)
+    renderHealth(<ChannelHealthHistory open onOpenChange={vi.fn()} />)
 
-    expect(await screen.findByText('99.50%')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'History and totals' }))
     const dialog = await screen.findByRole('dialog', {
       name: 'History and totals',
     })

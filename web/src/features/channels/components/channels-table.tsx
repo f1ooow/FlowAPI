@@ -63,7 +63,6 @@ import {
 } from '../lib'
 import type { Channel, ChannelSortBy } from '../types'
 import { ChannelCard } from './channel-card'
-import { ChannelGroupFilterBar } from './channel-group-filter-bar'
 import { useChannelsColumns } from './channels-columns'
 import { useChannels } from './channels-provider'
 import { DataTableBulkActions } from './data-table-bulk-actions'
@@ -87,6 +86,7 @@ const CHANNELS_COLUMN_VISIBILITY_STORAGE_KEY = 'channels:column-visibility'
 const CHANNELS_COLUMN_SIZING_STORAGE_KEY = `channels:column-sizing:v${CHANNELS_COLUMN_SIZING_VERSION}`
 const CHANNELS_VIEW_MODE_STORAGE_KEY = 'channels:view-mode'
 const CHANNELS_STATUS_FILTER_STORAGE_KEY = 'channel-status-filter'
+const SENSITIVE_GROUP_MASK = '••••'
 
 const CHANNEL_SORTABLE_COLUMNS = new Set<ChannelSortBy>([
   'id',
@@ -490,6 +490,15 @@ export function ChannelsTable() {
         ),
         filters: [
           {
+            columnId: 'channel_group',
+            title: t('Group'),
+            options: groups.map((group) => ({
+              label: sensitiveVisible ? group : SENSITIVE_GROUP_MASK,
+              value: group,
+            })),
+            singleSelect: true,
+          },
+          {
             columnId: 'channel_status',
             title: t('Status'),
             options: [...CHANNEL_STATUS_OPTIONS],
@@ -502,17 +511,6 @@ export function ChannelsTable() {
             singleSelect: true,
           },
         ],
-        leftActions: (
-          <ChannelGroupFilterBar
-            groups={groups}
-            selectedGroup={selectedGroup}
-            onSelectedGroupChange={(group) =>
-              table
-                .getColumn('channel_group')
-                ?.setFilterValue(group === undefined ? undefined : [group])
-            }
-          />
-        ),
         preActions: (
           <Tooltip>
             <TooltipTrigger

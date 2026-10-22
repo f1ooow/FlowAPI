@@ -18,11 +18,13 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Settings2 } from 'lucide-react'
+import { ChartNoAxesCombined, Settings2 } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import {
   Tooltip,
   TooltipContent,
@@ -33,7 +35,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { getChannelOps } from './api'
 import { ChannelHealthDrawer } from './components/channel-health-drawer'
-import { ChannelHealthOverview } from './components/channel-health-overview'
+import { ChannelHealthHistory } from './components/channel-health-history'
 import { ChannelHealthProvider } from './components/channel-health-provider'
 import { ChannelsDialogs } from './components/channels-dialogs'
 import { ChannelsPrimaryButtons } from './components/channels-primary-buttons'
@@ -42,6 +44,7 @@ import { ChannelsTable } from './components/channels-table'
 
 export function Channels() {
   const { t } = useTranslation()
+  const [healthHistoryOpen, setHealthHistoryOpen] = useState(false)
   const isRoot = useAuthStore(
     (state) => state.auth.user?.role === ROLE.SUPER_ADMIN
   )
@@ -100,11 +103,21 @@ export function Channels() {
             </span>
           </SectionPageLayout.Title>
           <SectionPageLayout.Actions>
-            <ChannelsPrimaryButtons />
+            <div className='flex items-center gap-2'>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => setHealthHistoryOpen(true)}
+                aria-label={t('History and totals')}
+              >
+                <ChartNoAxesCombined aria-hidden='true' />
+                <span className='max-sm:hidden'>{t('History and totals')}</span>
+              </Button>
+              <ChannelsPrimaryButtons />
+            </div>
           </SectionPageLayout.Actions>
           <SectionPageLayout.Content>
-            <div className='flex h-full min-h-0 flex-col gap-2.5 sm:gap-3'>
-              <ChannelHealthOverview />
+            <div className='flex h-full min-h-0 flex-col'>
               <div className='min-h-0 flex-1'>
                 <ChannelsTable />
               </div>
@@ -113,6 +126,10 @@ export function Channels() {
         </SectionPageLayout>
 
         <ChannelsDialogs />
+        <ChannelHealthHistory
+          open={healthHistoryOpen}
+          onOpenChange={setHealthHistoryOpen}
+        />
         <ChannelHealthDrawer />
       </ChannelHealthProvider>
     </ChannelsProvider>

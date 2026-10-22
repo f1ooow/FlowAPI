@@ -34,6 +34,8 @@ import type { GroupMonitoringRange, GroupMonitoringSummary } from './types'
 
 const SUMMARY_REFETCH_INTERVAL_MS = 60_000
 const EMPTY_GROUPS: GroupMonitoringSummary['groups'] = []
+const MONITOR_GRID_CLASS =
+  'grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,32rem),1fr))] items-start gap-4'
 
 function formatUpdatedAt(unixSeconds: number) {
   return new Intl.DateTimeFormat(undefined, {
@@ -94,9 +96,9 @@ export function GroupMonitoring() {
   let monitoringContent: ReactNode
   if (summaryQuery.isLoading) {
     monitoringContent = (
-      <div className='space-y-4'>
-        {[0, 1].map((item) => (
-          <Skeleton key={item} className='h-56 rounded-xl' />
+      <div className={MONITOR_GRID_CLASS}>
+        {[0, 1, 2, 3].map((item) => (
+          <Skeleton key={item} className='h-80 rounded-xl' />
         ))}
       </div>
     )
@@ -123,7 +125,7 @@ export function GroupMonitoring() {
   } else if (visibleGroups.length > 0 && summaryQuery.data) {
     const summary = summaryQuery.data
     monitoringContent = (
-      <div className='min-w-0 space-y-4'>
+      <div className={MONITOR_GRID_CLASS}>
         {visibleGroups.map((group) => (
           <GroupStatusSection
             key={group.id}

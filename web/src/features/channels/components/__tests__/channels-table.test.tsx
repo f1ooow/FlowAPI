@@ -313,42 +313,35 @@ describe('ChannelsTable column sizing storage', () => {
   })
 })
 
-describe('ChannelsTable group buttons', () => {
-  test('clicking a group button requests and shows only that group', async () => {
+describe('ChannelsTable group filters', () => {
+  test('selecting a group in the compact toolbar requests and shows only that group', async () => {
     const user = userEvent.setup()
     renderTable()
-    const groupBar = await screen.findByRole('group', { name: 'Group:' })
-    const vipButton = await within(groupBar).findByRole('button', {
-      name: 'vip',
-    })
     await screen.findByText('OpenAI main')
-    expect(
-      within(groupBar).getByRole('button', { name: 'All' })
-    ).toHaveAttribute('aria-pressed', 'true')
-
-    await user.click(vipButton)
+    const groupFilter = screen.getByRole('button', { name: 'Group' })
+    await user.click(groupFilter)
+    const vipOption = await screen.findByRole('option', { name: 'vip' })
+    await screen.findByText('OpenAI main')
+    await user.click(vipOption)
 
     await waitFor(() => expect(lastChannelRequest().group).toBe('vip'))
     expect(urlSearch.get().group).toEqual(['vip'])
-    expect(vipButton).toHaveAttribute('aria-pressed', 'true')
-    expect(
-      within(groupBar).getByRole('button', { name: 'All' })
-    ).toHaveAttribute('aria-pressed', 'false')
+    expect(groupFilter).toHaveTextContent('vip')
     await waitFor(() =>
       expect(screen.queryByText('OpenAI main')).not.toBeInTheDocument()
     )
     expect(screen.getByText('Claude vip')).toBeInTheDocument()
   })
 
-  test('clicking All drops the group filter and keeps the status filter', async () => {
+  test('clearing a group filter preserves the status filter', async () => {
     const user = userEvent.setup()
     urlSearch.set({ group: ['vip'], status: ['enabled'] })
     renderTable()
-    const groupBar = await screen.findByRole('group', { name: 'Group:' })
     await screen.findByText('Claude vip')
     expect(lastChannelRequest().group).toBe('vip')
 
-    await user.click(within(groupBar).getByRole('button', { name: 'All' }))
+    await user.click(screen.getByRole('button', { name: /Group/ }))
+    await user.click(await screen.findByRole('option', { name: 'vip' }))
 
     await waitFor(() => expect(lastChannelRequest().group).toBeUndefined())
     expect(lastChannelRequest().status).toBe('enabled')
@@ -356,15 +349,16 @@ describe('ChannelsTable group buttons', () => {
     expect(await screen.findByText('OpenAI main')).toBeInTheDocument()
   })
 
-  test('replaces the group popover filter with the button row', async () => {
+  test('keeps group, type and status filters together in the primary toolbar', async () => {
     renderTable()
-    await screen.findByRole('group', { name: 'Group:' })
+    await screen.findByText('OpenAI main')
 
-    expect(
-      screen.queryByRole('button', { name: 'Group' })
-    ).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Group' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Type' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Status' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('group', { name: 'Group:' })
+    ).not.toBeInTheDocument()
   })
 })
 

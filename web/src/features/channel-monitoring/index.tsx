@@ -46,7 +46,6 @@ import {
   ChannelMonitoringTotalsBoard,
   type TotalsWindowKey,
 } from './components/channel-monitoring-totals-board'
-import { MonitoringOverviewCards } from './components/monitoring-overview-cards'
 import { RangeSelector } from './components/range-selector'
 
 // channel_metrics is flushed on the perf_metrics ticker, so polling faster than
@@ -198,26 +197,6 @@ export function ChannelMonitoring() {
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='space-y-4'>
-          <MonitoringOverviewCards
-            overall={
-              summaryQuery.data?.overall ?? {
-                has_data: false,
-                availability_rate: 0,
-                error_rate: 0,
-                avg_latency_ms: 0,
-                attempt_count: 0,
-                has_cache_data: false,
-                cache_hit_rate: 0,
-                cache_engagement_rate: 0,
-                cache_request_count: 0,
-                cache_signal_count: 0,
-                cache_read_tokens: 0,
-                cache_write_tokens: 0,
-                cache_input_tokens: 0,
-              }
-            }
-          />
-
           <ChannelMonitoringTotalsBoard
             windows={{
               today: totals?.totals?.today,

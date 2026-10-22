@@ -7,7 +7,7 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
@@ -102,6 +102,14 @@ describe('GroupStatusSection', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('shared pool')).toBeInTheDocument()
     expect(screen.getByText('2 models')).toBeInTheDocument()
+  })
+
+  test('lays out model monitors in two columns when the monitor card has room', () => {
+    renderSection()
+
+    const models = screen.getByRole('list')
+    expect(models).toHaveClass('grid', '@md:grid-cols-2')
+    expect(within(models).getAllByRole('listitem')).toHaveLength(2)
   })
 
   test('counts degraded and down models as issues', () => {

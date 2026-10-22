@@ -53,101 +53,90 @@ export function ModelStatusCard(props: {
   }
 
   return (
-    <div className='min-w-0 space-y-3 py-4'>
-      <div className='grid min-w-0 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(28rem,38rem)] lg:items-center'>
-        <div className='flex min-w-0 items-center gap-2.5'>
-          <span
-            className='bg-muted/50 flex size-8 shrink-0 items-center justify-center rounded-lg'
-            aria-hidden='true'
+    <div
+      role='listitem'
+      className='bg-background min-w-0 rounded-lg border p-3'
+    >
+      <div className='flex min-w-0 items-start gap-2'>
+        <span
+          className='bg-muted/50 flex size-8 shrink-0 items-center justify-center rounded-lg'
+          aria-hidden='true'
+        >
+          {getLobeIcon(props.model.icon || props.model.vendor_icon, 18)}
+        </span>
+        <div className='min-w-0 flex-1'>
+          <button
+            type='button'
+            className='hover:text-primary focus-visible:ring-ring inline-flex min-h-8 max-w-full cursor-pointer items-center gap-1.5 rounded text-left focus-visible:ring-2 focus-visible:outline-none'
+            aria-label={t('View trends for {{model}}', {
+              model: props.model.model_name,
+            })}
+            onClick={() => props.onOpenDetails(props.model)}
           >
-            {getLobeIcon(props.model.icon || props.model.vendor_icon, 18)}
-          </span>
-          <div className='min-w-0 flex-1'>
-            <button
-              type='button'
-              className='hover:text-primary focus-visible:ring-ring inline-flex min-h-9 max-w-full cursor-pointer items-center gap-2 rounded text-left focus-visible:ring-2 focus-visible:outline-none'
-              aria-label={t('View trends for {{model}}', {
-                model: props.model.model_name,
-              })}
-              onClick={() => props.onOpenDetails(props.model)}
-            >
-              <span className='min-w-0 font-mono text-sm font-semibold [overflow-wrap:anywhere]'>
-                {props.model.model_name}
-              </span>
-              <ChartNoAxesCombined
-                className='text-muted-foreground size-4 shrink-0'
-                aria-hidden='true'
-              />
-            </button>
-            <p className='text-muted-foreground text-xs'>
-              {props.model.vendor_name || t('Unknown provider')}
-            </p>
-          </div>
-          <Badge
-            variant='outline'
+            <span className='min-w-0 font-mono text-sm font-semibold [overflow-wrap:anywhere]'>
+              {props.model.model_name}
+            </span>
+            <ChartNoAxesCombined
+              className='text-muted-foreground size-4 shrink-0'
+              aria-hidden='true'
+            />
+          </button>
+          <p className='text-muted-foreground text-xs'>
+            {props.model.vendor_name || t('Unknown provider')}
+          </p>
+        </div>
+        <Badge
+          variant='outline'
+          className={cn('shrink-0', stateTextClassName(props.model.state))}
+        >
+          {t(stateLabelKey(props.model.state))}
+        </Badge>
+      </div>
+
+      <dl className='mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t pt-2 text-sm'>
+        <div>
+          <dt className='text-muted-foreground text-xs'>{t('Success rate')}</dt>
+          <dd
             className={cn(
-              'shrink-0 lg:hidden',
+              'font-semibold tabular-nums',
               stateTextClassName(props.model.state)
             )}
           >
-            {t(stateLabelKey(props.model.state))}
-          </Badge>
+            {props.model.has_data
+              ? `${props.model.availability_rate.toFixed(2)}%`
+              : '—'}
+          </dd>
         </div>
-        <dl className='grid min-w-0 grid-cols-2 gap-x-3 gap-y-2 text-sm sm:grid-cols-4 lg:text-right'>
-          <div>
-            <dt className='text-muted-foreground text-xs lg:sr-only'>
-              {t('Success rate')}
-            </dt>
-            <dd
-              className={cn(
-                'font-semibold tabular-nums',
-                stateTextClassName(props.model.state)
-              )}
-            >
-              {props.model.has_data
-                ? `${props.model.availability_rate.toFixed(2)}%`
-                : '—'}
-            </dd>
-          </div>
-          <div>
-            <dt className='text-muted-foreground text-xs lg:sr-only'>
-              {t('Requests')}
-            </dt>
-            <dd className='tabular-nums'>
-              {props.model.request_count.toLocaleString()}
-            </dd>
-          </div>
-          <div title={timingHint}>
-            <dt className='text-muted-foreground text-xs lg:sr-only'>
-              {timingLabel}
-            </dt>
-            <dd className='tabular-nums'>{timingValue}</dd>
-            {ttft === null && latency !== null && (
-              <span className='text-muted-foreground text-[11px]'>
-                {timingLabel}
-              </span>
-            )}
-          </div>
-          <div>
-            <dt className='text-muted-foreground text-xs lg:sr-only'>
-              {t('Output speed')}
-            </dt>
-            <dd className='tabular-nums'>
-              {props.model.avg_output_tps === null
-                ? '—'
-                : t('{{value}} token/s', {
-                    value: props.model.avg_output_tps.toFixed(1),
-                  })}
-            </dd>
-          </div>
-        </dl>
+        <div>
+          <dt className='text-muted-foreground text-xs'>{t('Requests')}</dt>
+          <dd className='tabular-nums'>
+            {props.model.request_count.toLocaleString()}
+          </dd>
+        </div>
+        <div title={timingHint}>
+          <dt className='text-muted-foreground text-xs'>{timingLabel}</dt>
+          <dd className='tabular-nums'>{timingValue}</dd>
+        </div>
+        <div>
+          <dt className='text-muted-foreground text-xs'>{t('Output speed')}</dt>
+          <dd className='tabular-nums'>
+            {props.model.avg_output_tps === null
+              ? '—'
+              : t('{{value}} token/s', {
+                  value: props.model.avg_output_tps.toFixed(1),
+                })}
+          </dd>
+        </div>
+      </dl>
+
+      <div className='mt-2'>
+        <AvailabilityTimeline
+          buckets={props.model.buckets}
+          bucketMinutes={props.bucketMinutes}
+          windowHours={props.windowHours}
+          thresholds={props.thresholds}
+        />
       </div>
-      <AvailabilityTimeline
-        buckets={props.model.buckets}
-        bucketMinutes={props.bucketMinutes}
-        windowHours={props.windowHours}
-        thresholds={props.thresholds}
-      />
     </div>
   )
 }

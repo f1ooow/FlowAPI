@@ -55,8 +55,8 @@ export function GroupStatusSection(props: {
   }
 
   return (
-    <Card className='min-w-0 rounded-xl'>
-      <CardHeader className='space-y-3 border-b pb-4'>
+    <Card className='@container min-w-0 rounded-xl'>
+      <CardHeader className='space-y-2 border-b pb-3'>
         <div className='flex flex-wrap items-start justify-between gap-3'>
           <div className='min-w-0 space-y-1'>
             <h2 className='text-base font-semibold [overflow-wrap:anywhere]'>
@@ -108,19 +108,14 @@ export function GroupStatusSection(props: {
             )}
           </div>
         </div>
-        <div className='text-muted-foreground hidden grid-cols-[minmax(0,1fr)_minmax(28rem,38rem)] gap-3 px-0.5 text-xs lg:grid'>
-          <span>{t('Model')}</span>
-          <div className='grid grid-cols-4 text-right'>
-            <span>{t('Success rate')}</span>
-            <span>{t('Requests')}</span>
-            <span>{t('TTFT')}</span>
-            <span>{t('Output speed')}</span>
-          </div>
-        </div>
       </CardHeader>
-      <CardContent className='divide-y px-4'>
+      <CardContent
+        role='list'
+        aria-label={t('Models')}
+        className='grid gap-3 px-4 pt-0 pb-4 @md:grid-cols-2'
+      >
         {props.group.models.length === 0 ? (
-          <div className='text-muted-foreground rounded-lg border border-dashed p-5 text-center text-sm'>
+          <div className='text-muted-foreground rounded-lg border border-dashed p-5 text-center text-sm @md:col-span-2'>
             {t('No models configured for this monitor')}
           </div>
         ) : (

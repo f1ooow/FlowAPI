@@ -168,6 +168,16 @@ describe('ChannelMonitoring page', () => {
     expect(screen.queryByText('Idle backup')).toBeNull()
   })
 
+  test('omits the redundant fleet-wide health cards while retaining channel-level health', async () => {
+    renderPage()
+
+    expect(await screen.findByText('Primary')).toBeInTheDocument()
+    expect(screen.queryByText('Overall availability')).toBeNull()
+    expect(screen.queryByText('Average latency')).toBeNull()
+    expect(screen.queryByText('Error rate')).toBeNull()
+    expect(screen.queryByText('Cache hit rate')).toBeNull()
+  })
+
   test('refetches with the range the API advertised when one is picked', async () => {
     const requestedRanges = renderPage()
     await waitFor(() => {
@@ -278,9 +288,8 @@ describe('ChannelMonitoring page', () => {
     expect(screen.getByText('Primary')).toBeInTheDocument()
     expect(screen.queryByText('Secondary')).not.toBeInTheDocument()
 
-    // These are fleet-wide summaries, not request-group statistics.
+    // The compact page summary stays fleet-wide, not request-group scoped.
     expect(screen.getByText('2 with traffic')).toBeInTheDocument()
-    expect(screen.getByText('62.50%')).toBeInTheDocument()
     expect(screen.getAllByText('Consumption')).toHaveLength(3)
   })
 

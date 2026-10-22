@@ -81,4 +81,12 @@ describe('ModelStatusCard', () => {
     await user.keyboard('{Enter}')
     expect(open).toHaveBeenCalledWith(MODEL)
   })
+
+  test('keeps the four headline metrics in a compact two-column layout', () => {
+    renderRow()
+
+    const metrics = screen.getByText('Success rate').closest('dl')
+    expect(metrics).toHaveClass('grid-cols-2')
+    expect(metrics?.querySelectorAll('dt')).toHaveLength(4)
+  })
 })
