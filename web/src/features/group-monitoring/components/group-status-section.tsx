@@ -55,7 +55,7 @@ export function GroupStatusSection(props: {
   }
 
   return (
-    <Card className='@container min-w-0 rounded-xl'>
+    <Card role='listitem' className='@container min-w-0 rounded-xl'>
       <CardHeader className='space-y-2 border-b pb-3'>
         <div className='flex flex-wrap items-start justify-between gap-3'>
           <div className='min-w-0 space-y-1'>

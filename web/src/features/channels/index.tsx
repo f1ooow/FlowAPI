@@ -103,18 +103,21 @@ export function Channels() {
             </span>
           </SectionPageLayout.Title>
           <SectionPageLayout.Actions>
-            <div className='flex items-center gap-2'>
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={() => setHealthHistoryOpen(true)}
-                aria-label={t('History and totals')}
-              >
-                <ChartNoAxesCombined aria-hidden='true' />
-                <span className='max-sm:hidden'>{t('History and totals')}</span>
-              </Button>
-              <ChannelsPrimaryButtons />
-            </div>
+            <ChannelsPrimaryButtons
+              historyButton={
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={() => setHealthHistoryOpen(true)}
+                  aria-label={t('History and totals')}
+                >
+                  <ChartNoAxesCombined aria-hidden='true' />
+                  <span className='max-sm:hidden'>
+                    {t('History and totals')}
+                  </span>
+                </Button>
+              }
+            />
           </SectionPageLayout.Actions>
           <SectionPageLayout.Content>
             <div className='flex h-full min-h-0 flex-col'>

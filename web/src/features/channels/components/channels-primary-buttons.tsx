@@ -30,7 +30,7 @@ import {
   RefreshCw,
   ArrowUpFromLine,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -66,7 +66,11 @@ import {
 } from '../lib'
 import { useChannels } from './channels-provider'
 
-export function ChannelsPrimaryButtons() {
+export function ChannelsPrimaryButtons({
+  historyButton,
+}: {
+  historyButton: ReactNode
+}) {
   const { t } = useTranslation()
   const {
     setOpen,
@@ -107,20 +111,27 @@ export function ChannelsPrimaryButtons() {
   return (
     <>
       <div className='flex items-center gap-2'>
-        {/* Desktop: Toggle switches visible */}
-        <div className='hidden items-center gap-2 rounded-md border px-3 py-1.5 sm:flex'>
-          <ListChecks className='text-muted-foreground h-4 w-4' />
-          <Label
-            htmlFor='channel-batch-mode'
-            className='cursor-pointer text-sm'
+        <div className='grid auto-cols-fr grid-flow-col items-center gap-2'>
+          {historyButton}
+          {/* Desktop: Toggle switches visible */}
+          <div
+            role='group'
+            aria-label={t('Batch Operations')}
+            className='hidden h-7 items-center gap-1 rounded-lg border px-2.5 sm:flex'
           >
-            {t('Batch Operations')}
-          </Label>
-          <Switch
-            id='channel-batch-mode'
-            checked={batchMode}
-            onCheckedChange={handleBatchModeToggle}
-          />
+            <ListChecks className='text-muted-foreground h-4 w-4' />
+            <Label
+              htmlFor='channel-batch-mode'
+              className='cursor-pointer text-sm'
+            >
+              {t('Batch Operations')}
+            </Label>
+            <Switch
+              id='channel-batch-mode'
+              checked={batchMode}
+              onCheckedChange={handleBatchModeToggle}
+            />
+          </div>
         </div>
 
         <div className='hidden items-center gap-2 rounded-md border px-3 py-1.5 sm:flex'>
