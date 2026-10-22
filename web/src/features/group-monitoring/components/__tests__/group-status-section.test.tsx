@@ -9,9 +9,7 @@ License, or (at your option) any later version.
 
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, test, vi } from 'vitest'
-
-import { useAuthStore } from '@/stores/auth-store'
+import { describe, expect, test, vi } from 'vitest'
 
 import type {
   GroupMonitoringGroupSummary,
@@ -22,12 +20,6 @@ import { GroupStatusSection } from '../group-status-section'
 
 // The brand icon package uses directory imports unsupported by Node's ESM loader.
 vi.mock('@lobehub/icons', () => new Proxy({}, { has: () => true }))
-
-const INITIAL_AUTH_STATE = useAuthStore.getState()
-const setRole = (role: number) =>
-  useAuthStore.getState().auth.setUser({ id: 1, username: 'tester', role })
-
-afterEach(() => useAuthStore.setState(INITIAL_AUTH_STATE))
 
 const THRESHOLDS: GroupMonitoringThresholds = {
   healthy_rate: 99,
@@ -94,34 +86,29 @@ function renderSection(group: GroupMonitoringGroupSummary = GROUP) {
 }
 
 describe('GroupStatusSection', () => {
-  test('shows the independent monitor name, description and model count in the header', () => {
+  test('shows the independent monitor name and description without summary badges', () => {
     renderSection()
 
     expect(
       screen.getByRole('heading', { name: 'Claude Max' })
     ).toBeInTheDocument()
     expect(screen.getByText('shared pool')).toBeInTheDocument()
-    expect(screen.getByText('2 models')).toBeInTheDocument()
+    expect(screen.queryByText('2 models')).toBeNull()
+    expect(screen.queryByText('200 requests')).toBeNull()
+    expect(screen.queryByText('99.00% success')).toBeNull()
   })
 
-  test('lays out model monitors in two columns when the monitor card has room', () => {
+  test('lays out model monitors in a dense responsive grid', () => {
     renderSection()
 
     const models = screen.getByRole('list')
-    expect(models).toHaveClass('grid', '@md:grid-cols-2')
+    expect(models).toHaveClass(
+      'grid',
+      'sm:grid-cols-2',
+      'lg:grid-cols-3',
+      'xl:grid-cols-4'
+    )
     expect(within(models).getAllByRole('listitem')).toHaveLength(2)
-  })
-
-  test('counts degraded and down models as issues', () => {
-    renderSection()
-
-    expect(screen.getByText('1 with issues')).toBeInTheDocument()
-  })
-
-  test('hides the issue badge when every model is healthy', () => {
-    renderSection({ ...GROUP, models: [model('gpt-4o-mini', 'healthy')] })
-
-    expect(screen.queryByText(/with issues/)).toBeNull()
   })
 
   test('opens the selected model trend sheet and closes with Escape', async () => {
@@ -138,34 +125,9 @@ describe('GroupStatusSection', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  test('does not expose source pricing groups to a regular user', () => {
+  test('does not expose source pricing groups or visibility metadata', () => {
     renderSection()
     expect(screen.queryByText('Sources: default, vip')).toBeNull()
-  })
-
-  test('shows source groups to administrators', () => {
-    setRole(100)
-    renderSection()
-    expect(screen.getByText('Sources: default, vip')).toBeInTheDocument()
-  })
-
-  test('marks a group restricted to an allow list', () => {
-    setRole(100)
-    renderSection({ ...GROUP, visible_to_groups: ['vip', 'internal'] })
-
-    expect(screen.getByText('Visible to vip, internal')).toBeInTheDocument()
-  })
-
-  test('marks a group with an empty allow list as administrators only', () => {
-    setRole(100)
-    renderSection({ ...GROUP, visible_to_groups: [] })
-
-    expect(screen.getByText('Administrators only')).toBeInTheDocument()
-  })
-
-  test('leaves an unrestricted group unmarked', () => {
-    renderSection()
-
     expect(screen.queryByText(/Visible to|Administrators only/)).toBeNull()
   })
 

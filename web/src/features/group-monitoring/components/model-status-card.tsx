@@ -55,11 +55,11 @@ export function ModelStatusCard(props: {
   return (
     <div
       role='listitem'
-      className='bg-background min-w-0 rounded-lg border p-3'
+      className='min-w-0 border-t pt-3'
     >
       <div className='flex min-w-0 items-start gap-2'>
         <span
-          className='bg-muted/50 flex size-8 shrink-0 items-center justify-center rounded-lg'
+          className='bg-muted/50 flex size-7 shrink-0 items-center justify-center rounded-md'
           aria-hidden='true'
         >
           {getLobeIcon(props.model.icon || props.model.vendor_icon, 18)}
@@ -67,13 +67,13 @@ export function ModelStatusCard(props: {
         <div className='min-w-0 flex-1'>
           <button
             type='button'
-            className='hover:text-primary focus-visible:ring-ring inline-flex min-h-8 max-w-full cursor-pointer items-center gap-1.5 rounded text-left focus-visible:ring-2 focus-visible:outline-none'
+            className='hover:text-primary focus-visible:ring-ring inline-flex min-h-7 max-w-full cursor-pointer items-center gap-1.5 rounded text-left focus-visible:ring-2 focus-visible:outline-none'
             aria-label={t('View trends for {{model}}', {
               model: props.model.model_name,
             })}
             onClick={() => props.onOpenDetails(props.model)}
           >
-            <span className='min-w-0 font-mono text-sm font-semibold [overflow-wrap:anywhere]'>
+            <span className='min-w-0 truncate font-mono text-sm font-semibold'>
               {props.model.model_name}
             </span>
             <ChartNoAxesCombined

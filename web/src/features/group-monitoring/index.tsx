@@ -36,13 +36,6 @@ const SUMMARY_REFETCH_INTERVAL_MS = 60_000
 const EMPTY_GROUPS: GroupMonitoringSummary['groups'] = []
 const MONITOR_LIST_CLASS = 'grid min-w-0 grid-cols-1 gap-3'
 
-function formatUpdatedAt(unixSeconds: number) {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(unixSeconds * 1000)
-}
-
 export function GroupMonitoring() {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
@@ -83,21 +76,13 @@ export function GroupMonitoring() {
             .includes(keyword)
       )
   }, [allGroups, search])
-  const allModels = allGroups.flatMap((group) => group.models)
-  const monitoredCount = allModels.length
-  const operationalCount = allModels.filter(
-    (model) => model.state === 'healthy'
-  ).length
-  const issueCount = allModels.filter(
-    (model) => model.state === 'down' || model.state === 'degraded'
-  ).length
 
   let monitoringContent: ReactNode
   if (summaryQuery.isLoading) {
     monitoringContent = (
       <div className={MONITOR_LIST_CLASS}>
         {[0, 1, 2, 3].map((item) => (
-          <Skeleton key={item} className='h-80 rounded-xl' />
+          <Skeleton key={item} className='h-48 rounded-lg' />
         ))}
       </div>
     )
@@ -161,21 +146,10 @@ export function GroupMonitoring() {
     )
   }
 
-  const rangeLabel = range === '24h' ? t('Last 24 hours') : t('Last 72 hours')
-  const overall = summaryQuery.data?.overall
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>
-        <span className='inline-flex min-w-0 items-center gap-3'>
-          <span className='truncate'>{t('Group Monitoring')}</span>
-          <span className='text-muted-foreground hidden items-center gap-3 text-xs font-normal sm:inline-flex'>
-            <span className='text-emerald-600 dark:text-emerald-400'>
-              {t('{{count}} operational', { count: operationalCount })}
-            </span>
-            <span>{t('{{count}} with issues', { count: issueCount })}</span>
-            <span>{t('{{count}} monitored', { count: monitoredCount })}</span>
-          </span>
-        </span>
+        {t('Group Monitoring')}
       </SectionPageLayout.Title>
       <SectionPageLayout.Actions>
         <NativeSelect
@@ -211,45 +185,7 @@ export function GroupMonitoring() {
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='space-y-4'>
-          {summaryQuery.data && (
-            <div className='bg-card grid min-w-0 gap-3 rounded-xl border p-4 sm:grid-cols-[auto_1fr_auto] sm:items-center'>
-              <span
-                className='flex size-10 items-center justify-center rounded-full bg-emerald-500/10 text-lg text-emerald-700 dark:text-emerald-300'
-                aria-hidden='true'
-              >
-                ●
-              </span>
-              <div className='flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1'>
-                <strong className='font-semibold'>
-                  {t('Overall availability')}
-                </strong>
-                <span className='font-mono text-lg font-semibold text-emerald-700 tabular-nums dark:text-emerald-300'>
-                  {overall?.request_count
-                    ? `${overall.availability_rate.toFixed(2)}%`
-                    : '—'}
-                </span>
-                <span className='text-muted-foreground text-sm'>
-                  {t('{{count}} requests', {
-                    count: (overall?.request_count ?? 0).toLocaleString(),
-                  })}
-                </span>
-                <span className='text-muted-foreground text-sm'>
-                  {rangeLabel}
-                </span>
-              </div>
-              <span className='text-muted-foreground text-xs sm:text-right'>
-                {t('Statistics through {{time}} · refreshed every minute', {
-                  time: formatUpdatedAt(summaryQuery.data.updated_at),
-                })}
-              </span>
-            </div>
-          )}
-          <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
-            <p className='text-muted-foreground min-w-0 text-xs'>
-              {t(
-                'Availability is based on real requests, not synthetic probes. Search and filter do not change the overall totals.'
-              )}
-            </p>
+          <div className='flex justify-end'>
             <div className='relative w-full sm:max-w-xs'>
               <Search
                 className='text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2'

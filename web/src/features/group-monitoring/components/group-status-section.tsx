@@ -7,14 +7,8 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 
-import { EyeOff } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-
-import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
-import { ROLE } from '@/lib/roles'
-import { useAuthStore } from '@/stores/auth-store'
 
 import type {
   GroupMonitoringGroupSummary,
@@ -25,10 +19,6 @@ import type {
 import { ModelStatusCard } from './model-status-card'
 import { ModelTrendSheet } from './model-trend-sheet'
 
-function formatRate(value: number, hasData: boolean) {
-  return hasData ? `${value.toFixed(2)}%` : '—'
-}
-
 export function GroupStatusSection(props: {
   group: GroupMonitoringGroupSummary
   bucketMinutes: number
@@ -37,85 +27,28 @@ export function GroupStatusSection(props: {
   thresholds: GroupMonitoringThresholds
 }) {
   const { t } = useTranslation()
-  const user = useAuthStore((state) => state.auth.user)
-  const isAdmin = (user?.role ?? 0) >= ROLE.ADMIN
   const [selectedModel, setSelectedModel] =
     useState<GroupMonitoringModelSummary | null>(null)
-  const issueCount = props.group.models.filter(
-    (model) => model.state === 'down' || model.state === 'degraded'
-  ).length
-  const sources = props.group.source_groups
-  let visibilityBadge = ''
-  if (props.group.visible_to_groups?.length) {
-    visibilityBadge = t('Visible to {{groups}}', {
-      groups: props.group.visible_to_groups.join(', '),
-    })
-  } else if (props.group.visible_to_groups) {
-    visibilityBadge = t('Administrators only')
-  }
 
   return (
-    <Card role='listitem' className='@container min-w-0 rounded-xl'>
-      <CardHeader className='space-y-2 border-b pb-3'>
-        <div className='flex flex-wrap items-start justify-between gap-3'>
-          <div className='min-w-0 space-y-1'>
-            <h2 className='text-base font-semibold [overflow-wrap:anywhere]'>
-              {props.group.group_name}
-            </h2>
-            {props.group.description && (
-              <p className='text-muted-foreground text-sm'>
-                {props.group.description}
-              </p>
-            )}
-            {isAdmin && sources && sources.length > 0 && (
-              <p className='text-muted-foreground text-xs'>
-                {t('Sources: {{groups}}', { groups: sources.join(', ') })}
-              </p>
-            )}
-          </div>
-          <div className='flex flex-wrap items-center gap-2'>
-            {isAdmin && visibilityBadge && (
-              <Badge variant='outline' className='text-muted-foreground'>
-                <EyeOff aria-hidden='true' />
-                {visibilityBadge}
-              </Badge>
-            )}
-            <Badge variant='outline' className='font-mono tabular-nums'>
-              {formatRate(
-                props.group.availability_rate,
-                props.group.request_count > 0
-              )}{' '}
-              {t('success')}
-            </Badge>
-            <Badge
-              variant='outline'
-              className='text-muted-foreground tabular-nums'
-            >
-              {t('{{count}} requests', {
-                count: (props.group.request_count ?? 0).toLocaleString(),
-              })}
-            </Badge>
-            <Badge variant='outline' className='text-muted-foreground'>
-              {t('{{count}} models', { count: props.group.models.length })}
-            </Badge>
-            {issueCount > 0 && (
-              <Badge
-                variant='outline'
-                className='border-red-500/40 text-red-600 dark:text-red-400'
-              >
-                {t('{{count}} with issues', { count: issueCount })}
-              </Badge>
-            )}
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent
+    <section role='listitem' className='min-w-0 border-b pb-5 last:border-b-0'>
+      <header className='min-w-0 pb-3'>
+        <h2 className='text-base font-semibold [overflow-wrap:anywhere]'>
+          {props.group.group_name}
+        </h2>
+        {props.group.description && (
+          <p className='text-muted-foreground mt-1 text-sm'>
+            {props.group.description}
+          </p>
+        )}
+      </header>
+      <div
         role='list'
         aria-label={t('Models')}
-        className='grid gap-3 px-4 pt-0 pb-4 @md:grid-cols-2'
+        className='grid min-w-0 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
       >
         {props.group.models.length === 0 ? (
-          <div className='text-muted-foreground rounded-lg border border-dashed p-5 text-center text-sm @md:col-span-2'>
+          <div className='text-muted-foreground border-t border-dashed pt-4 text-sm sm:col-span-2 lg:col-span-3 xl:col-span-4'>
             {t('No models configured for this monitor')}
           </div>
         ) : (
@@ -130,7 +63,7 @@ export function GroupStatusSection(props: {
             />
           ))
         )}
-      </CardContent>
+      </div>
       <ModelTrendSheet
         model={selectedModel}
         open={selectedModel !== null}
@@ -140,6 +73,6 @@ export function GroupStatusSection(props: {
         range={props.range}
         bucketMinutes={props.bucketMinutes}
       />
-    </Card>
+    </section>
   )
 }

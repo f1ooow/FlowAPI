@@ -88,6 +88,8 @@ describe('GroupMonitoring layout', () => {
     })
     expect(monitors).toHaveClass('grid-cols-1')
     expect(within(monitors).getAllByRole('listitem')).toHaveLength(2)
+    expect(screen.queryByText('Overall availability')).toBeNull()
+    expect(screen.queryByText(/Statistics through/)).toBeNull()
     queryClient.clear()
   })
 })
