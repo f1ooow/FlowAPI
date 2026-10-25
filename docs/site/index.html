@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="FlowAPI Suno 调用方法：灵感歌曲、自定义歌词、纯音乐生成，以及提交任务、轮询、音频结果与完整 Python 示例。">
+  <meta name="flowapi-markdown-sha256" content="f193c440f5c916a9eba659897d30fd6228958f276bfb8b970767be742fe52523">
+  <meta name="color-scheme" content="light">
+  <title>Suno 调用方法 · FlowAPI 文档</title>
+  <style>
+    :root{--bg:#fff;--surface:#f6f8fa;--ink:#17212d;--muted:#5a6978;--line:#e2e8ed;--accent:#087e86;--accent-dark:#065f66;--accent-soft:#edf8f8;--radius:12px}
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth;scroll-padding-top:112px}
+    body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.8 'Public Sans','Avenir Next','PingFang SC','Microsoft YaHei',sans-serif;-webkit-font-smoothing:antialiased}
+    a{color:var(--accent);text-decoration:none}
+    a:hover{text-decoration:underline;text-underline-offset:4px}
+    button,a{-webkit-tap-highlight-color:transparent}
+    button{font:inherit;cursor:pointer}
+    :focus-visible{outline:3px solid #159ca6;outline-offset:4px}
+    button:disabled{cursor:wait;opacity:.7}
+    .skip-link{position:fixed;top:-80px;left:16px;z-index:60;padding:8px 16px;background:var(--ink);color:white;border-radius:8px}
+    .skip-link:focus{top:12px}
+    .topbar{position:sticky;top:0;z-index:30;border-bottom:1px solid var(--line);background:rgba(255,255,255,.97)}
+    .top-inner{max-width:1320px;min-height:76px;margin:auto;padding:14px 32px;display:flex;align-items:center;justify-content:space-between;gap:24px}
+    .brand{display:inline-flex;align-items:center;gap:12px;color:var(--ink);flex-shrink:0}
+    .brand:hover{text-decoration:none}
+    .brand-mark{width:32px;height:32px;display:grid;place-items:center;border-radius:9px;background:var(--accent);color:white}
+    .brand-mark svg{width:22px;height:22px}
+    .brand-name{font-size:19px;font-weight:700;letter-spacing:-.6px}
+    .brand-divider{width:1px;height:20px;background:var(--line);margin-inline:3px}
+    .brand-area{font-size:14px;color:var(--muted);font-weight:500}
+    .top-actions{display:flex;align-items:center;gap:10px}
+    .button{display:inline-flex;justify-content:center;align-items:center;gap:9px;min-height:44px;padding:9px 17px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font-size:14px;font-weight:600;line-height:1.5;white-space:nowrap;transition:background .15s,border-color .15s}
+    .button svg{width:17px;height:17px;flex-shrink:0}
+    .button:hover{background:var(--surface);border-color:#b8c8ce}
+    .button.primary{border-color:var(--accent);background:var(--accent);color:white}
+    .button.primary:hover{background:var(--accent-dark);border-color:var(--accent-dark)}
+    .layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:56px;max-width:1232px;margin:auto;padding:44px 32px 80px}
+    .sidebar{align-self:start;position:sticky;top:112px;font-size:13px;color:var(--muted)}
+    .sidebar-label{margin:0 0 12px;color:var(--muted);font-size:11px;letter-spacing:1.4px;font-weight:600;text-transform:uppercase}
+    .document-link{display:flex;align-items:center;gap:10px;border-left:2px solid var(--accent);background:var(--accent-soft);padding:11px 14px;margin-bottom:32px;color:var(--accent-dark);font-size:14px;font-weight:600;border-radius:0 6px 6px 0}
+    .document-link svg{width:17px;height:17px;flex-shrink:0}
+    .document-link:hover{text-decoration:none;background:#e3f3f3}
+    .toc{display:flex;flex-direction:column;gap:3px}
+    .toc a{display:flex;align-items:baseline;gap:12px;line-height:1.5;color:var(--muted);padding:9px 10px;border-radius:6px}
+    .toc a:hover,.toc a[aria-current="location"]{color:var(--accent-dark);background:var(--accent-soft);text-decoration:none}
+    .toc-number{font-size:10px;font-weight:600;letter-spacing:.3px;color:#7d8d97;font-variant-numeric:tabular-nums}
+    .sidebar-footer{display:block;margin:30px 10px 0;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
+    main{min-width:0;max-width:836px}
+    .doc-header{padding:0 0 31px;border-bottom:1px solid var(--line);margin-bottom:35px;background:radial-gradient(ellipse at 100% 0,rgba(13,148,154,.035),transparent 65%)}
+    .eyebrow{display:flex;align-items:center;gap:8px;margin:0 0 14px;color:var(--accent);font-size:12px;font-weight:700;letter-spacing:1.5px}
+    .eyebrow:before{content:'';width:6px;height:6px;border-radius:50%;background:var(--accent)}
+    h1{font-size:clamp(30px,3.5vw,40px);line-height:1.25;letter-spacing:-1.2px;font-weight:700;margin:0 0 18px}
+    .lead{max-width:700px;font-size:16px;line-height:1.9;color:var(--muted)}
+    .lead p{margin:0}
+    .doc-meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:21px}
+    .meta-tag{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:5px;padding:3px 9px;color:var(--muted);background:white;font-size:11px;line-height:1.5;font-weight:500}
+    .mobile-toc{display:none}
+    article{overflow-wrap:anywhere}
+    article h2{font-size:24px;line-height:1.45;font-weight:650;letter-spacing:-.5px;margin:49px 0 18px;padding-top:5px;scroll-margin-top:108px}
+    article h2:first-child{margin-top:0}
+    article h3{font-size:18px;line-height:1.5;font-weight:600;margin:30px 0 14px;scroll-margin-top:108px}
+    article p{margin:14px 0}
+    article strong{font-weight:650;color:#102c35}
+    article p>strong:only-child{display:block;border-left:3px solid var(--accent);border-radius:0 6px 6px 0;background:var(--accent-soft);padding:13px 16px;font-size:14px;line-height:1.85}
+    article code{font-family:'SFMono-Regular','Cascadia Code','Consolas',monospace;font-size:.85em;background:#f0f4f6;border:1px solid #e8eef1;border-radius:4px;padding:2px 5px;word-break:normal}
+    .table-scroll{width:100%;max-width:100%;overflow-x:auto;border:1px solid var(--line);border-radius:9px;margin:20px 0 24px;-webkit-overflow-scrolling:touch}
+    table{border-collapse:collapse;width:100%;font-size:13px;line-height:1.8}
+    th,td{border-bottom:1px solid var(--line);padding:12px 14px;text-align:left;vertical-align:top}
+    th{background:var(--surface);color:var(--muted);font-size:11px;letter-spacing:.2px;font-weight:600;white-space:nowrap}
+    th:first-child,td:first-child{min-width:118px}
+    td code{font-size:12px;white-space:normal}
+    tr:last-child td{border-bottom:0}
+    .code-block{margin:20px 0 24px;border:1px solid #dce5e9;border-radius:10px;overflow:hidden;background:#f7f9fb;box-shadow:0 1px 1px rgba(18,39,48,.025)}
+    .code-bar{min-height:43px;display:flex;justify-content:space-between;align-items:center;padding:0 9px 0 16px;border-bottom:1px solid #e3eaee;background:#f0f4f6;color:var(--muted);font:10px/1.4 'Avenir Next','Public Sans',sans-serif;letter-spacing:.8px;text-transform:uppercase}
+    .copy-code{min-width:66px;min-height:36px;padding:6px 8px;display:flex;align-items:center;gap:6px;border:0;border-radius:5px;background:transparent;color:#465d69;font-size:12px;letter-spacing:0}
+    .copy-code svg{height:14px;width:14px}
+    .copy-code:hover{background:#e3ebef;color:var(--accent-dark)}
+    .copy-code[data-copied="true"]{color:var(--accent-dark);background:#ddf0ef}
+    pre{margin:0;padding:20px;overflow:auto;line-height:1.9;tab-size:4;white-space:pre;-webkit-overflow-scrolling:touch}
+    article pre code{display:block;border:0;padding:0;background:transparent;border-radius:0;color:#263d4a;font-size:12px;overflow-wrap:normal;white-space:pre}
+    .doc-footer{margin-top:52px;padding-top:24px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;color:var(--muted);font-size:11px}
+    .doc-footer a{color:var(--muted)}
+    .toast{position:fixed;left:50%;bottom:28px;z-index:50;max-width:calc(100% - 32px);transform:translate(-50%,12px);padding:11px 18px;border:1px solid #cce1e2;border-radius:9px;background:#f0fafa;color:var(--accent-dark);box-shadow:0 6px 24px rgba(23,52,58,.1);font-size:14px;line-height:1.5;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s}
+    .toast.visible{transform:translate(-50%,0);opacity:1}
+    noscript{display:block;padding:12px 16px;background:var(--accent-soft);font-size:14px;color:var(--accent-dark)}
+    @media(min-width:1450px){.layout{gap:76px}}
+    @media(max-width:1000px){.layout{grid-template-columns:180px minmax(0,1fr);gap:30px;padding-inline:24px}.top-inner{padding-inline:24px}.sidebar{font-size:12px}.toc a{padding-inline:6px;gap:8px}.toc-number{display:none}}
+    @media(max-width:760px){.layout{display:block;padding:30px 20px 56px}.sidebar{display:none}.top-inner{padding-inline:20px;gap:16px}.brand-divider,.brand-area{display:none}.button{padding:9px 12px;font-size:13px}.button svg{height:16px;width:16px}.brand-name{font-size:17px}.brand-mark{width:29px;height:29px}.brand{gap:8px}.top-actions{gap:8px}.doc-header{padding-bottom:26px;margin-bottom:26px}.mobile-toc{display:block;border:1px solid var(--line);border-radius:8px;padding:0 14px;margin:0 0 30px;background:var(--bg)}.mobile-toc summary{cursor:pointer;padding:11px 0;font-size:13px;font-weight:600;color:var(--muted)}.mobile-toc .toc{padding:0 0 12px}.mobile-toc .toc-number{display:inline}.lead{font-size:15px}.doc-meta{gap:6px}article h2{font-size:22px;margin-top:39px}article h3{font-size:17px}article p{font-size:15px;line-height:1.9}th,td{padding:11px 12px}.code-block{margin:18px 0 22px}pre{padding:16px}article pre code{font-size:11px}}
+    @media(max-width:540px){html{scroll-padding-top:148px}.top-inner{flex-wrap:wrap;padding:12px 18px;gap:12px}.brand-divider,.brand-area{display:block}.brand-name{font-size:18px}.top-actions{width:100%}.top-actions .primary{flex:1}.top-actions .button{min-height:43px}.layout{padding-top:26px}article h2,article h3{scroll-margin-top:146px}.doc-header{margin-bottom:23px}.eyebrow{font-size:10px}h1{font-size:32px;letter-spacing:-1px}.meta-tag{font-size:10px}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{transition:none!important}}
+    @media print{.topbar,.sidebar,.mobile-toc,.toast,.copy-code,.skip-link{display:none}.layout{display:block;padding:0}.doc-header{background:none}.code-block,.table-scroll{break-inside:avoid}pre{white-space:pre-wrap;overflow-wrap:anywhere}article pre code{white-space:pre-wrap}.doc-footer{margin-top:28px}}
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳到文档正文</a>
+  <header class="topbar">
+    <div class="top-inner">
+      <a class="brand" href="https://flowapi.robusta.top/" aria-label="返回 FlowAPI 首页">
+        <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 8h14M5 16h14M9 4l-4 4 4 4m6 0 4 4-4 4"/></svg></span>
+        <span class="brand-name">Flow API</span><span class="brand-divider"></span><span class="brand-area">文档区</span>
+      </a>
+      <div class="top-actions">
+        <button id="copy-markdown" class="button primary" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>一键复制 Markdown</span></button>
+        <button id="download-markdown" class="button" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg><span>下载 .md</span></button>
+      </div>
+    </div>
+  </header>
+  <noscript>正文可以直接阅读。复制全文、复制代码和下载 Markdown 功能需要启用 JavaScript。</noscript>
+  <div class="layout">
+    <aside class="sidebar" aria-label="文档导航">
+      <p class="sidebar-label">开发者文档</p>
+      <a class="document-link" href="#main-content" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M9 18V5l12-2v13M9 8l12-2"/><ellipse cx="6" cy="18" rx="3" ry="2"/><ellipse cx="18" cy="16" rx="3" ry="2"/></svg>Suno 调用方法</a>
+      <p class="sidebar-label">本页内容</p>
+      <nav class="toc" aria-label="本页目录"><a href="#section-1"><span class="toc-number">01</span>接入准备</a>
+<a href="#section-2"><span class="toc-number">02</span>快速开始：提交与查询</a>
+<a href="#section-3"><span class="toc-number">03</span>三种创作模式</a>
+<a href="#section-4"><span class="toc-number">04</span>参数与版本</a>
+<a href="#section-5"><span class="toc-number">05</span>任务结果与音频保存</a>
+<a href="#section-6"><span class="toc-number">06</span>完整 Python 示例：提交一次，有限等待</a>
+<a href="#section-7"><span class="toc-number">07</span>常见问题</a></nav>
+      <a class="sidebar-footer" href="https://flowapi.robusta.top/">← 返回 FlowAPI</a>
+    </aside>
+    <main id="main-content" tabindex="-1">
+      <header class="doc-header">
+        <p class="eyebrow">音乐生成 / SUNO</p>
+        <h1>Suno 调用方法</h1>
+        <div class="lead"><p>通过 FlowAPI 生成歌曲与纯音乐。一个任务采用“提交一次，再轮询结果”的调用流程，支持灵感创作、自定义歌词和纯音乐三种模式。</p>
+</div>
+        <div class="doc-meta"><span class="meta-tag">灵感创作</span><span class="meta-tag">自定义歌词</span><span class="meta-tag">纯音乐</span><span class="meta-tag">完整调用示例</span></div>
+      </header>
+      <details class="mobile-toc"><summary>本页目录</summary><nav class="toc" aria-label="移动端本页目录"><a href="#section-1"><span class="toc-number">01</span>接入准备</a>
+<a href="#section-2"><span class="toc-number">02</span>快速开始：提交与查询</a>
+<a href="#section-3"><span class="toc-number">03</span>三种创作模式</a>
+<a href="#section-4"><span class="toc-number">04</span>参数与版本</a>
+<a href="#section-5"><span class="toc-number">05</span>任务结果与音频保存</a>
+<a href="#section-6"><span class="toc-number">06</span>完整 Python 示例：提交一次，有限等待</a>
+<a href="#section-7"><span class="toc-number">07</span>常见问题</a></nav></details>
+      <article aria-label="Suno 完整调用文档"><h2 id="section-1">1. 接入准备</h2>
+<div class="table-scroll" tabindex="0" role="region" aria-label="文档表格，可横向滚动"><table>
+<thead>
+<tr>
+<th>配置项</th>
+<th>填写内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>API 地址</td>
+<td><code>https://flowapi.robusta.top</code>，不添加 <code>/v1</code></td>
+</tr>
+<tr>
+<td>身份认证</td>
+<td><code>Authorization: Bearer &lt;你的 FlowAPI API Key&gt;</code></td>
+</tr>
+<tr>
+<td>令牌分组</td>
+<td>创建或编辑令牌时选择 <code>video</code> 分组</td>
+</tr>
+<tr>
+<td>模型限制</td>
+<td>关闭令牌的“模型限制”开关，提交和查询使用同一个令牌</td>
+</tr>
+<tr>
+<td>计费模型</td>
+<td><code>suno_music</code>，用于识别计费项目，不需要在请求体里填写 <code>model</code></td>
+</tr>
+<tr>
+<td>模型版本</td>
+<td>请求体使用 <code>mv</code> 选择版本，推荐 <code>chirp-v5</code></td>
+</tr>
+<tr>
+<td>当前价格</td>
+<td>人民币 <strong>0.60 元 / 提交任务</strong>；查询已有任务不重复收取生成费</td>
+</tr>
+</tbody></table>
+</div>
+<p>一次成功任务可能包含多首作品。当前实测一次返回两首，但客户端应遍历实际返回的数组，不要写死作品数量。0.60 元按提交任务计，不是每首分别计费；调用前可在模型广场核对当前价格。</p>
+<p>API Key 属于敏感信息，只保存在服务端或本地环境变量中，不要放入前端网页、公开仓库或分享的请求截图。</p>
+<h2 id="section-2">2. 快速开始：提交与查询</h2>
+<p>以下命令适用于 macOS、Linux 等终端。先将占位值替换为自己的 FlowAPI API Key，再按顺序执行。</p>
+<h3 id="section-2-1">2.1 配置环境变量</h3>
+<div class="code-block"><div class="code-bar"><span>bash</span><button type="button" class="copy-code" data-copy-code="0" aria-label="复制第 1 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-0" class="language-bash">export FLOWAPI_BASE_URL='https://flowapi.robusta.top'
+export FLOWAPI_TOKEN='替换为你的_FlowAPI_API_Key'</code></pre></div>
+<h3 id="section-2-2">2.2 提交一次创作任务</h3>
+<div class="code-block"><div class="code-bar"><span>bash</span><button type="button" class="copy-code" data-copy-code="1" aria-label="复制第 2 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-1" class="language-bash">curl --silent --show-error --fail-with-body \
+  &quot;${FLOWAPI_BASE_URL}/suno/submit/music&quot; \
+  -H &quot;Authorization: Bearer ${FLOWAPI_TOKEN}&quot; \
+  -H 'Content-Type: application/json' \
+  --data-binary @- \
+  --output suno-submit.json &lt;&lt;'JSON'
+{
+  &quot;mv&quot;: &quot;chirp-v5&quot;,
+  &quot;gpt_description_prompt&quot;: &quot;写一首简短中文歌，讲述春天傍晚与朋友散步的快乐，温暖轻快的流行风格。&quot;,
+  &quot;make_instrumental&quot;: false
+}
+JSON
+
+cat suno-submit.json</code></pre></div>
+<p>成功提交的回包示例：</p>
+<div class="code-block"><div class="code-bar"><span>json</span><button type="button" class="copy-code" data-copy-code="2" aria-label="复制第 3 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-2" class="language-json">{
+  &quot;code&quot;: &quot;success&quot;,
+  &quot;message&quot;: &quot;&quot;,
+  &quot;data&quot;: &quot;task_...&quot;
+}</code></pre></div>
+<p><code>data</code> 是任务 ID。收到任务 ID 只代表已受理，不代表歌曲生成完成。保存它，并从刚才的文件中提取：</p>
+<div class="code-block"><div class="code-bar"><span>bash</span><button type="button" class="copy-code" data-copy-code="3" aria-label="复制第 4 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-3" class="language-bash">export TASK_ID=&quot;$(python3 - &lt;&lt;'PY'
+import json
+
+with open('suno-submit.json', encoding='utf-8') as file:
+    response = json.load(file)
+task_id = response.get('data')
+if response.get('code') != 'success' or not isinstance(task_id, str) or not task_id:
+    raise SystemExit('提交未返回有效任务 ID，请检查 suno-submit.json，不要直接重复提交。')
+print(task_id)
+PY
+)&quot;
+
+printf '任务 ID：%s\n' &quot;${TASK_ID}&quot;</code></pre></div>
+<p>如果提交请求超时或连接中断，不能据此判断任务未创建。先保留已有响应和请求记录，核实任务是否已经受理，不要自动重新发送 POST，以免重复创作、重复计费。</p>
+<h3 id="section-2-3">2.3 查询这个任务</h3>
+<p><strong>单任务查询：</strong></p>
+<div class="code-block"><div class="code-bar"><span>bash</span><button type="button" class="copy-code" data-copy-code="4" aria-label="复制第 5 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-4" class="language-bash">curl --silent --show-error --fail-with-body \
+  &quot;${FLOWAPI_BASE_URL}/suno/fetch/${TASK_ID}&quot; \
+  -H &quot;Authorization: Bearer ${FLOWAPI_TOKEN}&quot; \
+  --output suno-result.json
+
+cat suno-result.json</code></pre></div>
+<p><strong>批量查询：</strong></p>
+<div class="code-block"><div class="code-bar"><span>bash</span><button type="button" class="copy-code" data-copy-code="5" aria-label="复制第 6 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-5" class="language-bash">python3 - &lt;&lt;'PY' &gt; suno-fetch.json
+import json
+import os
+
+task_id = os.environ.get('TASK_ID')
+if not task_id:
+    raise SystemExit('请先设置 TASK_ID。')
+print(json.dumps({'ids': [task_id]}))
+PY
+
+curl --silent --show-error --fail-with-body \
+  &quot;${FLOWAPI_BASE_URL}/suno/fetch&quot; \
+  -H &quot;Authorization: Bearer ${FLOWAPI_TOKEN}&quot; \
+  -H 'Content-Type: application/json' \
+  --data-binary @suno-fetch.json</code></pre></div>
+<p>批量请求的 <code>ids</code> 可以填写多个已经提交的任务 ID。单任务查询的外层 <code>data</code> 是一个任务对象，批量查询的外层 <code>data</code> 是任务对象数组。</p>
+<p>查询后检查任务对象的 <code>status</code>：<code>SUCCESS</code> 表示完成，<code>FAILURE</code> 表示失败，其他状态继续等待。建议每 5–10 秒查询一次。完整的有限等待示例见第 6 节。</p>
+<h2 id="section-3">3. 三种创作模式</h2>
+<p>三种模式均调用 <code>POST /suno/submit/music</code>，认证方式相同。将快速开始中的 JSON 请求体替换为对应示例即可。</p>
+<h3 id="section-3-1">3.1 灵感模式：描述你想听到的歌曲</h3>
+<p>填写 <code>gpt_description_prompt</code>，描述主题、情绪、语言和音乐风格，由模型创作歌词与音乐。</p>
+<div class="code-block"><div class="code-bar"><span>json</span><button type="button" class="copy-code" data-copy-code="6" aria-label="复制第 7 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-6" class="language-json">{
+  &quot;mv&quot;: &quot;chirp-v5&quot;,
+  &quot;gpt_description_prompt&quot;: &quot;写一首简短中文歌，讲述春天傍晚与朋友散步的快乐，温暖轻快的流行风格。&quot;,
+  &quot;make_instrumental&quot;: false
+}</code></pre></div>
+<p>灵感模式也可以生成纯音乐：把同一请求的 <code>make_instrumental</code> 改为 <code>true</code>，并在描述中写清想要的配器、情绪和节奏。</p>
+<h3 id="section-3-2">3.2 自定义模式：自己写歌词和风格</h3>
+<p>使用 <code>prompt</code> 提供歌词、<code>tags</code> 描述音乐风格、<code>title</code> 指定作品标题。</p>
+<div class="code-block"><div class="code-bar"><span>json</span><button type="button" class="copy-code" data-copy-code="7" aria-label="复制第 8 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-7" class="language-json">{
+  &quot;mv&quot;: &quot;chirp-v5&quot;,
+  &quot;prompt&quot;: &quot;[Verse]\n晚风吹过熟悉的街角\n灯火照亮回家的路\n\n[Chorus]\n把今天的故事轻轻唱\n让温柔陪在你身旁&quot;,
+  &quot;tags&quot;: &quot;acoustic pop, warm male vocal, gentle guitar, 80 bpm&quot;,
+  &quot;title&quot;: &quot;晚风回家&quot;,
+  &quot;make_instrumental&quot;: false
+}</code></pre></div>
+<p>歌词可以使用 <code>[Verse]</code>、<code>[Chorus]</code> 等段落标记。音乐类型、声音特点、乐器和速度写在 <code>tags</code>；<code>title</code> 只是作品标题，不用于控制风格。</p>
+<h3 id="section-3-3">3.3 纯音乐模式：只有配器，没有演唱</h3>
+<p>自定义纯音乐使用 <code>tags</code> 描述风格，设置 <code>make_instrumental: true</code>。可以完全省略歌词字段 <code>prompt</code>。</p>
+<div class="code-block"><div class="code-bar"><span>json</span><button type="button" class="copy-code" data-copy-code="8" aria-label="复制第 9 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-8" class="language-json">{
+  &quot;mv&quot;: &quot;chirp-v5&quot;,
+  &quot;tags&quot;: &quot;instrumental, ambient piano, soft strings, calm, 70 bpm&quot;,
+  &quot;title&quot;: &quot;雨后微光&quot;,
+  &quot;make_instrumental&quot;: true
+}</code></pre></div>
+<p>灵感模式和自定义模式分别填写，<strong>不要在同一个请求中同时传入 <code>gpt_description_prompt</code> 和 <code>prompt</code></strong>。生成结果具有随机性，描述、歌词段落标记和风格标签都是创作指引，不保证每个字词或风格细节逐项实现。</p>
+<h2 id="section-4">4. 参数与版本</h2>
+<div class="table-scroll" tabindex="0" role="region" aria-label="文档表格，可横向滚动"><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>类型</th>
+<th>使用方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>mv</code></td>
+<td>string</td>
+<td>选择模型版本，推荐明确填写 <code>chirp-v5</code>；它不是音乐风格字段</td>
+</tr>
+<tr>
+<td><code>gpt_description_prompt</code></td>
+<td>string</td>
+<td>灵感模式填写自然语言创作描述；不与 <code>prompt</code> 同时传入</td>
+</tr>
+<tr>
+<td><code>prompt</code></td>
+<td>string</td>
+<td>自定义歌曲的歌词；自定义纯音乐可省略</td>
+</tr>
+<tr>
+<td><code>tags</code></td>
+<td>string</td>
+<td>自定义模式的风格描述，例如曲风、乐器、声音特点和 BPM</td>
+</tr>
+<tr>
+<td><code>title</code></td>
+<td>string</td>
+<td>可选，作品标题；不是风格控制参数</td>
+</tr>
+<tr>
+<td><code>make_instrumental</code></td>
+<td>boolean</td>
+<td><code>true</code> 生成纯音乐，<code>false</code> 生成带人声歌曲；示例均明确传入</td>
+</tr>
+</tbody></table>
+</div>
+<p>版本选择：</p>
+<div class="table-scroll" tabindex="0" role="region" aria-label="文档表格，可横向滚动"><table>
+<thead>
+<tr>
+<th><code>mv</code> 值</th>
+<th>对应版本</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>chirp-v5</code></td>
+<td>Suno v5</td>
+<td>推荐；本文三种模式均已用此版本验证成功</td>
+</tr>
+<tr>
+<td><code>chirp-v4-5</code></td>
+<td>Suno v4.5</td>
+<td>可选择的其他版本</td>
+</tr>
+<tr>
+<td><code>chirp-v4</code></td>
+<td>Suno v4</td>
+<td>可选择的其他版本</td>
+</tr>
+<tr>
+<td><code>chirp-v3-5</code></td>
+<td>Suno v3.5</td>
+<td>可选择的其他版本</td>
+</tr>
+</tbody></table>
+</div>
+<p>切换版本时修改 <code>mv</code>；调整风格时修改 <code>tags</code> 或灵感描述。<code>suno_music</code> 是 FlowAPI 的计费模型名，不要将它填入 <code>mv</code>，也不需要添加 <code>model</code> 字段。</p>
+<h2 id="section-5">5. 任务结果与音频保存</h2>
+<h3 id="section-5-1">5.1 单任务成功回包</h3>
+<p>下例展示结构，任务 ID、作品 ID、链接和时长均为示意值：</p>
+<div class="code-block"><div class="code-bar"><span>json</span><button type="button" class="copy-code" data-copy-code="9" aria-label="复制第 10 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-9" class="language-json">{
+  &quot;code&quot;: &quot;success&quot;,
+  &quot;message&quot;: &quot;&quot;,
+  &quot;data&quot;: {
+    &quot;task_id&quot;: &quot;task_...&quot;,
+    &quot;action&quot;: &quot;MUSIC&quot;,
+    &quot;status&quot;: &quot;SUCCESS&quot;,
+    &quot;progress&quot;: &quot;100%&quot;,
+    &quot;fail_reason&quot;: &quot;&quot;,
+    &quot;data&quot;: [
+      {
+        &quot;id&quot;: &quot;1234567890&quot;,
+        &quot;clipId&quot;: &quot;00000000-0000-4000-8000-000000000000&quot;,
+        &quot;title&quot;: &quot;晚风回家&quot;,
+        &quot;tags&quot;: &quot;acoustic pop, warm male vocal, gentle guitar, 80 bpm&quot;,
+        &quot;prompt&quot;: &quot;[Verse]\n晚风吹过熟悉的街角……&quot;,
+        &quot;makeInstrumental&quot;: false,
+        &quot;duration&quot;: 38.4,
+        &quot;cld2AudioUrl&quot;: &quot;https://example.com/song.m4a&quot;,
+        &quot;cld2ImageUrl&quot;: &quot;https://example.com/cover.jpeg&quot;,
+        &quot;status&quot;: 30
+      }
+    ]
+  }
+}</code></pre></div>
+<p><strong>任务状态看 <code>data.status</code>，音频链接取 <code>data.data[i].cld2AudioUrl</code>。</strong> 歌曲对象使用 camelCase 字段名，不能把音频字段写成 <code>audio_url</code>。</p>
+<div class="table-scroll" tabindex="0" role="region" aria-label="文档表格，可横向滚动"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>任务对象 <code>task_id</code></td>
+<td>提交时获得的任务 ID，用于后续查询</td>
+</tr>
+<tr>
+<td>任务对象 <code>status</code></td>
+<td><code>SUCCESS</code> 已完成；<code>FAILURE</code> 已失败；其他状态继续轮询</td>
+</tr>
+<tr>
+<td>任务对象 <code>progress</code></td>
+<td>进度展示；以任务 <code>status</code> 判断是否完成</td>
+</tr>
+<tr>
+<td>任务对象 <code>fail_reason</code></td>
+<td>失败原因，失败时保留该字段与任务 ID 排查</td>
+</tr>
+<tr>
+<td>任务对象 <code>data</code></td>
+<td>实际生成的歌曲数组，遍历全部元素读取结果</td>
+</tr>
+<tr>
+<td>歌曲对象 <code>id</code></td>
+<td>歌曲记录 ID，不是轮询用的任务 ID</td>
+</tr>
+<tr>
+<td>歌曲对象 <code>clipId</code></td>
+<td>作品片段 ID，不是轮询用的任务 ID</td>
+</tr>
+<tr>
+<td>歌曲对象 <code>cld2AudioUrl</code></td>
+<td>音频地址</td>
+</tr>
+<tr>
+<td>歌曲对象 <code>cld2ImageUrl</code></td>
+<td>封面图片地址</td>
+</tr>
+<tr>
+<td>歌曲对象 <code>duration</code></td>
+<td>时长，单位为秒</td>
+</tr>
+<tr>
+<td>歌曲对象 <code>prompt</code> / <code>tags</code> / <code>title</code></td>
+<td>歌词、风格标签与标题</td>
+</tr>
+<tr>
+<td>歌曲对象 <code>makeInstrumental</code></td>
+<td>是否为纯音乐</td>
+</tr>
+<tr>
+<td>歌曲对象 <code>status</code></td>
+<td>歌曲内部状态值，不代替外层任务状态判断</td>
+</tr>
+</tbody></table>
+</div>
+<h3 id="section-5-2">5.2 提取所有歌曲的音频地址</h3>
+<p>任务完成后，使用单任务查询保存的 <code>suno-result.json</code>：</p>
+<div class="code-block"><div class="code-bar"><span>bash</span><button type="button" class="copy-code" data-copy-code="10" aria-label="复制第 11 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-10" class="language-bash">python3 - &lt;&lt;'PY'
+import json
+
+with open('suno-result.json', encoding='utf-8') as file:
+    response = json.load(file)
+task = response.get('data')
+if response.get('code') != 'success' or not isinstance(task, dict):
+    raise SystemExit('查询未返回有效任务对象，请检查 suno-result.json。')
+if task.get('status') != 'SUCCESS':
+    raise SystemExit(f&quot;任务尚未成功：{task.get('status')}；{task.get('fail_reason', '')}&quot;)
+for index, song in enumerate(task.get('data') or [], start=1):
+    print(f&quot;{index}. {song.get('title', '')}&quot;)
+    print(song.get('cld2AudioUrl', ''))
+PY</code></pre></div>
+<p>把下面的占位地址替换为结果中的 <code>cld2AudioUrl</code>，即可下载音频：</p>
+<div class="code-block"><div class="code-bar"><span>bash</span><button type="button" class="copy-code" data-copy-code="11" aria-label="复制第 12 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-11" class="language-bash">export AUDIO_URL='替换为结果中的_cld2AudioUrl'
+curl -L --fail --show-error \
+  -A 'Mozilla/5.0' \
+  &quot;${AUDIO_URL}&quot; \
+  --output song.m4a</code></pre></div>
+<p>音频下载出现 <code>403</code> 时，可以使用正常浏览器打开，或像示例一样显式设置 <code>User-Agent</code>。Python 下载时同样为请求设置 <code>User-Agent: Mozilla/5.0</code>。<strong>访问音频链接不要附带 FlowAPI API Key</strong>。</p>
+<p>音频与封面链接可能具有有效期，拿到结果后及时下载，或转存到自己的存储。任务超时后继续查询原任务，不要因为暂时没有音频地址就新建同一创作任务。</p>
+<h2 id="section-6">6. 完整 Python 示例：提交一次，有限等待</h2>
+<p>只需要 Python 3 标准库，无需安装第三方依赖。将代码保存为 <code>suno_example.py</code>，先按第 2 节设置 <code>FLOWAPI_TOKEN</code>。</p>
+<p><strong>本节的 Python 提交与第 2.2 节的 curl 提交二选一，不要为同一次创作重复提交。</strong> 已执行快速开始、拿到任务 ID 后，使用 <code>--task-id</code> 查询原任务；只有显式传入 <code>--submit</code> 才会创建并计费一个新任务，不带参数或任务 ID 为空时不会提交。</p>
+<p>脚本最长轮询 10 分钟，每 5 秒查询一次。拿到任务 ID 后立刻写入当前目录的 <code>suno-task-id.txt</code>；成功时保存 <code>suno-result.json</code> 并输出全部音频地址。</p>
+<div class="code-block"><div class="code-bar"><span>python</span><button type="button" class="copy-code" data-copy-code="12" aria-label="复制第 13 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-12" class="language-python">import argparse
+import json
+import os
+import sys
+import time
+from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote
+from urllib.request import Request, urlopen
+
+
+BASE_URL = &quot;https://flowapi.robusta.top&quot;
+POLL_INTERVAL = 5
+
+
+def request_json(method, path, token, payload=None, timeout=30):
+    body = None if payload is None else json.dumps(payload).encode(&quot;utf-8&quot;)
+    headers = {&quot;Authorization&quot;: f&quot;Bearer {token}&quot;}
+    if body is not None:
+        headers[&quot;Content-Type&quot;] = &quot;application/json&quot;
+    request = Request(BASE_URL + path, data=body, headers=headers, method=method)
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            return json.load(response)
+    except HTTPError as error:
+        detail = error.read().decode(&quot;utf-8&quot;, errors=&quot;replace&quot;)
+        raise RuntimeError(f&quot;HTTP {error.code}: {detail}&quot;) from error
+
+
+def main():
+    parser = argparse.ArgumentParser(description=&quot;Suno 提交一次，轮询已有任务&quot;)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument(&quot;--submit&quot;, action=&quot;store_true&quot;, help=&quot;明确创建一个新的计费任务&quot;)
+    mode.add_argument(&quot;--task-id&quot;, help=&quot;只查询这个已有任务，不发起新的创作&quot;)
+    parser.add_argument(&quot;--wait-seconds&quot;, type=int, default=600)
+    args = parser.parse_args()
+    token = os.environ.get(&quot;FLOWAPI_TOKEN&quot;, &quot;&quot;).strip()
+    if not token:
+        raise SystemExit(&quot;请先设置环境变量 FLOWAPI_TOKEN。&quot;)
+    if args.wait_seconds &lt;= 0:
+        raise SystemExit(&quot;--wait-seconds 必须大于 0。&quot;)
+
+    task_id = None if args.task_id is None else args.task_id.strip()
+    if task_id == &quot;&quot;:
+        raise SystemExit(&quot;--task-id 不能为空；不会提交新的创作任务。&quot;)
+    if task_id is None:
+        # 可用第 3 节任意一种 JSON 请求体替换此处，其他调用流程不变。
+        payload = {
+            &quot;mv&quot;: &quot;chirp-v5&quot;,
+            &quot;gpt_description_prompt&quot;: &quot;写一首简短中文歌，温暖轻快，讲述春日散步。&quot;,
+            &quot;make_instrumental&quot;: False,
+        }
+        try:
+            submitted = request_json(&quot;POST&quot;, &quot;/suno/submit/music&quot;, token, payload)
+        except (RuntimeError, URLError, OSError, ValueError) as error:
+            print(f&quot;提交未获得明确结果：{error}&quot;, file=sys.stderr)
+            print(&quot;脚本不会自动重发 POST。请先核实任务是否已受理。&quot;, file=sys.stderr)
+            return 1
+        task_id = submitted.get(&quot;data&quot;)
+        if submitted.get(&quot;code&quot;) != &quot;success&quot; or not isinstance(task_id, str) or not task_id:
+            print(json.dumps(submitted, ensure_ascii=False), file=sys.stderr)
+            print(&quot;未得到有效任务 ID，不会自动重新提交。&quot;, file=sys.stderr)
+            return 1
+
+    print(f&quot;任务 ID：{task_id}&quot;, flush=True)
+    Path(&quot;suno-task-id.txt&quot;).write_text(task_id + &quot;\n&quot;, encoding=&quot;utf-8&quot;)
+    print(f&quot;恢复查询：python3 suno_example.py --task-id {task_id}&quot;, flush=True)
+    deadline = time.monotonic() + args.wait_seconds
+    path = &quot;/suno/fetch/&quot; + quote(task_id, safe=&quot;&quot;)
+
+    while time.monotonic() &lt; deadline:
+        remaining = deadline - time.monotonic()
+        try:
+            result = request_json(&quot;GET&quot;, path, token, timeout=min(30, remaining))
+        except (RuntimeError, URLError, OSError, ValueError) as error:
+            print(f&quot;查询中断：{error}&quot;, file=sys.stderr)
+            print(f&quot;任务 ID 已保留：{task_id}；请使用 --task-id 继续查询。&quot;, file=sys.stderr)
+            return 1
+        task = result.get(&quot;data&quot;)
+        if result.get(&quot;code&quot;) != &quot;success&quot; or not isinstance(task, dict):
+            print(json.dumps(result, ensure_ascii=False), file=sys.stderr)
+            print(f&quot;请保留任务 ID：{task_id}，不要重新提交。&quot;, file=sys.stderr)
+            return 1
+
+        status = task.get(&quot;status&quot;)
+        print(f&quot;状态：{status}，进度：{task.get('progress', '')}&quot;, flush=True)
+        if status == &quot;SUCCESS&quot;:
+            Path(&quot;suno-result.json&quot;).write_text(
+                json.dumps(result, ensure_ascii=False, indent=2) + &quot;\n&quot;,
+                encoding=&quot;utf-8&quot;,
+            )
+            songs = task.get(&quot;data&quot;) or []
+            for index, song in enumerate(songs, start=1):
+                print(f&quot;{index}. {song.get('title', '')}&quot;)
+                print(f&quot;音频：{song.get('cld2AudioUrl', '')}&quot;)
+                print(f&quot;封面：{song.get('cld2ImageUrl', '')}&quot;)
+            print(&quot;结果已保存至 suno-result.json，请及时保存音频和封面。&quot;)
+            return 0
+        if status == &quot;FAILURE&quot;:
+            print(f&quot;任务失败：{task.get('fail_reason', '')}&quot;, file=sys.stderr)
+            print(f&quot;任务 ID：{task_id}；脚本不会重新提交。&quot;, file=sys.stderr)
+            return 1
+
+        remaining = deadline - time.monotonic()
+        if remaining &gt; 0:
+            time.sleep(min(POLL_INTERVAL, remaining))
+
+    print(f&quot;本次等待结束，任务 ID：{task_id}，任务可能仍在生成。&quot;)
+    print(f&quot;继续查询：python3 suno_example.py --task-id {task_id}&quot;)
+    return 2
+
+
+if __name__ == &quot;__main__&quot;:
+    raise SystemExit(main())</code></pre></div>
+<p>已有任务、查询中断或等待超时，务必携带原来的任务 ID 恢复，只查询、不重新创作：</p>
+<div class="code-block"><div class="code-bar"><span>bash</span><button type="button" class="copy-code" data-copy-code="13" aria-label="复制第 14 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-13" class="language-bash">python3 suno_example.py --task-id &quot;${TASK_ID}&quot; --wait-seconds 600</code></pre></div>
+<p>如果刚才运行的是 Python 示例，可从文件恢复：</p>
+<div class="code-block"><div class="code-bar"><span>bash</span><button type="button" class="copy-code" data-copy-code="14" aria-label="复制第 15 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-14" class="language-bash">python3 suno_example.py \
+  --task-id &quot;$(cat suno-task-id.txt)&quot; \
+  --wait-seconds 600</code></pre></div>
+<p>如果尚未提交，并且明确要发起一次新的创作，再执行下面的命令。此命令会创建一个新的计费任务，不要在已经 curl 提交后用它恢复查询：</p>
+<div class="code-block"><div class="code-bar"><span>bash</span><button type="button" class="copy-code" data-copy-code="15" aria-label="复制第 16 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-15" class="language-bash">python3 suno_example.py --submit</code></pre></div>
+<p>恢复查询始终使用 <code>--task-id</code>。<code>--submit</code> 只用于新的创作，脚本不会自动重发它。</p>
+<h2 id="section-7">7. 常见问题</h2>
+<div class="table-scroll" tabindex="0" role="region" aria-label="文档表格，可横向滚动"><table>
+<thead>
+<tr>
+<th>现象</th>
+<th>检查与处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>401</code>，令牌无效或缺失</td>
+<td>使用自己的 FlowAPI API Key；检查 <code>Authorization: Bearer ...</code>、令牌是否过期或被禁用，不要把账户登录密码当成 API Key</td>
+</tr>
+<tr>
+<td><code>403</code>，无权访问或查询被拒绝</td>
+<td>检查令牌分组为 <code>video</code>，关闭“模型限制”开关，并确认查询使用提交时的同一令牌</td>
+</tr>
+<tr>
+<td>余额或额度不足</td>
+<td>检查账户余额及令牌可用额度，确认足以提交一个 0.60 元任务；查询时保留原任务 ID，不要重复新建任务</td>
+</tr>
+<tr>
+<td>请求参数错误</td>
+<td>检查 JSON、<code>mv</code> 和字段类型；灵感与自定义参数分开填写，<code>make_instrumental</code> 使用布尔值而不是字符串</td>
+</tr>
+<tr>
+<td>HTTP <code>200</code> 或 <code>code: success</code>，但还没有歌曲</td>
+<td>提交成功只表示已受理；继续查询原任务，直到任务对象 <code>status</code> 为 <code>SUCCESS</code></td>
+</tr>
+<tr>
+<td>任务状态为 <code>FAILURE</code></td>
+<td>查看并保留 <code>fail_reason</code>、任务 ID 和请求记录；排查原因后再决定是否重新创作，客户端不要自动重发提交</td>
+</tr>
+<tr>
+<td>等待超时、网络中断或临时服务错误</td>
+<td>已有任务 ID 时继续查询该 ID；提交结果不明确时先核实是否已受理，不要直接重新 POST</td>
+</tr>
+<tr>
+<td>已成功却取不到音频</td>
+<td>遍历歌曲数组，读取 <code>cld2AudioUrl</code>，注意 camelCase 字段名；不要使用 <code>audio_url</code> 或把 <code>clipId</code> 当成任务 ID</td>
+</tr>
+</tbody></table>
+</div>
+<p>接入时最重要的四件事：<strong>令牌选 <code>video</code> 并关闭模型限制；提交一次后保存任务 ID；以任务 <code>status</code> 判断完成；遍历歌曲数组读取 <code>cld2AudioUrl</code>。</strong></p>
+</article>
+      <footer class="doc-footer"><span>FlowAPI · 开发者文档</span><a href="#main-content">返回顶部 ↑</a></footer>
+    </main>
+  </div>
+  <div id="copy-feedback" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+  <script id="markdown-source" type="application/json">"# Suno 调用方法\n\n通过 FlowAPI 生成歌曲与纯音乐。一个任务采用“提交一次，再轮询结果”的调用流程，支持灵感创作、自定义歌词和纯音乐三种模式。\n\n## 1. 接入准备\n\n| 配置项 | 填写内容 |\n| --- | --- |\n| API 地址 | `https://flowapi.robusta.top`，不添加 `/v1` |\n| 身份认证 | `Authorization: Bearer \u003c你的 FlowAPI API Key>` |\n| 令牌分组 | 创建或编辑令牌时选择 `video` 分组 |\n| 模型限制 | 关闭令牌的“模型限制”开关，提交和查询使用同一个令牌 |\n| 计费模型 | `suno_music`，用于识别计费项目，不需要在请求体里填写 `model` |\n| 模型版本 | 请求体使用 `mv` 选择版本，推荐 `chirp-v5` |\n| 当前价格 | 人民币 **0.60 元 / 提交任务**；查询已有任务不重复收取生成费 |\n\n一次成功任务可能包含多首作品。当前实测一次返回两首，但客户端应遍历实际返回的数组，不要写死作品数量。0.60 元按提交任务计，不是每首分别计费；调用前可在模型广场核对当前价格。\n\nAPI Key 属于敏感信息，只保存在服务端或本地环境变量中，不要放入前端网页、公开仓库或分享的请求截图。\n\n## 2. 快速开始：提交与查询\n\n以下命令适用于 macOS、Linux 等终端。先将占位值替换为自己的 FlowAPI API Key，再按顺序执行。\n\n### 2.1 配置环境变量\n\n```bash\nexport FLOWAPI_BASE_URL='https://flowapi.robusta.top'\nexport FLOWAPI_TOKEN='替换为你的_FlowAPI_API_Key'\n```\n\n### 2.2 提交一次创作任务\n\n```bash\ncurl --silent --show-error --fail-with-body \\\n  \"${FLOWAPI_BASE_URL}/suno/submit/music\" \\\n  -H \"Authorization: Bearer ${FLOWAPI_TOKEN}\" \\\n  -H 'Content-Type: application/json' \\\n  --data-binary @- \\\n  --output suno-submit.json \u003c\u003c'JSON'\n{\n  \"mv\": \"chirp-v5\",\n  \"gpt_description_prompt\": \"写一首简短中文歌，讲述春天傍晚与朋友散步的快乐，温暖轻快的流行风格。\",\n  \"make_instrumental\": false\n}\nJSON\n\ncat suno-submit.json\n```\n\n成功提交的回包示例：\n\n```json\n{\n  \"code\": \"success\",\n  \"message\": \"\",\n  \"data\": \"task_...\"\n}\n```\n\n`data` 是任务 ID。收到任务 ID 只代表已受理，不代表歌曲生成完成。保存它，并从刚才的文件中提取：\n\n```bash\nexport TASK_ID=\"$(python3 - \u003c\u003c'PY'\nimport json\n\nwith open('suno-submit.json', encoding='utf-8') as file:\n    response = json.load(file)\ntask_id = response.get('data')\nif response.get('code') != 'success' or not isinstance(task_id, str) or not task_id:\n    raise SystemExit('提交未返回有效任务 ID，请检查 suno-submit.json，不要直接重复提交。')\nprint(task_id)\nPY\n)\"\n\nprintf '任务 ID：%s\\n' \"${TASK_ID}\"\n```\n\n如果提交请求超时或连接中断，不能据此判断任务未创建。先保留已有响应和请求记录，核实任务是否已经受理，不要自动重新发送 POST，以免重复创作、重复计费。\n\n### 2.3 查询这个任务\n\n**单任务查询：**\n\n```bash\ncurl --silent --show-error --fail-with-body \\\n  \"${FLOWAPI_BASE_URL}/suno/fetch/${TASK_ID}\" \\\n  -H \"Authorization: Bearer ${FLOWAPI_TOKEN}\" \\\n  --output suno-result.json\n\ncat suno-result.json\n```\n\n**批量查询：**\n\n```bash\npython3 - \u003c\u003c'PY' > suno-fetch.json\nimport json\nimport os\n\ntask_id = os.environ.get('TASK_ID')\nif not task_id:\n    raise SystemExit('请先设置 TASK_ID。')\nprint(json.dumps({'ids': [task_id]}))\nPY\n\ncurl --silent --show-error --fail-with-body \\\n  \"${FLOWAPI_BASE_URL}/suno/fetch\" \\\n  -H \"Authorization: Bearer ${FLOWAPI_TOKEN}\" \\\n  -H 'Content-Type: application/json' \\\n  --data-binary @suno-fetch.json\n```\n\n批量请求的 `ids` 可以填写多个已经提交的任务 ID。单任务查询的外层 `data` 是一个任务对象，批量查询的外层 `data` 是任务对象数组。\n\n查询后检查任务对象的 `status`：`SUCCESS` 表示完成，`FAILURE` 表示失败，其他状态继续等待。建议每 5–10 秒查询一次。完整的有限等待示例见第 6 节。\n\n## 3. 三种创作模式\n\n三种模式均调用 `POST /suno/submit/music`，认证方式相同。将快速开始中的 JSON 请求体替换为对应示例即可。\n\n### 3.1 灵感模式：描述你想听到的歌曲\n\n填写 `gpt_description_prompt`，描述主题、情绪、语言和音乐风格，由模型创作歌词与音乐。\n\n```json\n{\n  \"mv\": \"chirp-v5\",\n  \"gpt_description_prompt\": \"写一首简短中文歌，讲述春天傍晚与朋友散步的快乐，温暖轻快的流行风格。\",\n  \"make_instrumental\": false\n}\n```\n\n灵感模式也可以生成纯音乐：把同一请求的 `make_instrumental` 改为 `true`，并在描述中写清想要的配器、情绪和节奏。\n\n### 3.2 自定义模式：自己写歌词和风格\n\n使用 `prompt` 提供歌词、`tags` 描述音乐风格、`title` 指定作品标题。\n\n```json\n{\n  \"mv\": \"chirp-v5\",\n  \"prompt\": \"[Verse]\\n晚风吹过熟悉的街角\\n灯火照亮回家的路\\n\\n[Chorus]\\n把今天的故事轻轻唱\\n让温柔陪在你身旁\",\n  \"tags\": \"acoustic pop, warm male vocal, gentle guitar, 80 bpm\",\n  \"title\": \"晚风回家\",\n  \"make_instrumental\": false\n}\n```\n\n歌词可以使用 `[Verse]`、`[Chorus]` 等段落标记。音乐类型、声音特点、乐器和速度写在 `tags`；`title` 只是作品标题，不用于控制风格。\n\n### 3.3 纯音乐模式：只有配器，没有演唱\n\n自定义纯音乐使用 `tags` 描述风格，设置 `make_instrumental: true`。可以完全省略歌词字段 `prompt`。\n\n```json\n{\n  \"mv\": \"chirp-v5\",\n  \"tags\": \"instrumental, ambient piano, soft strings, calm, 70 bpm\",\n  \"title\": \"雨后微光\",\n  \"make_instrumental\": true\n}\n```\n\n灵感模式和自定义模式分别填写，**不要在同一个请求中同时传入 `gpt_description_prompt` 和 `prompt`**。生成结果具有随机性，描述、歌词段落标记和风格标签都是创作指引，不保证每个字词或风格细节逐项实现。\n\n## 4. 参数与版本\n\n| 参数 | 类型 | 使用方式 |\n| --- | --- | --- |\n| `mv` | string | 选择模型版本，推荐明确填写 `chirp-v5`；它不是音乐风格字段 |\n| `gpt_description_prompt` | string | 灵感模式填写自然语言创作描述；不与 `prompt` 同时传入 |\n| `prompt` | string | 自定义歌曲的歌词；自定义纯音乐可省略 |\n| `tags` | string | 自定义模式的风格描述，例如曲风、乐器、声音特点和 BPM |\n| `title` | string | 可选，作品标题；不是风格控制参数 |\n| `make_instrumental` | boolean | `true` 生成纯音乐，`false` 生成带人声歌曲；示例均明确传入 |\n\n版本选择：\n\n| `mv` 值 | 对应版本 | 建议 |\n| --- | --- | --- |\n| `chirp-v5` | Suno v5 | 推荐；本文三种模式均已用此版本验证成功 |\n| `chirp-v4-5` | Suno v4.5 | 可选择的其他版本 |\n| `chirp-v4` | Suno v4 | 可选择的其他版本 |\n| `chirp-v3-5` | Suno v3.5 | 可选择的其他版本 |\n\n切换版本时修改 `mv`；调整风格时修改 `tags` 或灵感描述。`suno_music` 是 FlowAPI 的计费模型名，不要将它填入 `mv`，也不需要添加 `model` 字段。\n\n## 5. 任务结果与音频保存\n\n### 5.1 单任务成功回包\n\n下例展示结构，任务 ID、作品 ID、链接和时长均为示意值：\n\n```json\n{\n  \"code\": \"success\",\n  \"message\": \"\",\n  \"data\": {\n    \"task_id\": \"task_...\",\n    \"action\": \"MUSIC\",\n    \"status\": \"SUCCESS\",\n    \"progress\": \"100%\",\n    \"fail_reason\": \"\",\n    \"data\": [\n      {\n        \"id\": \"1234567890\",\n        \"clipId\": \"00000000-0000-4000-8000-000000000000\",\n        \"title\": \"晚风回家\",\n        \"tags\": \"acoustic pop, warm male vocal, gentle guitar, 80 bpm\",\n        \"prompt\": \"[Verse]\\n晚风吹过熟悉的街角……\",\n        \"makeInstrumental\": false,\n        \"duration\": 38.4,\n        \"cld2AudioUrl\": \"https://example.com/song.m4a\",\n        \"cld2ImageUrl\": \"https://example.com/cover.jpeg\",\n        \"status\": 30\n      }\n    ]\n  }\n}\n```\n\n**任务状态看 `data.status`，音频链接取 `data.data[i].cld2AudioUrl`。** 歌曲对象使用 camelCase 字段名，不能把音频字段写成 `audio_url`。\n\n| 字段 | 含义 |\n| --- | --- |\n| 任务对象 `task_id` | 提交时获得的任务 ID，用于后续查询 |\n| 任务对象 `status` | `SUCCESS` 已完成；`FAILURE` 已失败；其他状态继续轮询 |\n| 任务对象 `progress` | 进度展示；以任务 `status` 判断是否完成 |\n| 任务对象 `fail_reason` | 失败原因，失败时保留该字段与任务 ID 排查 |\n| 任务对象 `data` | 实际生成的歌曲数组，遍历全部元素读取结果 |\n| 歌曲对象 `id` | 歌曲记录 ID，不是轮询用的任务 ID |\n| 歌曲对象 `clipId` | 作品片段 ID，不是轮询用的任务 ID |\n| 歌曲对象 `cld2AudioUrl` | 音频地址 |\n| 歌曲对象 `cld2ImageUrl` | 封面图片地址 |\n| 歌曲对象 `duration` | 时长，单位为秒 |\n| 歌曲对象 `prompt` / `tags` / `title` | 歌词、风格标签与标题 |\n| 歌曲对象 `makeInstrumental` | 是否为纯音乐 |\n| 歌曲对象 `status` | 歌曲内部状态值，不代替外层任务状态判断 |\n\n### 5.2 提取所有歌曲的音频地址\n\n任务完成后，使用单任务查询保存的 `suno-result.json`：\n\n```bash\npython3 - \u003c\u003c'PY'\nimport json\n\nwith open('suno-result.json', encoding='utf-8') as file:\n    response = json.load(file)\ntask = response.get('data')\nif response.get('code') != 'success' or not isinstance(task, dict):\n    raise SystemExit('查询未返回有效任务对象，请检查 suno-result.json。')\nif task.get('status') != 'SUCCESS':\n    raise SystemExit(f\"任务尚未成功：{task.get('status')}；{task.get('fail_reason', '')}\")\nfor index, song in enumerate(task.get('data') or [], start=1):\n    print(f\"{index}. {song.get('title', '')}\")\n    print(song.get('cld2AudioUrl', ''))\nPY\n```\n\n把下面的占位地址替换为结果中的 `cld2AudioUrl`，即可下载音频：\n\n```bash\nexport AUDIO_URL='替换为结果中的_cld2AudioUrl'\ncurl -L --fail --show-error \\\n  -A 'Mozilla/5.0' \\\n  \"${AUDIO_URL}\" \\\n  --output song.m4a\n```\n\n音频下载出现 `403` 时，可以使用正常浏览器打开，或像示例一样显式设置 `User-Agent`。Python 下载时同样为请求设置 `User-Agent: Mozilla/5.0`。**访问音频链接不要附带 FlowAPI API Key**。\n\n音频与封面链接可能具有有效期，拿到结果后及时下载，或转存到自己的存储。任务超时后继续查询原任务，不要因为暂时没有音频地址就新建同一创作任务。\n\n## 6. 完整 Python 示例：提交一次，有限等待\n\n只需要 Python 3 标准库，无需安装第三方依赖。将代码保存为 `suno_example.py`，先按第 2 节设置 `FLOWAPI_TOKEN`。\n\n**本节的 Python 提交与第 2.2 节的 curl 提交二选一，不要为同一次创作重复提交。** 已执行快速开始、拿到任务 ID 后，使用 `--task-id` 查询原任务；只有显式传入 `--submit` 才会创建并计费一个新任务，不带参数或任务 ID 为空时不会提交。\n\n脚本最长轮询 10 分钟，每 5 秒查询一次。拿到任务 ID 后立刻写入当前目录的 `suno-task-id.txt`；成功时保存 `suno-result.json` 并输出全部音频地址。\n\n```python\nimport argparse\nimport json\nimport os\nimport sys\nimport time\nfrom pathlib import Path\nfrom urllib.error import HTTPError, URLError\nfrom urllib.parse import quote\nfrom urllib.request import Request, urlopen\n\n\nBASE_URL = \"https://flowapi.robusta.top\"\nPOLL_INTERVAL = 5\n\n\ndef request_json(method, path, token, payload=None, timeout=30):\n    body = None if payload is None else json.dumps(payload).encode(\"utf-8\")\n    headers = {\"Authorization\": f\"Bearer {token}\"}\n    if body is not None:\n        headers[\"Content-Type\"] = \"application/json\"\n    request = Request(BASE_URL + path, data=body, headers=headers, method=method)\n    try:\n        with urlopen(request, timeout=timeout) as response:\n            return json.load(response)\n    except HTTPError as error:\n        detail = error.read().decode(\"utf-8\", errors=\"replace\")\n        raise RuntimeError(f\"HTTP {error.code}: {detail}\") from error\n\n\ndef main():\n    parser = argparse.ArgumentParser(description=\"Suno 提交一次，轮询已有任务\")\n    mode = parser.add_mutually_exclusive_group(required=True)\n    mode.add_argument(\"--submit\", action=\"store_true\", help=\"明确创建一个新的计费任务\")\n    mode.add_argument(\"--task-id\", help=\"只查询这个已有任务，不发起新的创作\")\n    parser.add_argument(\"--wait-seconds\", type=int, default=600)\n    args = parser.parse_args()\n    token = os.environ.get(\"FLOWAPI_TOKEN\", \"\").strip()\n    if not token:\n        raise SystemExit(\"请先设置环境变量 FLOWAPI_TOKEN。\")\n    if args.wait_seconds \u003c= 0:\n        raise SystemExit(\"--wait-seconds 必须大于 0。\")\n\n    task_id = None if args.task_id is None else args.task_id.strip()\n    if task_id == \"\":\n        raise SystemExit(\"--task-id 不能为空；不会提交新的创作任务。\")\n    if task_id is None:\n        # 可用第 3 节任意一种 JSON 请求体替换此处，其他调用流程不变。\n        payload = {\n            \"mv\": \"chirp-v5\",\n            \"gpt_description_prompt\": \"写一首简短中文歌，温暖轻快，讲述春日散步。\",\n            \"make_instrumental\": False,\n        }\n        try:\n            submitted = request_json(\"POST\", \"/suno/submit/music\", token, payload)\n        except (RuntimeError, URLError, OSError, ValueError) as error:\n            print(f\"提交未获得明确结果：{error}\", file=sys.stderr)\n            print(\"脚本不会自动重发 POST。请先核实任务是否已受理。\", file=sys.stderr)\n            return 1\n        task_id = submitted.get(\"data\")\n        if submitted.get(\"code\") != \"success\" or not isinstance(task_id, str) or not task_id:\n            print(json.dumps(submitted, ensure_ascii=False), file=sys.stderr)\n            print(\"未得到有效任务 ID，不会自动重新提交。\", file=sys.stderr)\n            return 1\n\n    print(f\"任务 ID：{task_id}\", flush=True)\n    Path(\"suno-task-id.txt\").write_text(task_id + \"\\n\", encoding=\"utf-8\")\n    print(f\"恢复查询：python3 suno_example.py --task-id {task_id}\", flush=True)\n    deadline = time.monotonic() + args.wait_seconds\n    path = \"/suno/fetch/\" + quote(task_id, safe=\"\")\n\n    while time.monotonic() \u003c deadline:\n        remaining = deadline - time.monotonic()\n        try:\n            result = request_json(\"GET\", path, token, timeout=min(30, remaining))\n        except (RuntimeError, URLError, OSError, ValueError) as error:\n            print(f\"查询中断：{error}\", file=sys.stderr)\n            print(f\"任务 ID 已保留：{task_id}；请使用 --task-id 继续查询。\", file=sys.stderr)\n            return 1\n        task = result.get(\"data\")\n        if result.get(\"code\") != \"success\" or not isinstance(task, dict):\n            print(json.dumps(result, ensure_ascii=False), file=sys.stderr)\n            print(f\"请保留任务 ID：{task_id}，不要重新提交。\", file=sys.stderr)\n            return 1\n\n        status = task.get(\"status\")\n        print(f\"状态：{status}，进度：{task.get('progress', '')}\", flush=True)\n        if status == \"SUCCESS\":\n            Path(\"suno-result.json\").write_text(\n                json.dumps(result, ensure_ascii=False, indent=2) + \"\\n\",\n                encoding=\"utf-8\",\n            )\n            songs = task.get(\"data\") or []\n            for index, song in enumerate(songs, start=1):\n                print(f\"{index}. {song.get('title', '')}\")\n                print(f\"音频：{song.get('cld2AudioUrl', '')}\")\n                print(f\"封面：{song.get('cld2ImageUrl', '')}\")\n            print(\"结果已保存至 suno-result.json，请及时保存音频和封面。\")\n            return 0\n        if status == \"FAILURE\":\n            print(f\"任务失败：{task.get('fail_reason', '')}\", file=sys.stderr)\n            print(f\"任务 ID：{task_id}；脚本不会重新提交。\", file=sys.stderr)\n            return 1\n\n        remaining = deadline - time.monotonic()\n        if remaining > 0:\n            time.sleep(min(POLL_INTERVAL, remaining))\n\n    print(f\"本次等待结束，任务 ID：{task_id}，任务可能仍在生成。\")\n    print(f\"继续查询：python3 suno_example.py --task-id {task_id}\")\n    return 2\n\n\nif __name__ == \"__main__\":\n    raise SystemExit(main())\n```\n\n已有任务、查询中断或等待超时，务必携带原来的任务 ID 恢复，只查询、不重新创作：\n\n```bash\npython3 suno_example.py --task-id \"${TASK_ID}\" --wait-seconds 600\n```\n\n如果刚才运行的是 Python 示例，可从文件恢复：\n\n```bash\npython3 suno_example.py \\\n  --task-id \"$(cat suno-task-id.txt)\" \\\n  --wait-seconds 600\n```\n\n如果尚未提交，并且明确要发起一次新的创作，再执行下面的命令。此命令会创建一个新的计费任务，不要在已经 curl 提交后用它恢复查询：\n\n```bash\npython3 suno_example.py --submit\n```\n\n恢复查询始终使用 `--task-id`。`--submit` 只用于新的创作，脚本不会自动重发它。\n\n## 7. 常见问题\n\n| 现象 | 检查与处理 |\n| --- | --- |\n| `401`，令牌无效或缺失 | 使用自己的 FlowAPI API Key；检查 `Authorization: Bearer ...`、令牌是否过期或被禁用，不要把账户登录密码当成 API Key |\n| `403`，无权访问或查询被拒绝 | 检查令牌分组为 `video`，关闭“模型限制”开关，并确认查询使用提交时的同一令牌 |\n| 余额或额度不足 | 检查账户余额及令牌可用额度，确认足以提交一个 0.60 元任务；查询时保留原任务 ID，不要重复新建任务 |\n| 请求参数错误 | 检查 JSON、`mv` 和字段类型；灵感与自定义参数分开填写，`make_instrumental` 使用布尔值而不是字符串 |\n| HTTP `200` 或 `code: success`，但还没有歌曲 | 提交成功只表示已受理；继续查询原任务，直到任务对象 `status` 为 `SUCCESS` |\n| 任务状态为 `FAILURE` | 查看并保留 `fail_reason`、任务 ID 和请求记录；排查原因后再决定是否重新创作，客户端不要自动重发提交 |\n| 等待超时、网络中断或临时服务错误 | 已有任务 ID 时继续查询该 ID；提交结果不明确时先核实是否已受理，不要直接重新 POST |\n| 已成功却取不到音频 | 遍历歌曲数组，读取 `cld2AudioUrl`，注意 camelCase 字段名；不要使用 `audio_url` 或把 `clipId` 当成任务 ID |\n\n接入时最重要的四件事：**令牌选 `video` 并关闭模型限制；提交一次后保存任务 ID；以任务 `status` 判断完成；遍历歌曲数组读取 `cld2AudioUrl`。**\n"</script>
+  <script>
+    const markdown = JSON.parse(document.getElementById('markdown-source').textContent);
+    const feedback = document.getElementById('copy-feedback');
+    const resetTimers = new WeakMap();
+    let feedbackTimer;
+    function announce(message) {
+      clearTimeout(feedbackTimer);
+      feedback.textContent = message;
+      feedback.classList.add('visible');
+      feedbackTimer = setTimeout(() => feedback.classList.remove('visible'), 3200);
+    }
+    async function copyText(text) {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+          return;
+        }
+      } catch (_) {}
+      const previousFocus = document.activeElement;
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.readOnly = true;
+      textarea.style.cssText = 'position:fixed;top:0;left:-9999px;opacity:0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand('copy');
+      textarea.remove();
+      if (previousFocus instanceof HTMLElement) previousFocus.focus({preventScroll:true});
+      if (!copied) throw new Error('Clipboard is unavailable');
+    }
+    async function copyWithFeedback(button, text, message) {
+      const label = button.querySelector('span');
+      const original = button.id === 'copy-markdown' ? '一键复制 Markdown' : '复制';
+      clearTimeout(resetTimers.get(button));
+      button.disabled = true;
+      try {
+        await copyText(text);
+        label.textContent = '已复制';
+        button.dataset.copied = 'true';
+        announce(message);
+      } catch (_) {
+        announce('复制未成功，请使用「下载 .md」保存完整文档。');
+      } finally {
+        button.disabled = false;
+        resetTimers.set(button, setTimeout(() => {
+          label.textContent = original;
+          delete button.dataset.copied;
+        }, 2200));
+      }
+    }
+    document.getElementById('copy-markdown').addEventListener('click', function () {
+      copyWithFeedback(this, markdown, '已复制完整 Markdown，可直接粘贴给开发工具或团队成员。');
+    });
+    document.querySelectorAll('[data-copy-code]').forEach((button) => {
+      button.addEventListener('click', function () {
+        const code = document.getElementById('code-' + this.dataset.copyCode);
+        copyWithFeedback(this, code.textContent, '代码已复制。');
+      });
+    });
+    document.getElementById('download-markdown').addEventListener('click', () => {
+      const blob = new Blob([markdown], {type:'text/markdown;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'FlowAPI-Suno-调用方法.md';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      announce('Markdown 下载已开始。');
+    });
+    const headings = document.querySelectorAll('article h2');
+    const tocLinks = document.querySelectorAll('.toc a');
+    if ('IntersectionObserver' in window) {
+      const observer = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          tocLinks.forEach((link) => {
+            if (link.hash === '#' + entry.target.id) link.setAttribute('aria-current', 'location');
+            else link.removeAttribute('aria-current');
+          });
+        }
+      }, {rootMargin:'-150px 0px -65% 0px', threshold:0});
+      headings.forEach((heading) => observer.observe(heading));
+    }
+  </script>
+</body>
+</html>
