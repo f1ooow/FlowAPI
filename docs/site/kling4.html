@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="FlowAPI Kling 4.0 视频调用方法：720p / 1080p、3–30 秒视频、图片与视频音频参考，以及任务提交、查询和下载。">
+  <meta name="flowapi-markdown-sha256" content="3eba863717f8f46e914a6d55575b275b06f2c492592f5bfedd3e7caac01f1f86">
+  <meta name="color-scheme" content="light">
+  <title>Kling 4.0 视频调用方法 · FlowAPI 文档</title>
+  <style>
+    :root{--bg:#fff;--surface:#f6f8fa;--ink:#17212d;--muted:#5a6978;--line:#e2e8ed;--accent:#087e86;--accent-dark:#065f66;--accent-soft:#edf8f8;--radius:12px}
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth;scroll-padding-top:112px}
+    body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.8 'Public Sans','Avenir Next','PingFang SC','Microsoft YaHei',sans-serif;-webkit-font-smoothing:antialiased}
+    a{color:var(--accent);text-decoration:none}
+    a:hover{text-decoration:underline;text-underline-offset:4px}
+    button,a{-webkit-tap-highlight-color:transparent}
+    button{font:inherit;cursor:pointer}
+    :focus-visible{outline:3px solid #159ca6;outline-offset:4px}
+    button:disabled{cursor:wait;opacity:.7}
+    .skip-link{position:fixed;top:-80px;left:16px;z-index:60;padding:8px 16px;background:var(--ink);color:white;border-radius:8px}
+    .skip-link:focus{top:12px}
+    .topbar{position:sticky;top:0;z-index:30;border-bottom:1px solid var(--line);background:rgba(255,255,255,.97)}
+    .top-inner{max-width:1320px;min-height:76px;margin:auto;padding:14px 32px;display:flex;align-items:center;justify-content:space-between;gap:24px}
+    .brand{display:inline-flex;align-items:center;gap:12px;color:var(--ink);flex-shrink:0}
+    .brand:hover{text-decoration:none}
+    .brand-mark{width:32px;height:32px;display:grid;place-items:center;border-radius:9px;background:var(--accent);color:white}
+    .brand-mark svg{width:22px;height:22px}
+    .brand-name{font-size:19px;font-weight:700;letter-spacing:-.6px}
+    .brand-divider{width:1px;height:20px;background:var(--line);margin-inline:3px}
+    .brand-area{font-size:14px;color:var(--muted);font-weight:500}
+    .top-actions{display:flex;align-items:center;gap:10px}
+    .button{display:inline-flex;justify-content:center;align-items:center;gap:9px;min-height:44px;padding:9px 17px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font-size:14px;font-weight:600;line-height:1.5;white-space:nowrap;transition:background .15s,border-color .15s}
+    .button svg{width:17px;height:17px;flex-shrink:0}
+    .button:hover{background:var(--surface);border-color:#b8c8ce}
+    .button.primary{border-color:var(--accent);background:var(--accent);color:white}
+    .button.primary:hover{background:var(--accent-dark);border-color:var(--accent-dark)}
+    .layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:56px;max-width:1232px;margin:auto;padding:44px 32px 80px}
+    .sidebar{align-self:start;position:sticky;top:112px;font-size:13px;color:var(--muted)}
+    .sidebar-label{margin:0 0 12px;color:var(--muted);font-size:11px;letter-spacing:1.4px;font-weight:600;text-transform:uppercase}
+    .document-list{display:flex;flex-direction:column;gap:5px;margin-bottom:30px}
+    .document-link{display:flex;align-items:center;gap:10px;border-left:2px solid transparent;padding:11px 14px;color:var(--muted);font-size:14px;font-weight:600;border-radius:0 6px 6px 0}
+    .document-link[aria-current="page"]{border-left-color:var(--accent);background:var(--accent-soft);color:var(--accent-dark)}
+    .document-link:hover{text-decoration:none;background:#e3f3f3;color:var(--accent-dark)}
+    .mobile-documents{display:none}
+    .toc{display:flex;flex-direction:column;gap:3px}
+    .toc a{display:flex;align-items:baseline;gap:12px;line-height:1.5;color:var(--muted);padding:9px 10px;border-radius:6px}
+    .toc a:hover,.toc a[aria-current="location"]{color:var(--accent-dark);background:var(--accent-soft);text-decoration:none}
+    .toc-number{font-size:10px;font-weight:600;letter-spacing:.3px;color:#7d8d97;font-variant-numeric:tabular-nums}
+    .sidebar-footer{display:block;margin:30px 10px 0;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
+    main{min-width:0;max-width:836px}
+    .doc-header{padding:0 0 31px;border-bottom:1px solid var(--line);margin-bottom:35px;background:radial-gradient(ellipse at 100% 0,rgba(13,148,154,.035),transparent 65%)}
+    .eyebrow{display:flex;align-items:center;gap:8px;margin:0 0 14px;color:var(--accent);font-size:12px;font-weight:700;letter-spacing:1.5px}
+    .eyebrow:before{content:'';width:6px;height:6px;border-radius:50%;background:var(--accent)}
+    h1{font-size:clamp(30px,3.5vw,40px);line-height:1.25;letter-spacing:-1.2px;font-weight:700;margin:0 0 18px}
+    .lead{max-width:700px;font-size:16px;line-height:1.9;color:var(--muted)}
+    .lead p{margin:0}
+    .doc-meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:21px}
+    .meta-tag{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:5px;padding:3px 9px;color:var(--muted);background:white;font-size:11px;line-height:1.5;font-weight:500}
+    .mobile-toc{display:none}
+    article{overflow-wrap:anywhere}
+    article h2{font-size:24px;line-height:1.45;font-weight:650;letter-spacing:-.5px;margin:49px 0 18px;padding-top:5px;scroll-margin-top:108px}
+    article h2:first-child{margin-top:0}
+    article h3{font-size:18px;line-height:1.5;font-weight:600;margin:30px 0 14px;scroll-margin-top:108px}
+    article p{margin:14px 0}
+    article strong{font-weight:650;color:#102c35}
+    article p>strong:only-child{display:block;border-left:3px solid var(--accent);border-radius:0 6px 6px 0;background:var(--accent-soft);padding:13px 16px;font-size:14px;line-height:1.85}
+    article code{font-family:'SFMono-Regular','Cascadia Code','Consolas',monospace;font-size:.85em;background:#f0f4f6;border:1px solid #e8eef1;border-radius:4px;padding:2px 5px;word-break:normal}
+    .table-scroll{width:100%;max-width:100%;overflow-x:auto;border:1px solid var(--line);border-radius:9px;margin:20px 0 24px;-webkit-overflow-scrolling:touch}
+    table{border-collapse:collapse;width:100%;font-size:13px;line-height:1.8}
+    th,td{border-bottom:1px solid var(--line);padding:12px 14px;text-align:left;vertical-align:top}
+    th{background:var(--surface);color:var(--muted);font-size:11px;letter-spacing:.2px;font-weight:600;white-space:nowrap}
+    th:first-child,td:first-child{min-width:118px}
+    td code{font-size:12px;white-space:normal}
+    tr:last-child td{border-bottom:0}
+    .code-block{margin:20px 0 24px;border:1px solid #dce5e9;border-radius:10px;overflow:hidden;background:#f7f9fb;box-shadow:0 1px 1px rgba(18,39,48,.025)}
+    .code-bar{min-height:43px;display:flex;justify-content:space-between;align-items:center;padding:0 9px 0 16px;border-bottom:1px solid #e3eaee;background:#f0f4f6;color:var(--muted);font:10px/1.4 'Avenir Next','Public Sans',sans-serif;letter-spacing:.8px;text-transform:uppercase}
+    .copy-code{min-width:66px;min-height:36px;padding:6px 8px;display:flex;align-items:center;gap:6px;border:0;border-radius:5px;background:transparent;color:#465d69;font-size:12px;letter-spacing:0}
+    .copy-code svg{height:14px;width:14px}
+    .copy-code:hover{background:#e3ebef;color:var(--accent-dark)}
+    .copy-code[data-copied="true"]{color:var(--accent-dark);background:#ddf0ef}
+    pre{margin:0;padding:20px;overflow:auto;line-height:1.9;tab-size:4;white-space:pre;-webkit-overflow-scrolling:touch}
+    article pre code{display:block;border:0;padding:0;background:transparent;border-radius:0;color:#263d4a;font-size:12px;overflow-wrap:normal;white-space:pre}
+    .doc-footer{margin-top:52px;padding-top:24px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;color:var(--muted);font-size:11px}
+    .doc-footer a{color:var(--muted)}
+    .toast{position:fixed;left:50%;bottom:28px;z-index:50;max-width:calc(100% - 32px);transform:translate(-50%,12px);padding:11px 18px;border:1px solid #cce1e2;border-radius:9px;background:#f0fafa;color:var(--accent-dark);box-shadow:0 6px 24px rgba(23,52,58,.1);font-size:14px;line-height:1.5;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s}
+    .toast.visible{transform:translate(-50%,0);opacity:1}
+    noscript{display:block;padding:12px 16px;background:var(--accent-soft);font-size:14px;color:var(--accent-dark)}
+    @media(min-width:1450px){.layout{gap:76px}}
+    @media(max-width:1000px){.layout{grid-template-columns:180px minmax(0,1fr);gap:30px;padding-inline:24px}.top-inner{padding-inline:24px}.sidebar{font-size:12px}.toc a{padding-inline:6px;gap:8px}.toc-number{display:none}}
+    @media(max-width:760px){.layout{display:block;padding:30px 20px 56px}.sidebar{display:none}.top-inner{padding-inline:20px;gap:16px}.brand-divider,.brand-area{display:none}.button{padding:9px 12px;font-size:13px}.button svg{height:16px;width:16px}.brand-name{font-size:17px}.brand-mark{width:29px;height:29px}.brand{gap:8px}.top-actions{gap:8px}.mobile-documents{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 24px}.mobile-documents .document-link{border:1px solid var(--line);border-radius:6px;padding:7px 12px;font-size:13px}.mobile-documents .document-link[aria-current="page"]{border-color:#b3d8d9}.doc-header{padding-bottom:26px;margin-bottom:26px}.mobile-toc{display:block;border:1px solid var(--line);border-radius:8px;padding:0 14px;margin:0 0 30px;background:var(--bg)}.mobile-toc summary{cursor:pointer;padding:11px 0;font-size:13px;font-weight:600;color:var(--muted)}.mobile-toc .toc{padding:0 0 12px}.mobile-toc .toc-number{display:inline}.lead{font-size:15px}.doc-meta{gap:6px}article h2{font-size:22px;margin-top:39px}article h3{font-size:17px}article p{font-size:15px;line-height:1.9}th,td{padding:11px 12px}.code-block{margin:18px 0 22px}pre{padding:16px}article pre code{font-size:11px}}
+    @media(max-width:540px){html{scroll-padding-top:148px}.top-inner{flex-wrap:wrap;padding:12px 18px;gap:12px}.brand-divider,.brand-area{display:block}.brand-name{font-size:18px}.top-actions{width:100%}.top-actions .primary{flex:1}.top-actions .button{min-height:43px}.layout{padding-top:26px}article h2,article h3{scroll-margin-top:146px}.doc-header{margin-bottom:23px}.eyebrow{font-size:10px}h1{font-size:32px;letter-spacing:-1px}.meta-tag{font-size:10px}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{transition:none!important}}
+    @media print{.topbar,.sidebar,.mobile-documents,.mobile-toc,.toast,.copy-code,.skip-link{display:none}.layout{display:block;padding:0}.doc-header{background:none}.code-block,.table-scroll{break-inside:avoid}pre{white-space:pre-wrap;overflow-wrap:anywhere}article pre code{white-space:pre-wrap}.doc-footer{margin-top:28px}}
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳到文档正文</a>
+  <header class="topbar">
+    <div class="top-inner">
+      <a class="brand" href="https://flowapi.robusta.top/" aria-label="返回 FlowAPI 首页">
+        <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 8h14M5 16h14M9 4l-4 4 4 4m6 0 4 4-4 4"/></svg></span>
+        <span class="brand-name">Flow API</span><span class="brand-divider"></span><span class="brand-area">文档区</span>
+      </a>
+      <div class="top-actions">
+        <button id="copy-markdown" class="button primary" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>一键复制 Markdown</span></button>
+        <button id="download-markdown" class="button" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg><span>下载 .md</span></button>
+      </div>
+    </div>
+  </header>
+  <noscript>正文可以直接阅读。复制全文、复制代码和下载 Markdown 功能需要启用 JavaScript。</noscript>
+  <div class="layout">
+    <aside class="sidebar" aria-label="文档导航">
+      <p class="sidebar-label">开发者文档</p>
+      <nav class="document-list" aria-label="开发者文档列表"><a class="document-link" href="index.html">Suno 调用方法</a>
+<a class="document-link" href="ocr.html">OCR 调用方法</a>
+<a class="document-link" href="omni.html">Omni 视频调用方法</a>
+<a class="document-link" href="kling4.html" aria-current="page">Kling 4.0 视频调用方法</a></nav>
+      <p class="sidebar-label">本页内容</p>
+      <nav class="toc" aria-label="本页目录"><a href="#section-1"><span class="toc-number">01</span>接入准备</a>
+<a href="#section-2"><span class="toc-number">02</span>快速开始：提交、查询、下载</a>
+<a href="#section-3"><span class="toc-number">03</span>请求参数</a>
+<a href="#section-4"><span class="toc-number">04</span>使用参考素材</a>
+<a href="#section-5"><span class="toc-number">05</span>常见问题</a></nav>
+      <a class="sidebar-footer" href="https://flowapi.robusta.top/">← 返回 FlowAPI</a>
+    </aside>
+    <main id="main-content" tabindex="-1">
+      <nav class="mobile-documents" aria-label="移动端开发者文档列表"><a class="document-link" href="index.html">Suno 调用方法</a>
+<a class="document-link" href="ocr.html">OCR 调用方法</a>
+<a class="document-link" href="omni.html">Omni 视频调用方法</a>
+<a class="document-link" href="kling4.html" aria-current="page">Kling 4.0 视频调用方法</a></nav>
+      <header class="doc-header">
+        <p class="eyebrow">视频生成 / KLING 4.0</p>
+        <h1>Kling 4.0 视频调用方法</h1>
+        <div class="lead"><p>通过 FlowAPI 调用 <code>kling-4.0</code>，提交一次视频生成任务，再查询进度并下载成片。支持文字、图片、视频和音频参考，生成 3–30 秒、720p 或 1080p 视频。</p>
+</div>
+        <div class="doc-meta"><span class="meta-tag">720p / 1080p</span><span class="meta-tag">3–30 秒</span><span class="meta-tag">多模态参考</span><span class="meta-tag">完整调用示例</span></div>
+      </header>
+      <details class="mobile-toc"><summary>本页目录</summary><nav class="toc" aria-label="移动端本页目录"><a href="#section-1"><span class="toc-number">01</span>接入准备</a>
+<a href="#section-2"><span class="toc-number">02</span>快速开始：提交、查询、下载</a>
+<a href="#section-3"><span class="toc-number">03</span>请求参数</a>
+<a href="#section-4"><span class="toc-number">04</span>使用参考素材</a>
+<a href="#section-5"><span class="toc-number">05</span>常见问题</a></nav></details>
+      <article aria-label="Kling 4.0 视频调用方法完整文档"><h2 id="section-1">1. 接入准备</h2>
+<div class="table-scroll" tabindex="0" role="region" aria-label="文档表格，可横向滚动"><table>
+<thead>
+<tr>
+<th>配置项</th>
+<th>填写内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>API 地址</td>
+<td><code>https://flowapi.robusta.top</code></td>
+</tr>
+<tr>
+<td>身份认证</td>
+<td><code>Authorization: Bearer &lt;你的 FlowAPI API Key&gt;</code></td>
+</tr>
+<tr>
+<td>令牌分组</td>
+<td>创建或编辑令牌时选择 <code>video</code></td>
+</tr>
+<tr>
+<td>模型 ID</td>
+<td><code>kling-4.0</code>，不添加分辨率后缀</td>
+</tr>
+<tr>
+<td>模型限制</td>
+<td>如开启令牌模型白名单，加入 <code>kling-4.0</code></td>
+</tr>
+<tr>
+<td>输出时长</td>
+<td><code>duration</code> 为 <code>3</code> 至 <code>30</code> 的整数，单位秒</td>
+</tr>
+<tr>
+<td>分辨率</td>
+<td><code>720p</code> 或 <code>1080p</code></td>
+</tr>
+<tr>
+<td>画面比例</td>
+<td><code>aspect_ratio</code>，例如 <code>16:9</code>、<code>9:16</code>；不限定为这两个比例</td>
+</tr>
+<tr>
+<td>生成数量</td>
+<td>每次只生成一条视频，<code>n</code> 省略或填写 <code>1</code></td>
+</tr>
+</tbody></table>
+</div>
+<p>提交、查询和下载使用同一个有效的 FlowAPI Key。请求体不需要另传 <code>group</code>，不要使用供应商 Key 访问 FlowAPI。Key 仅保存在服务端或本地环境变量中，不要写入网页、公开仓库或 URL。</p>
+<h2 id="section-2">2. 快速开始：提交、查询、下载</h2>
+<p>以下命令适用于 macOS、Linux 等终端，需要 <code>curl</code> 和 Python 3。</p>
+<h3 id="section-2-1">2.1 配置环境变量</h3>
+<div class="code-block"><div class="code-bar"><span>bash</span><button type="button" class="copy-code" data-copy-code="0" aria-label="复制第 1 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-0" class="language-bash">export FLOWAPI_BASE_URL='https://flowapi.robusta.top'
+export FLOWAPI_TOKEN='替换为你的_FlowAPI_API_Key'</code></pre></div>
+<h3 id="section-2-2">2.2 提交一次任务</h3>
+<div class="code-block"><div class="code-bar"><span>bash</span><button type="button" class="copy-code" data-copy-code="1" aria-label="复制第 2 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-1" class="language-bash">curl --silent --show-error --fail-with-body \
+  &quot;${FLOWAPI_BASE_URL}/v1/videos&quot; \
+  -H &quot;Authorization: Bearer ${FLOWAPI_TOKEN}&quot; \
+  -H 'Content-Type: application/json' \
+  --data-binary @- \
+  --output kling4-submit.json &lt;&lt;'JSON'
+{
+  &quot;model&quot;: &quot;kling-4.0&quot;,
+  &quot;prompt&quot;: &quot;清晨的海边，柔和暖光，海浪轻拍沙滩，镜头缓慢前进，无文字。&quot;,
+  &quot;duration&quot;: 10,
+  &quot;resolution&quot;: &quot;720p&quot;,
+  &quot;aspect_ratio&quot;: &quot;16:9&quot;,
+  &quot;n&quot;: 1
+}
+JSON
+
+cat kling4-submit.json</code></pre></div>
+<p>提交成功时的关键字段示意如下；这是结构示例，不是一次实际生成结果：</p>
+<div class="code-block"><div class="code-bar"><span>json</span><button type="button" class="copy-code" data-copy-code="2" aria-label="复制第 3 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-2" class="language-json">{
+  &quot;id&quot;: &quot;task_...&quot;,
+  &quot;status&quot;: &quot;queued&quot;
+}</code></pre></div>
+<p>HTTP 200 和任务 ID 只表示已受理，不代表视频已生成。保存 FlowAPI 返回的 <strong><code>id</code></strong>，不要使用上游任务 ID：</p>
+<div class="code-block"><div class="code-bar"><span>bash</span><button type="button" class="copy-code" data-copy-code="3" aria-label="复制第 4 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-3" class="language-bash">TASK_ID=&quot;$(python3 - &lt;&lt;'PY'
+import json
+
+with open('kling4-submit.json', encoding='utf-8') as file:
+    response = json.load(file)
+task_id = response.get('id')
+if not isinstance(task_id, str) or not task_id.startswith('task_'):
+    raise SystemExit('未返回有效任务 ID，请检查响应，不要直接重复提交。')
+print(task_id)
+PY
+)&quot; &amp;&amp; export TASK_ID</code></pre></div>
+<p><strong>提交超时或连接中断时，先核实任务是否已经受理，不要自动重复 POST。</strong> 带多段参考视频的请求可能比纯文本请求等待更久。</p>
+<h3 id="section-2-3">2.3 查询任务</h3>
+<div class="code-block"><div class="code-bar"><span>bash</span><button type="button" class="copy-code" data-copy-code="4" aria-label="复制第 5 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-4" class="language-bash">curl --silent --show-error --fail-with-body \
+  &quot;${FLOWAPI_BASE_URL}/v1/videos/${TASK_ID}&quot; \
+  -H &quot;Authorization: Bearer ${FLOWAPI_TOKEN}&quot; \
+  --output kling4-result.json
+
+cat kling4-result.json</code></pre></div>
+<p>建议每隔 <strong>15 秒</strong> 查询一次。查询暂时失败或进度不变时，继续查询同一个任务，不要重新提交。</p>
+<div class="table-scroll" tabindex="0" role="region" aria-label="文档表格，可横向滚动"><table>
+<thead>
+<tr>
+<th><code>status</code></th>
+<th>处理方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>queued</code> / <code>pending</code></td>
+<td>排队中，继续查询</td>
+</tr>
+<tr>
+<td><code>processing</code> / <code>in_progress</code></td>
+<td>生成中，继续查询</td>
+</tr>
+<tr>
+<td><code>completed</code></td>
+<td>已完成，可以下载</td>
+</tr>
+<tr>
+<td><code>failed</code> / <code>cancelled</code></td>
+<td>停止轮询，读取 <code>error.message</code> 并保留任务 ID</td>
+</tr>
+</tbody></table>
+</div>
+<h3 id="section-2-4">2.4 下载成片</h3>
+<p>仅在状态为 <code>completed</code> 后执行：</p>
+<div class="code-block"><div class="code-bar"><span>bash</span><button type="button" class="copy-code" data-copy-code="5" aria-label="复制第 6 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-5" class="language-bash">curl --silent --show-error --fail-with-body \
+  --retry 3 --retry-delay 5 \
+  &quot;${FLOWAPI_BASE_URL}/v1/videos/${TASK_ID}/content&quot; \
+  -H &quot;Authorization: Bearer ${FLOWAPI_TOKEN}&quot; \
+  --output kling4.mp4.part &amp;&amp; mv kling4.mp4.part kling4.mp4</code></pre></div>
+<p>此接口返回视频文件，仍需 Authorization。请由自己的服务端下载或转存，不要把 Key 放进公开下载地址。下载失败时只重试同一任务的 <code>/content</code>，不要重新生成。</p>
+<h2 id="section-3">3. 请求参数</h2>
+<p>使用 <strong>POST <code>/v1/videos</code></strong> 和 <code>Content-Type: application/json</code>。参数放在 JSON 顶层，不使用 multipart 上传。</p>
+<div class="table-scroll" tabindex="0" role="region" aria-label="文档表格，可横向滚动"><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>model</code></td>
+<td>string</td>
+<td>必填，固定为 <code>kling-4.0</code></td>
+</tr>
+<tr>
+<td><code>prompt</code></td>
+<td>string</td>
+<td>必填，非空的视频描述</td>
+</tr>
+<tr>
+<td><code>duration</code></td>
+<td>integer</td>
+<td>必填，3–30 秒；不要同时传入 <code>seconds</code></td>
+</tr>
+<tr>
+<td><code>resolution</code></td>
+<td>string</td>
+<td>必填，<code>720p</code> 或 <code>1080p</code>；不要用 <code>size</code> 替代</td>
+</tr>
+<tr>
+<td><code>aspect_ratio</code></td>
+<td>string</td>
+<td>可选，画面比例；有参考视频时同样支持</td>
+</tr>
+<tr>
+<td><code>images</code></td>
+<td>string[]</td>
+<td>可选，最多 10 张图片，每张不超过 10 MB</td>
+</tr>
+<tr>
+<td><code>videos</code></td>
+<td>string[]</td>
+<td>可选，最多 5 段 MP4 视频，每段不超过 30 秒、50 MB</td>
+</tr>
+<tr>
+<td><code>audios</code></td>
+<td>string[]</td>
+<td>可选，最多 3 段 MP3/WAV 音频，每段 5–30 秒、不超过 20 MB</td>
+</tr>
+<tr>
+<td><code>n</code></td>
+<td>integer</td>
+<td>可选，只允许 <code>1</code></td>
+</tr>
+</tbody></table>
+</div>
+<p>素材使用可直接读取的 HTTP(S) 文件地址，建议 HTTPS；不能依赖登录、Cookie 或额外请求头，不能使用本地路径、内网地址或 data URL。地址和文件内容应在生成期间保持有效且不变。提交前确认文件格式、数量、大小和时长满足上述限制。</p>
+<p>优先使用上述标准字段。兼容单图别名 <code>image</code> 或 <code>input_reference</code>：只有未提供 <code>images</code> 时才回退使用，<code>images: []</code> 明确表示不使用图片参考。兼容比例别名 <code>ratio</code>，但只要提供 <code>aspect_ratio</code> 就以它为准，包括显式空字符串。</p>
+<p>不要将时长、分辨率或参考素材放入 <code>metadata</code>，也不要发送其他模型的 <code>seconds</code>、<code>size</code>、<code>input.media</code> 等字段。本文只使用已明确列出的参数，不使用未验证的模型扩展字段。</p>
+<h2 id="section-4">4. 使用参考素材</h2>
+<p>将快速开始的 JSON 替换为下面的内容。示例域名仅为占位，必须换成真实可访问的素材文件地址。</p>
+<h3 id="section-4-1">4.1 图片参考</h3>
+<div class="code-block"><div class="code-bar"><span>json</span><button type="button" class="copy-code" data-copy-code="6" aria-label="复制第 7 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-6" class="language-json">{
+  &quot;model&quot;: &quot;kling-4.0&quot;,
+  &quot;prompt&quot;: &quot;保持参考图中的人物外貌和服装，在纯绿色背景前自然讲解，固定镜头，无文字。&quot;,
+  &quot;images&quot;: [&quot;https://example.com/subject.png&quot;],
+  &quot;duration&quot;: 10,
+  &quot;resolution&quot;: &quot;1080p&quot;,
+  &quot;aspect_ratio&quot;: &quot;16:9&quot;
+}</code></pre></div>
+<h3 id="section-4-2">4.2 视频与音频参考</h3>
+<div class="code-block"><div class="code-bar"><span>json</span><button type="button" class="copy-code" data-copy-code="7" aria-label="复制第 8 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-7" class="language-json">{
+  &quot;model&quot;: &quot;kling-4.0&quot;,
+  &quot;prompt&quot;: &quot;参考视频中的动作节奏与参考音频，保持主体外貌一致，生成连贯自然的画面。&quot;,
+  &quot;images&quot;: [&quot;https://example.com/subject.jpg&quot;],
+  &quot;videos&quot;: [&quot;https://example.com/motion.mp4&quot;],
+  &quot;audios&quot;: [&quot;https://example.com/rhythm.wav&quot;],
+  &quot;duration&quot;: 10,
+  &quot;resolution&quot;: &quot;720p&quot;,
+  &quot;aspect_ratio&quot;: &quot;9:16&quot;
+}</code></pre></div>
+<p>参考音频用于输入参考，不代表输出一定带有音轨。没有对应素材时省略该数组，不要填写占位 URL。</p>
+<h2 id="section-5">5. 常见问题</h2>
+<ul>
+<li><strong>401 / 403：</strong> 检查 FlowAPI Key、<code>video</code> 分组及模型白名单。</li>
+<li><strong>400 素材错误：</strong> 检查素材 URL 是否直接返回文件，以及数量、大小、格式和时长是否符合限制。不要把网页链接当作视频文件地址。</li>
+<li><strong>找不到任务：</strong> 使用提交响应的 FlowAPI <code>id</code> 和同一账户的 Key，不要替换为供应商任务编号。</li>
+<li><strong>查询超时或进度不变：</strong> 继续查询原任务；轮询停止不会取消任务。</li>
+<li><strong>已完成但下载失败：</strong> 重试该任务的 <code>/content</code> 下载，不要再次提交生成。</li>
+</ul>
+<p>本文依据 FlowAPI 任务接口与供应商文档整理；示例响应仅说明结构，不代表已完成生产生成验收。</p>
+</article>
+      <footer class="doc-footer"><span>FlowAPI · 开发者文档</span><a href="#main-content">返回顶部 ↑</a></footer>
+    </main>
+  </div>
+  <div id="copy-feedback" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+  <script id="markdown-source" type="application/json">"# Kling 4.0 视频调用方法\n\n通过 FlowAPI 调用 `kling-4.0`，提交一次视频生成任务，再查询进度并下载成片。支持文字、图片、视频和音频参考，生成 3–30 秒、720p 或 1080p 视频。\n\n## 1. 接入准备\n\n| 配置项 | 填写内容 |\n| --- | --- |\n| API 地址 | `https://flowapi.robusta.top` |\n| 身份认证 | `Authorization: Bearer \u003c你的 FlowAPI API Key>` |\n| 令牌分组 | 创建或编辑令牌时选择 `video` |\n| 模型 ID | `kling-4.0`，不添加分辨率后缀 |\n| 模型限制 | 如开启令牌模型白名单，加入 `kling-4.0` |\n| 输出时长 | `duration` 为 `3` 至 `30` 的整数，单位秒 |\n| 分辨率 | `720p` 或 `1080p` |\n| 画面比例 | `aspect_ratio`，例如 `16:9`、`9:16`；不限定为这两个比例 |\n| 生成数量 | 每次只生成一条视频，`n` 省略或填写 `1` |\n\n提交、查询和下载使用同一个有效的 FlowAPI Key。请求体不需要另传 `group`，不要使用供应商 Key 访问 FlowAPI。Key 仅保存在服务端或本地环境变量中，不要写入网页、公开仓库或 URL。\n\n## 2. 快速开始：提交、查询、下载\n\n以下命令适用于 macOS、Linux 等终端，需要 `curl` 和 Python 3。\n\n### 2.1 配置环境变量\n\n```bash\nexport FLOWAPI_BASE_URL='https://flowapi.robusta.top'\nexport FLOWAPI_TOKEN='替换为你的_FlowAPI_API_Key'\n```\n\n### 2.2 提交一次任务\n\n```bash\ncurl --silent --show-error --fail-with-body \\\n  \"${FLOWAPI_BASE_URL}/v1/videos\" \\\n  -H \"Authorization: Bearer ${FLOWAPI_TOKEN}\" \\\n  -H 'Content-Type: application/json' \\\n  --data-binary @- \\\n  --output kling4-submit.json \u003c\u003c'JSON'\n{\n  \"model\": \"kling-4.0\",\n  \"prompt\": \"清晨的海边，柔和暖光，海浪轻拍沙滩，镜头缓慢前进，无文字。\",\n  \"duration\": 10,\n  \"resolution\": \"720p\",\n  \"aspect_ratio\": \"16:9\",\n  \"n\": 1\n}\nJSON\n\ncat kling4-submit.json\n```\n\n提交成功时的关键字段示意如下；这是结构示例，不是一次实际生成结果：\n\n```json\n{\n  \"id\": \"task_...\",\n  \"status\": \"queued\"\n}\n```\n\nHTTP 200 和任务 ID 只表示已受理，不代表视频已生成。保存 FlowAPI 返回的 **`id`**，不要使用上游任务 ID：\n\n```bash\nTASK_ID=\"$(python3 - \u003c\u003c'PY'\nimport json\n\nwith open('kling4-submit.json', encoding='utf-8') as file:\n    response = json.load(file)\ntask_id = response.get('id')\nif not isinstance(task_id, str) or not task_id.startswith('task_'):\n    raise SystemExit('未返回有效任务 ID，请检查响应，不要直接重复提交。')\nprint(task_id)\nPY\n)\" && export TASK_ID\n```\n\n**提交超时或连接中断时，先核实任务是否已经受理，不要自动重复 POST。** 带多段参考视频的请求可能比纯文本请求等待更久。\n\n### 2.3 查询任务\n\n```bash\ncurl --silent --show-error --fail-with-body \\\n  \"${FLOWAPI_BASE_URL}/v1/videos/${TASK_ID}\" \\\n  -H \"Authorization: Bearer ${FLOWAPI_TOKEN}\" \\\n  --output kling4-result.json\n\ncat kling4-result.json\n```\n\n建议每隔 **15 秒** 查询一次。查询暂时失败或进度不变时，继续查询同一个任务，不要重新提交。\n\n| `status` | 处理方式 |\n| --- | --- |\n| `queued` / `pending` | 排队中，继续查询 |\n| `processing` / `in_progress` | 生成中，继续查询 |\n| `completed` | 已完成，可以下载 |\n| `failed` / `cancelled` | 停止轮询，读取 `error.message` 并保留任务 ID |\n\n### 2.4 下载成片\n\n仅在状态为 `completed` 后执行：\n\n```bash\ncurl --silent --show-error --fail-with-body \\\n  --retry 3 --retry-delay 5 \\\n  \"${FLOWAPI_BASE_URL}/v1/videos/${TASK_ID}/content\" \\\n  -H \"Authorization: Bearer ${FLOWAPI_TOKEN}\" \\\n  --output kling4.mp4.part && mv kling4.mp4.part kling4.mp4\n```\n\n此接口返回视频文件，仍需 Authorization。请由自己的服务端下载或转存，不要把 Key 放进公开下载地址。下载失败时只重试同一任务的 `/content`，不要重新生成。\n\n## 3. 请求参数\n\n使用 **POST `/v1/videos`** 和 `Content-Type: application/json`。参数放在 JSON 顶层，不使用 multipart 上传。\n\n| 参数 | 类型 | 说明 |\n| --- | --- | --- |\n| `model` | string | 必填，固定为 `kling-4.0` |\n| `prompt` | string | 必填，非空的视频描述 |\n| `duration` | integer | 必填，3–30 秒；不要同时传入 `seconds` |\n| `resolution` | string | 必填，`720p` 或 `1080p`；不要用 `size` 替代 |\n| `aspect_ratio` | string | 可选，画面比例；有参考视频时同样支持 |\n| `images` | string[] | 可选，最多 10 张图片，每张不超过 10 MB |\n| `videos` | string[] | 可选，最多 5 段 MP4 视频，每段不超过 30 秒、50 MB |\n| `audios` | string[] | 可选，最多 3 段 MP3/WAV 音频，每段 5–30 秒、不超过 20 MB |\n| `n` | integer | 可选，只允许 `1` |\n\n素材使用可直接读取的 HTTP(S) 文件地址，建议 HTTPS；不能依赖登录、Cookie 或额外请求头，不能使用本地路径、内网地址或 data URL。地址和文件内容应在生成期间保持有效且不变。提交前确认文件格式、数量、大小和时长满足上述限制。\n\n优先使用上述标准字段。兼容单图别名 `image` 或 `input_reference`：只有未提供 `images` 时才回退使用，`images: []` 明确表示不使用图片参考。兼容比例别名 `ratio`，但只要提供 `aspect_ratio` 就以它为准，包括显式空字符串。\n\n不要将时长、分辨率或参考素材放入 `metadata`，也不要发送其他模型的 `seconds`、`size`、`input.media` 等字段。本文只使用已明确列出的参数，不使用未验证的模型扩展字段。\n\n## 4. 使用参考素材\n\n将快速开始的 JSON 替换为下面的内容。示例域名仅为占位，必须换成真实可访问的素材文件地址。\n\n### 4.1 图片参考\n\n```json\n{\n  \"model\": \"kling-4.0\",\n  \"prompt\": \"保持参考图中的人物外貌和服装，在纯绿色背景前自然讲解，固定镜头，无文字。\",\n  \"images\": [\"https://example.com/subject.png\"],\n  \"duration\": 10,\n  \"resolution\": \"1080p\",\n  \"aspect_ratio\": \"16:9\"\n}\n```\n\n### 4.2 视频与音频参考\n\n```json\n{\n  \"model\": \"kling-4.0\",\n  \"prompt\": \"参考视频中的动作节奏与参考音频，保持主体外貌一致，生成连贯自然的画面。\",\n  \"images\": [\"https://example.com/subject.jpg\"],\n  \"videos\": [\"https://example.com/motion.mp4\"],\n  \"audios\": [\"https://example.com/rhythm.wav\"],\n  \"duration\": 10,\n  \"resolution\": \"720p\",\n  \"aspect_ratio\": \"9:16\"\n}\n```\n\n参考音频用于输入参考，不代表输出一定带有音轨。没有对应素材时省略该数组，不要填写占位 URL。\n\n## 5. 常见问题\n\n- **401 / 403：** 检查 FlowAPI Key、`video` 分组及模型白名单。\n- **400 素材错误：** 检查素材 URL 是否直接返回文件，以及数量、大小、格式和时长是否符合限制。不要把网页链接当作视频文件地址。\n- **找不到任务：** 使用提交响应的 FlowAPI `id` 和同一账户的 Key，不要替换为供应商任务编号。\n- **查询超时或进度不变：** 继续查询原任务；轮询停止不会取消任务。\n- **已完成但下载失败：** 重试该任务的 `/content` 下载，不要再次提交生成。\n\n本文依据 FlowAPI 任务接口与供应商文档整理；示例响应仅说明结构，不代表已完成生产生成验收。\n"</script>
+  <script>
+    const markdown = JSON.parse(document.getElementById('markdown-source').textContent);
+    const feedback = document.getElementById('copy-feedback');
+    const resetTimers = new WeakMap();
+    let feedbackTimer;
+    function announce(message) {
+      clearTimeout(feedbackTimer);
+      feedback.textContent = message;
+      feedback.classList.add('visible');
+      feedbackTimer = setTimeout(() => feedback.classList.remove('visible'), 3200);
+    }
+    async function copyText(text) {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+          return;
+        }
+      } catch (_) {}
+      const previousFocus = document.activeElement;
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.readOnly = true;
+      textarea.style.cssText = 'position:fixed;top:0;left:-9999px;opacity:0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand('copy');
+      textarea.remove();
+      if (previousFocus instanceof HTMLElement) previousFocus.focus({preventScroll:true});
+      if (!copied) throw new Error('Clipboard is unavailable');
+    }
+    async function copyWithFeedback(button, text, message) {
+      const label = button.querySelector('span');
+      const original = button.id === 'copy-markdown' ? '一键复制 Markdown' : '复制';
+      clearTimeout(resetTimers.get(button));
+      button.disabled = true;
+      try {
+        await copyText(text);
+        label.textContent = '已复制';
+        button.dataset.copied = 'true';
+        announce(message);
+      } catch (_) {
+        announce('复制未成功，请使用「下载 .md」保存完整文档。');
+      } finally {
+        button.disabled = false;
+        resetTimers.set(button, setTimeout(() => {
+          label.textContent = original;
+          delete button.dataset.copied;
+        }, 2200));
+      }
+    }
+    document.getElementById('copy-markdown').addEventListener('click', function () {
+      copyWithFeedback(this, markdown, '已复制完整 Markdown，可直接粘贴给开发工具或团队成员。');
+    });
+    document.querySelectorAll('[data-copy-code]').forEach((button) => {
+      button.addEventListener('click', function () {
+        const code = document.getElementById('code-' + this.dataset.copyCode);
+        copyWithFeedback(this, code.textContent, '代码已复制。');
+      });
+    });
+    document.getElementById('download-markdown').addEventListener('click', () => {
+      const blob = new Blob([markdown], {type:'text/markdown;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = "FlowAPI-Kling4-调用方法.md";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      announce('Markdown 下载已开始。');
+    });
+    const headings = document.querySelectorAll('article h2');
+    const tocLinks = document.querySelectorAll('.toc a');
+    if ('IntersectionObserver' in window) {
+      const observer = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          tocLinks.forEach((link) => {
+            if (link.hash === '#' + entry.target.id) link.setAttribute('aria-current', 'location');
+            else link.removeAttribute('aria-current');
+          });
+        }
+      }, {rootMargin:'-150px 0px -65% 0px', threshold:0});
+      headings.forEach((heading) => observer.observe(heading));
+    }
+  </script>
+</body>
+</html>

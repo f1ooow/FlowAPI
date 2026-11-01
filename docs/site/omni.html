@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="FlowAPI Gemini Omni 视频调用方法：提交任务、轮询进度、下载成片、参考素材，以及 0.20 元每秒的计费说明。">
-  <meta name="flowapi-markdown-sha256" content="d50111032df85260c35602b99567cf80972fa682a7fc43942da9232c5021ab55">
+  <meta name="description" content="FlowAPI Gemini Omni 视频调用方法：提交任务、轮询进度、下载成片，以及图片、视频和音频参考素材的使用示例。">
+  <meta name="flowapi-markdown-sha256" content="02a98152baa3949673a7a08d66410c05ce5b536e5c9ada1b1633b923db475512">
   <meta name="color-scheme" content="light">
   <title>Gemini Omni 视频调用方法 · FlowAPI 文档</title>
   <style>
@@ -114,35 +114,35 @@
       <p class="sidebar-label">开发者文档</p>
       <nav class="document-list" aria-label="开发者文档列表"><a class="document-link" href="index.html">Suno 调用方法</a>
 <a class="document-link" href="ocr.html">OCR 调用方法</a>
-<a class="document-link" href="omni.html" aria-current="page">Omni 视频调用方法</a></nav>
+<a class="document-link" href="omni.html" aria-current="page">Omni 视频调用方法</a>
+<a class="document-link" href="kling4.html">Kling 4.0 视频调用方法</a></nav>
       <p class="sidebar-label">本页内容</p>
       <nav class="toc" aria-label="本页目录"><a href="#section-1"><span class="toc-number">01</span>接入准备</a>
-<a href="#section-2"><span class="toc-number">02</span>价格与计费</a>
-<a href="#section-3"><span class="toc-number">03</span>快速开始：提交、查询、下载</a>
-<a href="#section-4"><span class="toc-number">04</span>请求参数</a>
-<a href="#section-5"><span class="toc-number">05</span>使用参考素材</a>
-<a href="#section-6"><span class="toc-number">06</span>Python 自动轮询已有任务</a>
-<a href="#section-7"><span class="toc-number">07</span>常见问题</a></nav>
+<a href="#section-2"><span class="toc-number">02</span>快速开始：提交、查询、下载</a>
+<a href="#section-3"><span class="toc-number">03</span>请求参数</a>
+<a href="#section-4"><span class="toc-number">04</span>使用参考素材</a>
+<a href="#section-5"><span class="toc-number">05</span>Python 自动轮询已有任务</a>
+<a href="#section-6"><span class="toc-number">06</span>常见问题</a></nav>
       <a class="sidebar-footer" href="https://flowapi.robusta.top/">← 返回 FlowAPI</a>
     </aside>
     <main id="main-content" tabindex="-1">
       <nav class="mobile-documents" aria-label="移动端开发者文档列表"><a class="document-link" href="index.html">Suno 调用方法</a>
 <a class="document-link" href="ocr.html">OCR 调用方法</a>
-<a class="document-link" href="omni.html" aria-current="page">Omni 视频调用方法</a></nav>
+<a class="document-link" href="omni.html" aria-current="page">Omni 视频调用方法</a>
+<a class="document-link" href="kling4.html">Kling 4.0 视频调用方法</a></nav>
       <header class="doc-header">
         <p class="eyebrow">视频生成 / GEMINI OMNI</p>
         <h1>Gemini Omni 视频调用方法</h1>
         <div class="lead"><p>通过 FlowAPI 调用 <code>gemini-omni-1.1-flash</code> 生成视频。先提交一次任务，保存返回的 <code>id</code>，再查询进度并下载成片；支持文字提示词及图片、视频、音频参考素材。</p>
 </div>
-        <div class="doc-meta"><span class="meta-tag">720p 视频</span><span class="meta-tag">4 / 6 / 8 / 10 秒</span><span class="meta-tag">0.20 元 / 秒</span><span class="meta-tag">参考素材</span></div>
+        <div class="doc-meta"><span class="meta-tag">720p 视频</span><span class="meta-tag">4 / 6 / 8 / 10 秒</span><span class="meta-tag">参考素材</span><span class="meta-tag">完整调用示例</span></div>
       </header>
       <details class="mobile-toc"><summary>本页目录</summary><nav class="toc" aria-label="移动端本页目录"><a href="#section-1"><span class="toc-number">01</span>接入准备</a>
-<a href="#section-2"><span class="toc-number">02</span>价格与计费</a>
-<a href="#section-3"><span class="toc-number">03</span>快速开始：提交、查询、下载</a>
-<a href="#section-4"><span class="toc-number">04</span>请求参数</a>
-<a href="#section-5"><span class="toc-number">05</span>使用参考素材</a>
-<a href="#section-6"><span class="toc-number">06</span>Python 自动轮询已有任务</a>
-<a href="#section-7"><span class="toc-number">07</span>常见问题</a></nav></details>
+<a href="#section-2"><span class="toc-number">02</span>快速开始：提交、查询、下载</a>
+<a href="#section-3"><span class="toc-number">03</span>请求参数</a>
+<a href="#section-4"><span class="toc-number">04</span>使用参考素材</a>
+<a href="#section-5"><span class="toc-number">05</span>Python 自动轮询已有任务</a>
+<a href="#section-6"><span class="toc-number">06</span>常见问题</a></nav></details>
       <article aria-label="Omni 视频调用方法完整文档"><h2 id="section-1">1. 接入准备</h2>
 <div class="table-scroll" tabindex="0" role="region" aria-label="文档表格，可横向滚动"><table>
 <thead>
@@ -182,41 +182,12 @@
 </tbody></table>
 </div>
 <p>提交、查询和下载使用同一个有效的 FlowAPI Key。请求体不用另传 <code>group</code>，也不需要任何上游供应商的 Key。API Key 只保存在服务端或本地环境变量，不要写入前端网页、公开仓库或 URL。</p>
-<h2 id="section-2">2. 价格与计费</h2>
-<p>当前 <code>video</code> 分组标准价格为 <strong>人民币 0.20 元 / 秒</strong>，按请求中的 <code>duration</code> 计算，不是每次请求固定 0.20 元。</p>
-<div class="table-scroll" tabindex="0" role="region" aria-label="文档表格，可横向滚动"><table>
-<thead>
-<tr>
-<th><code>duration</code></th>
-<th>一条视频费用</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>4</code></td>
-<td>¥0.80</td>
-</tr>
-<tr>
-<td><code>6</code></td>
-<td>¥1.20</td>
-</tr>
-<tr>
-<td><code>8</code></td>
-<td>¥1.60</td>
-</tr>
-<tr>
-<td><code>10</code></td>
-<td>¥2.00</td>
-</tr>
-</tbody></table>
-</div>
-<p>以上为每次生成一条、720p、无额外账户折扣时的价格。提交时预扣，任务被后台确认失败后退回对应预扣额度；查询已有任务不重复收取生成费。</p>
-<p>部分价格目录可能仍将该模型单位显示为“次”，但当前视频接口实际按上述秒数计费。不要把目录中的 <code>0.20</code> 当作整条视频价格。</p>
-<h2 id="section-3">3. 快速开始：提交、查询、下载</h2>
+<h2 id="section-2">2. 快速开始：提交、查询、下载</h2>
 <p>以下命令适用于 macOS、Linux 等终端，需要 <code>curl</code> 和 Python 3。请求参数全部放在 JSON 顶层，时长使用 <code>duration</code>，不要同时传 <code>seconds</code>，也不要把参数嵌套到 <code>metadata</code>。</p>
-<h3 id="section-3-1">3.1 配置环境变量</h3>
+<h3 id="section-2-1">2.1 配置环境变量</h3>
 <div class="code-block"><div class="code-bar"><span>bash</span><button type="button" class="copy-code" data-copy-code="0" aria-label="复制第 1 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-0" class="language-bash">export FLOWAPI_BASE_URL='https://flowapi.robusta.top'
 export FLOWAPI_TOKEN='替换为你的_FlowAPI_API_Key'</code></pre></div>
-<h3 id="section-3-2">3.2 提交一次任务</h3>
+<h3 id="section-2-2">2.2 提交一次任务</h3>
 <div class="code-block"><div class="code-bar"><span>bash</span><button type="button" class="copy-code" data-copy-code="1" aria-label="复制第 2 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-1" class="language-bash">curl --silent --show-error --fail-with-body \
   &quot;${FLOWAPI_BASE_URL}/v1/videos&quot; \
   -H &quot;Authorization: Bearer ${FLOWAPI_TOKEN}&quot; \
@@ -253,8 +224,8 @@ PY
 )&quot; &amp;&amp; export TASK_ID
 
 printf '任务 ID：%s\n' &quot;${TASK_ID}&quot;</code></pre></div>
-<p><strong>提交超时或连接中断，不代表任务没有创建。先保留响应和请求记录，核实是否已经受理；不要自动重复 POST，以免重复生成、重复计费。</strong></p>
-<h3 id="section-3-3">3.3 查询任务</h3>
+<p><strong>提交超时或连接中断，不代表任务没有创建。先保留响应和请求记录，核实是否已经受理；不要自动重复 POST，以免重复生成。</strong></p>
+<h3 id="section-2-3">2.3 查询任务</h3>
 <div class="code-block"><div class="code-bar"><span>bash</span><button type="button" class="copy-code" data-copy-code="4" aria-label="复制第 5 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-4" class="language-bash">curl --silent --show-error --fail-with-body \
   &quot;${FLOWAPI_BASE_URL}/v1/videos/${TASK_ID}&quot; \
   -H &quot;Authorization: Bearer ${FLOWAPI_TOKEN}&quot; \
@@ -293,7 +264,7 @@ cat omni-result.json</code></pre></div>
   &quot;status&quot;: &quot;completed&quot;
 }</code></pre></div>
 <p>不要假定响应一定带有 <code>duration</code>、<code>seconds</code>、<code>video_url</code> 或 <code>metadata.url</code>。下载统一使用下一节的 FlowAPI <code>/content</code> 接口。</p>
-<h3 id="section-3-4">3.4 下载成片</h3>
+<h3 id="section-2-4">2.4 下载成片</h3>
 <p>仅在 <code>status</code> 为 <code>completed</code> 后执行：</p>
 <div class="code-block"><div class="code-bar"><span>bash</span><button type="button" class="copy-code" data-copy-code="6" aria-label="复制第 7 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-6" class="language-bash">curl --silent --show-error --fail-with-body \
   --retry 3 --retry-delay 5 \
@@ -301,7 +272,7 @@ cat omni-result.json</code></pre></div>
   -H &quot;Authorization: Bearer ${FLOWAPI_TOKEN}&quot; \
   --output omni.mp4.part &amp;&amp; mv omni.mp4.part omni.mp4</code></pre></div>
 <p>此接口返回视频二进制内容，仍需携带 Authorization，不是可直接粘贴到浏览器的公开文件地址。请由自己的服务端下载并转存，不要将 API Key 拼到地址中。下载临时失败时重试同一任务的下载接口，不要重新生成视频。</p>
-<h2 id="section-4">4. 请求参数</h2>
+<h2 id="section-3">3. 请求参数</h2>
 <p>提交接口为 <strong>POST <code>/v1/videos</code></strong>，请求类型为 <code>application/json</code>。</p>
 <div class="table-scroll" tabindex="0" role="region" aria-label="文档表格，可横向滚动"><table>
 <thead>
@@ -379,10 +350,10 @@ cat omni-result.json</code></pre></div>
 </tbody></table>
 </div>
 <p>素材地址必须无需登录、Cookie 或额外请求头即可访问，并在生成期间保持有效；不要提交本地文件路径。素材数量、组合和内容以模型实际能力及审核结果为准。</p>
-<p><code>generateAudio</code> 控制输出音频，<code>audios</code> 是输入参考音频，两者不是同一个参数。不要把清晰度或比例拼进模型名；也不要传入其他视频模型的 <code>1792x1024</code> / <code>1024x1792</code> 尺寸，这不是本模型的 720p 调用规格，并可能触发额外尺寸倍率。</p>
-<h2 id="section-5">5. 使用参考素材</h2>
+<p><code>generateAudio</code> 控制输出音频，<code>audios</code> 是输入参考音频，两者不是同一个参数。不要把清晰度或比例拼进模型名；也不要传入其他视频模型的 <code>1792x1024</code> / <code>1024x1792</code> 尺寸，这不是本模型的 720p 调用规格。</p>
+<h2 id="section-4">4. 使用参考素材</h2>
 <p>将快速开始中的 JSON 请求体替换为下面的示例即可；地址是占位值，必须换成自己的真实素材地址。</p>
-<h3 id="section-5-1">5.1 图片参考</h3>
+<h3 id="section-4-1">4.1 图片参考</h3>
 <div class="code-block"><div class="code-bar"><span>json</span><button type="button" class="copy-code" data-copy-code="7" aria-label="复制第 8 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-7" class="language-json">{
   &quot;model&quot;: &quot;gemini-omni-1.1-flash&quot;,
   &quot;prompt&quot;: &quot;保持参考图中的主体外观，镜头缓慢推进，人物自然转身微笑。&quot;,
@@ -394,7 +365,7 @@ cat omni-result.json</code></pre></div>
   &quot;seed&quot;: 0,
   &quot;n&quot;: 1
 }</code></pre></div>
-<h3 id="section-5-2">5.2 视频与音频参考</h3>
+<h3 id="section-4-2">4.2 视频与音频参考</h3>
 <p>按需要提供 <code>videos</code> 或 <code>audios</code>；没有对应素材时直接省略该字段。</p>
 <div class="code-block"><div class="code-bar"><span>json</span><button type="button" class="copy-code" data-copy-code="8" aria-label="复制第 9 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-8" class="language-json">{
   &quot;model&quot;: &quot;gemini-omni-1.1-flash&quot;,
@@ -407,8 +378,8 @@ cat omni-result.json</code></pre></div>
   &quot;generateAudio&quot;: true,
   &quot;n&quot;: 1
 }</code></pre></div>
-<h2 id="section-6">6. Python 自动轮询已有任务</h2>
-<p>完成第 3 节提交并设置 <code>TASK_ID</code> 后运行下面的脚本。它只查询已有任务，不会发起新的付费生成；完成后再执行第 3.4 节下载命令。</p>
+<h2 id="section-5">5. Python 自动轮询已有任务</h2>
+<p>完成第 2 节提交并设置 <code>TASK_ID</code> 后运行下面的脚本。它只查询已有任务，不会发起新的生成；完成后再执行第 2.4 节下载命令。</p>
 <div class="code-block"><div class="code-bar"><span>python</span><button type="button" class="copy-code" data-copy-code="9" aria-label="复制第 10 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-9" class="language-python">import json
 import os
 import time
@@ -447,22 +418,21 @@ while time.monotonic() &lt; deadline:
     time.sleep(15)
 else:
     raise SystemExit('本次轮询已超时；任务未被取消，请保存 TASK_ID，稍后继续查询，不要重复提交。')</code></pre></div>
-<h2 id="section-7">7. 常见问题</h2>
+<h2 id="section-6">6. 常见问题</h2>
 <ul>
 <li><strong>401 / 403：</strong> 检查 FlowAPI Key 是否有效、令牌是否选择 <code>video</code>，以及模型白名单是否允许该模型。不要使用供应商 Key 访问 FlowAPI。</li>
 <li><strong>找不到任务：</strong> 确认使用提交响应的 <code>id</code>，且使用同一账户的 Key；不要用上游任务 ID。</li>
 <li><strong>进度不变或查询偶发超时：</strong> 继续查询同一个任务，降低轮询频率，不要自动重新提交。</li>
-<li><strong>状态为 <code>failed</code>：</strong> 保留任务 ID 和 <code>error.message</code>；后台确认失败后退回对应预扣额度。不要把客户端超时等同于任务失败。</li>
+<li><strong>状态为 <code>failed</code>：</strong> 保留任务 ID 和 <code>error.message</code>。不要把客户端超时等同于任务失败。</li>
 <li><strong>已完成但下载失败：</strong> 稍后重试同一个 <code>/content</code> 地址。生成完成与下载成功是两个步骤，不需要重新生成。</li>
-<li><strong>费用与预期不符：</strong> 检查 <code>duration</code>、<code>n</code> 和 <code>size</code>，不要同时发送 <code>seconds</code>；本文标准示例为 720p、每次一条、0.20 元/秒。</li>
 </ul>
-<p>本文依据当前接入配置、接口实现与供应商协议整理；示例响应为结构示意，不代表已完成该模型的付费生成验收。</p>
+<p>本文依据当前接入配置、接口实现与供应商协议整理；示例响应为结构示意，不代表某一次实际生成结果。</p>
 </article>
       <footer class="doc-footer"><span>FlowAPI · 开发者文档</span><a href="#main-content">返回顶部 ↑</a></footer>
     </main>
   </div>
   <div id="copy-feedback" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
-  <script id="markdown-source" type="application/json">"# Gemini Omni 视频调用方法\n\n通过 FlowAPI 调用 `gemini-omni-1.1-flash` 生成视频。先提交一次任务，保存返回的 `id`，再查询进度并下载成片；支持文字提示词及图片、视频、音频参考素材。\n\n## 1. 接入准备\n\n| 配置项 | 填写内容 |\n| --- | --- |\n| API 地址 | `https://flowapi.robusta.top` |\n| 身份认证 | `Authorization: Bearer \u003c你的 FlowAPI API Key>` |\n| 令牌分组 | 创建或编辑令牌时选择 `video` |\n| 模型 ID | `gemini-omni-1.1-flash`，大小写与拼写保持一致 |\n| 模型限制 | 如开启令牌模型白名单，加入 `gemini-omni-1.1-flash` |\n| 视频规格 | 720p；时长为 `4`、`6`、`8`、`10` 秒 |\n| 生成数量 | 每次请求固定 `n: 1` |\n\n提交、查询和下载使用同一个有效的 FlowAPI Key。请求体不用另传 `group`，也不需要任何上游供应商的 Key。API Key 只保存在服务端或本地环境变量，不要写入前端网页、公开仓库或 URL。\n\n## 2. 价格与计费\n\n当前 `video` 分组标准价格为 **人民币 0.20 元 / 秒**，按请求中的 `duration` 计算，不是每次请求固定 0.20 元。\n\n| `duration` | 一条视频费用 |\n| --- | --- |\n| `4` | ¥0.80 |\n| `6` | ¥1.20 |\n| `8` | ¥1.60 |\n| `10` | ¥2.00 |\n\n以上为每次生成一条、720p、无额外账户折扣时的价格。提交时预扣，任务被后台确认失败后退回对应预扣额度；查询已有任务不重复收取生成费。\n\n部分价格目录可能仍将该模型单位显示为“次”，但当前视频接口实际按上述秒数计费。不要把目录中的 `0.20` 当作整条视频价格。\n\n## 3. 快速开始：提交、查询、下载\n\n以下命令适用于 macOS、Linux 等终端，需要 `curl` 和 Python 3。请求参数全部放在 JSON 顶层，时长使用 `duration`，不要同时传 `seconds`，也不要把参数嵌套到 `metadata`。\n\n### 3.1 配置环境变量\n\n```bash\nexport FLOWAPI_BASE_URL='https://flowapi.robusta.top'\nexport FLOWAPI_TOKEN='替换为你的_FlowAPI_API_Key'\n```\n\n### 3.2 提交一次任务\n\n```bash\ncurl --silent --show-error --fail-with-body \\\n  \"${FLOWAPI_BASE_URL}/v1/videos\" \\\n  -H \"Authorization: Bearer ${FLOWAPI_TOKEN}\" \\\n  -H 'Content-Type: application/json' \\\n  --data-binary @- \\\n  --output omni-submit.json \u003c\u003c'JSON'\n{\n  \"model\": \"gemini-omni-1.1-flash\",\n  \"prompt\": \"清晨的海边，镜头缓慢推进，海浪轻拍沙滩，自然光，画面平稳。\",\n  \"duration\": 4,\n  \"resolution\": \"720p\",\n  \"aspect_ratio\": \"16:9\",\n  \"n\": 1\n}\nJSON\n\ncat omni-submit.json\n```\n\n提交成功时，关键字段示意如下；这不是一份实际生成结果，响应可能包含其他字段：\n\n```json\n{\n  \"id\": \"task_...\",\n  \"status\": \"queued\"\n}\n```\n\nHTTP 200 和任务 ID 只表示已受理，不代表生成完成。保存返回的 **`id`**，后续始终使用它，不依赖其他 `task_id` 字段：\n\n```bash\nTASK_ID=\"$(python3 - \u003c\u003c'PY'\nimport json\n\nwith open('omni-submit.json', encoding='utf-8') as file:\n    response = json.load(file)\ntask_id = response.get('id')\nif not isinstance(task_id, str) or not task_id.startswith('task_'):\n    raise SystemExit('未返回有效任务 ID，请检查响应，不要直接重复提交。')\nprint(task_id)\nPY\n)\" && export TASK_ID\n\nprintf '任务 ID：%s\\n' \"${TASK_ID}\"\n```\n\n**提交超时或连接中断，不代表任务没有创建。先保留响应和请求记录，核实是否已经受理；不要自动重复 POST，以免重复生成、重复计费。**\n\n### 3.3 查询任务\n\n```bash\ncurl --silent --show-error --fail-with-body \\\n  \"${FLOWAPI_BASE_URL}/v1/videos/${TASK_ID}\" \\\n  -H \"Authorization: Bearer ${FLOWAPI_TOKEN}\" \\\n  --output omni-result.json\n\ncat omni-result.json\n```\n\n建议每隔 **15 秒** 查询一次。接口返回后台轮询保存的任务快照，进度可能短暂不变，不要因此重新提交。\n\n| `status` | 处理方式 |\n| --- | --- |\n| `queued` / `pending` | 排队中，继续查询原任务 |\n| `processing` / `in_progress` | 生成中，继续查询原任务 |\n| `completed` | 生成完成，可以下载 |\n| `failed` / `cancelled` | 已失败或取消，停止轮询，读取 `error.message` |\n\n完成状态的关键字段示意：\n\n```json\n{\n  \"id\": \"task_...\",\n  \"status\": \"completed\"\n}\n```\n\n不要假定响应一定带有 `duration`、`seconds`、`video_url` 或 `metadata.url`。下载统一使用下一节的 FlowAPI `/content` 接口。\n\n### 3.4 下载成片\n\n仅在 `status` 为 `completed` 后执行：\n\n```bash\ncurl --silent --show-error --fail-with-body \\\n  --retry 3 --retry-delay 5 \\\n  \"${FLOWAPI_BASE_URL}/v1/videos/${TASK_ID}/content\" \\\n  -H \"Authorization: Bearer ${FLOWAPI_TOKEN}\" \\\n  --output omni.mp4.part && mv omni.mp4.part omni.mp4\n```\n\n此接口返回视频二进制内容，仍需携带 Authorization，不是可直接粘贴到浏览器的公开文件地址。请由自己的服务端下载并转存，不要将 API Key 拼到地址中。下载临时失败时重试同一任务的下载接口，不要重新生成视频。\n\n## 4. 请求参数\n\n提交接口为 **POST `/v1/videos`**，请求类型为 `application/json`。\n\n| 参数 | 类型 | 说明 |\n| --- | --- | --- |\n| `model` | string | 必填，固定为 `gemini-omni-1.1-flash` |\n| `prompt` | string | 必填，非空的视频描述 |\n| `duration` | integer | 本接入要求显式填写 `4`、`6`、`8` 或 `10`，单位秒；不要依赖默认值 |\n| `resolution` | string | 填写 `720p` |\n| `aspect_ratio` | string | 画面比例，例如 `16:9`、`9:16` |\n| `n` | integer | 固定填写 `1`；本文不提供批量多条生成合同 |\n| `images` | string[] | 可选，参考图片的公开 HTTPS 地址数组，保留输入顺序 |\n| `videos` | string[] | 可选，参考视频的公开 HTTPS 地址数组 |\n| `audios` | string[] | 可选，参考音频的公开 HTTPS 地址数组 |\n| `generateAudio` | boolean | 可选，是否请求生成音频；`false` 可显式传递 |\n| `preprocess` | boolean | 可选，人脸预处理开关；`false` 可显式传递，不代表绕过内容审核 |\n| `seed` | integer | 可选，随机种子；`0` 可显式传递 |\n| `size` | string | 可选像素尺寸或比例；一般省略，由 `resolution` 和 `aspect_ratio` 表达规格 |\n\n素材地址必须无需登录、Cookie 或额外请求头即可访问，并在生成期间保持有效；不要提交本地文件路径。素材数量、组合和内容以模型实际能力及审核结果为准。\n\n`generateAudio` 控制输出音频，`audios` 是输入参考音频，两者不是同一个参数。不要把清晰度或比例拼进模型名；也不要传入其他视频模型的 `1792x1024` / `1024x1792` 尺寸，这不是本模型的 720p 调用规格，并可能触发额外尺寸倍率。\n\n## 5. 使用参考素材\n\n将快速开始中的 JSON 请求体替换为下面的示例即可；地址是占位值，必须换成自己的真实素材地址。\n\n### 5.1 图片参考\n\n```json\n{\n  \"model\": \"gemini-omni-1.1-flash\",\n  \"prompt\": \"保持参考图中的主体外观，镜头缓慢推进，人物自然转身微笑。\",\n  \"images\": [\"https://example.com/subject.jpg\"],\n  \"duration\": 6,\n  \"resolution\": \"720p\",\n  \"aspect_ratio\": \"16:9\",\n  \"preprocess\": false,\n  \"seed\": 0,\n  \"n\": 1\n}\n```\n\n### 5.2 视频与音频参考\n\n按需要提供 `videos` 或 `audios`；没有对应素材时直接省略该字段。\n\n```json\n{\n  \"model\": \"gemini-omni-1.1-flash\",\n  \"prompt\": \"参考视频中的动作节奏，配合参考音频生成自然连贯的画面。\",\n  \"videos\": [\"https://example.com/motion.mp4\"],\n  \"audios\": [\"https://example.com/rhythm.wav\"],\n  \"duration\": 8,\n  \"resolution\": \"720p\",\n  \"aspect_ratio\": \"16:9\",\n  \"generateAudio\": true,\n  \"n\": 1\n}\n```\n\n## 6. Python 自动轮询已有任务\n\n完成第 3 节提交并设置 `TASK_ID` 后运行下面的脚本。它只查询已有任务，不会发起新的付费生成；完成后再执行第 3.4 节下载命令。\n\n```python\nimport json\nimport os\nimport time\nfrom urllib.error import HTTPError, URLError\nfrom urllib.request import Request, urlopen\n\nbase_url = os.environ.get('FLOWAPI_BASE_URL', 'https://flowapi.robusta.top').rstrip('/')\ntoken = os.environ['FLOWAPI_TOKEN']\ntask_id = os.environ['TASK_ID']\nif not task_id.startswith('task_'):\n    raise SystemExit('请使用提交响应中的 FlowAPI id。')\n\ndeadline = time.monotonic() + 30 * 60\nwhile time.monotonic() \u003c deadline:\n    request = Request(\n        f'{base_url}/v1/videos/{task_id}',\n        headers={'Authorization': f'Bearer {token}'},\n    )\n    try:\n        with urlopen(request, timeout=60) as response:\n            task = json.load(response)\n    except HTTPError as error:\n        if error.code != 429 and error.code \u003c 500:\n            raise SystemExit(f'查询失败 HTTP {error.code}，请检查令牌及任务 ID。')\n        print(f'查询暂时失败 HTTP {error.code}，15 秒后继续查询原任务。')\n    except (URLError, TimeoutError):\n        print('查询连接暂时失败，15 秒后继续查询原任务。')\n    else:\n        status = task.get('status')\n        print(task_id, status, task.get('progress', ''))\n        if status == 'completed':\n            print(f'生成完成，请下载：{base_url}/v1/videos/{task_id}/content')\n            break\n        if status in ('failed', 'cancelled'):\n            raise SystemExit(f'任务失败：{task.get(\"error\") or \"请联系管理员查询原因\"}')\n    time.sleep(15)\nelse:\n    raise SystemExit('本次轮询已超时；任务未被取消，请保存 TASK_ID，稍后继续查询，不要重复提交。')\n```\n\n## 7. 常见问题\n\n- **401 / 403：** 检查 FlowAPI Key 是否有效、令牌是否选择 `video`，以及模型白名单是否允许该模型。不要使用供应商 Key 访问 FlowAPI。\n- **找不到任务：** 确认使用提交响应的 `id`，且使用同一账户的 Key；不要用上游任务 ID。\n- **进度不变或查询偶发超时：** 继续查询同一个任务，降低轮询频率，不要自动重新提交。\n- **状态为 `failed`：** 保留任务 ID 和 `error.message`；后台确认失败后退回对应预扣额度。不要把客户端超时等同于任务失败。\n- **已完成但下载失败：** 稍后重试同一个 `/content` 地址。生成完成与下载成功是两个步骤，不需要重新生成。\n- **费用与预期不符：** 检查 `duration`、`n` 和 `size`，不要同时发送 `seconds`；本文标准示例为 720p、每次一条、0.20 元/秒。\n\n本文依据当前接入配置、接口实现与供应商协议整理；示例响应为结构示意，不代表已完成该模型的付费生成验收。\n"</script>
+  <script id="markdown-source" type="application/json">"# Gemini Omni 视频调用方法\n\n通过 FlowAPI 调用 `gemini-omni-1.1-flash` 生成视频。先提交一次任务，保存返回的 `id`，再查询进度并下载成片；支持文字提示词及图片、视频、音频参考素材。\n\n## 1. 接入准备\n\n| 配置项 | 填写内容 |\n| --- | --- |\n| API 地址 | `https://flowapi.robusta.top` |\n| 身份认证 | `Authorization: Bearer \u003c你的 FlowAPI API Key>` |\n| 令牌分组 | 创建或编辑令牌时选择 `video` |\n| 模型 ID | `gemini-omni-1.1-flash`，大小写与拼写保持一致 |\n| 模型限制 | 如开启令牌模型白名单，加入 `gemini-omni-1.1-flash` |\n| 视频规格 | 720p；时长为 `4`、`6`、`8`、`10` 秒 |\n| 生成数量 | 每次请求固定 `n: 1` |\n\n提交、查询和下载使用同一个有效的 FlowAPI Key。请求体不用另传 `group`，也不需要任何上游供应商的 Key。API Key 只保存在服务端或本地环境变量，不要写入前端网页、公开仓库或 URL。\n\n## 2. 快速开始：提交、查询、下载\n\n以下命令适用于 macOS、Linux 等终端，需要 `curl` 和 Python 3。请求参数全部放在 JSON 顶层，时长使用 `duration`，不要同时传 `seconds`，也不要把参数嵌套到 `metadata`。\n\n### 2.1 配置环境变量\n\n```bash\nexport FLOWAPI_BASE_URL='https://flowapi.robusta.top'\nexport FLOWAPI_TOKEN='替换为你的_FlowAPI_API_Key'\n```\n\n### 2.2 提交一次任务\n\n```bash\ncurl --silent --show-error --fail-with-body \\\n  \"${FLOWAPI_BASE_URL}/v1/videos\" \\\n  -H \"Authorization: Bearer ${FLOWAPI_TOKEN}\" \\\n  -H 'Content-Type: application/json' \\\n  --data-binary @- \\\n  --output omni-submit.json \u003c\u003c'JSON'\n{\n  \"model\": \"gemini-omni-1.1-flash\",\n  \"prompt\": \"清晨的海边，镜头缓慢推进，海浪轻拍沙滩，自然光，画面平稳。\",\n  \"duration\": 4,\n  \"resolution\": \"720p\",\n  \"aspect_ratio\": \"16:9\",\n  \"n\": 1\n}\nJSON\n\ncat omni-submit.json\n```\n\n提交成功时，关键字段示意如下；这不是一份实际生成结果，响应可能包含其他字段：\n\n```json\n{\n  \"id\": \"task_...\",\n  \"status\": \"queued\"\n}\n```\n\nHTTP 200 和任务 ID 只表示已受理，不代表生成完成。保存返回的 **`id`**，后续始终使用它，不依赖其他 `task_id` 字段：\n\n```bash\nTASK_ID=\"$(python3 - \u003c\u003c'PY'\nimport json\n\nwith open('omni-submit.json', encoding='utf-8') as file:\n    response = json.load(file)\ntask_id = response.get('id')\nif not isinstance(task_id, str) or not task_id.startswith('task_'):\n    raise SystemExit('未返回有效任务 ID，请检查响应，不要直接重复提交。')\nprint(task_id)\nPY\n)\" && export TASK_ID\n\nprintf '任务 ID：%s\\n' \"${TASK_ID}\"\n```\n\n**提交超时或连接中断，不代表任务没有创建。先保留响应和请求记录，核实是否已经受理；不要自动重复 POST，以免重复生成。**\n\n### 2.3 查询任务\n\n```bash\ncurl --silent --show-error --fail-with-body \\\n  \"${FLOWAPI_BASE_URL}/v1/videos/${TASK_ID}\" \\\n  -H \"Authorization: Bearer ${FLOWAPI_TOKEN}\" \\\n  --output omni-result.json\n\ncat omni-result.json\n```\n\n建议每隔 **15 秒** 查询一次。接口返回后台轮询保存的任务快照，进度可能短暂不变，不要因此重新提交。\n\n| `status` | 处理方式 |\n| --- | --- |\n| `queued` / `pending` | 排队中，继续查询原任务 |\n| `processing` / `in_progress` | 生成中，继续查询原任务 |\n| `completed` | 生成完成，可以下载 |\n| `failed` / `cancelled` | 已失败或取消，停止轮询，读取 `error.message` |\n\n完成状态的关键字段示意：\n\n```json\n{\n  \"id\": \"task_...\",\n  \"status\": \"completed\"\n}\n```\n\n不要假定响应一定带有 `duration`、`seconds`、`video_url` 或 `metadata.url`。下载统一使用下一节的 FlowAPI `/content` 接口。\n\n### 2.4 下载成片\n\n仅在 `status` 为 `completed` 后执行：\n\n```bash\ncurl --silent --show-error --fail-with-body \\\n  --retry 3 --retry-delay 5 \\\n  \"${FLOWAPI_BASE_URL}/v1/videos/${TASK_ID}/content\" \\\n  -H \"Authorization: Bearer ${FLOWAPI_TOKEN}\" \\\n  --output omni.mp4.part && mv omni.mp4.part omni.mp4\n```\n\n此接口返回视频二进制内容，仍需携带 Authorization，不是可直接粘贴到浏览器的公开文件地址。请由自己的服务端下载并转存，不要将 API Key 拼到地址中。下载临时失败时重试同一任务的下载接口，不要重新生成视频。\n\n## 3. 请求参数\n\n提交接口为 **POST `/v1/videos`**，请求类型为 `application/json`。\n\n| 参数 | 类型 | 说明 |\n| --- | --- | --- |\n| `model` | string | 必填，固定为 `gemini-omni-1.1-flash` |\n| `prompt` | string | 必填，非空的视频描述 |\n| `duration` | integer | 本接入要求显式填写 `4`、`6`、`8` 或 `10`，单位秒；不要依赖默认值 |\n| `resolution` | string | 填写 `720p` |\n| `aspect_ratio` | string | 画面比例，例如 `16:9`、`9:16` |\n| `n` | integer | 固定填写 `1`；本文不提供批量多条生成合同 |\n| `images` | string[] | 可选，参考图片的公开 HTTPS 地址数组，保留输入顺序 |\n| `videos` | string[] | 可选，参考视频的公开 HTTPS 地址数组 |\n| `audios` | string[] | 可选，参考音频的公开 HTTPS 地址数组 |\n| `generateAudio` | boolean | 可选，是否请求生成音频；`false` 可显式传递 |\n| `preprocess` | boolean | 可选，人脸预处理开关；`false` 可显式传递，不代表绕过内容审核 |\n| `seed` | integer | 可选，随机种子；`0` 可显式传递 |\n| `size` | string | 可选像素尺寸或比例；一般省略，由 `resolution` 和 `aspect_ratio` 表达规格 |\n\n素材地址必须无需登录、Cookie 或额外请求头即可访问，并在生成期间保持有效；不要提交本地文件路径。素材数量、组合和内容以模型实际能力及审核结果为准。\n\n`generateAudio` 控制输出音频，`audios` 是输入参考音频，两者不是同一个参数。不要把清晰度或比例拼进模型名；也不要传入其他视频模型的 `1792x1024` / `1024x1792` 尺寸，这不是本模型的 720p 调用规格。\n\n## 4. 使用参考素材\n\n将快速开始中的 JSON 请求体替换为下面的示例即可；地址是占位值，必须换成自己的真实素材地址。\n\n### 4.1 图片参考\n\n```json\n{\n  \"model\": \"gemini-omni-1.1-flash\",\n  \"prompt\": \"保持参考图中的主体外观，镜头缓慢推进，人物自然转身微笑。\",\n  \"images\": [\"https://example.com/subject.jpg\"],\n  \"duration\": 6,\n  \"resolution\": \"720p\",\n  \"aspect_ratio\": \"16:9\",\n  \"preprocess\": false,\n  \"seed\": 0,\n  \"n\": 1\n}\n```\n\n### 4.2 视频与音频参考\n\n按需要提供 `videos` 或 `audios`；没有对应素材时直接省略该字段。\n\n```json\n{\n  \"model\": \"gemini-omni-1.1-flash\",\n  \"prompt\": \"参考视频中的动作节奏，配合参考音频生成自然连贯的画面。\",\n  \"videos\": [\"https://example.com/motion.mp4\"],\n  \"audios\": [\"https://example.com/rhythm.wav\"],\n  \"duration\": 8,\n  \"resolution\": \"720p\",\n  \"aspect_ratio\": \"16:9\",\n  \"generateAudio\": true,\n  \"n\": 1\n}\n```\n\n## 5. Python 自动轮询已有任务\n\n完成第 2 节提交并设置 `TASK_ID` 后运行下面的脚本。它只查询已有任务，不会发起新的生成；完成后再执行第 2.4 节下载命令。\n\n```python\nimport json\nimport os\nimport time\nfrom urllib.error import HTTPError, URLError\nfrom urllib.request import Request, urlopen\n\nbase_url = os.environ.get('FLOWAPI_BASE_URL', 'https://flowapi.robusta.top').rstrip('/')\ntoken = os.environ['FLOWAPI_TOKEN']\ntask_id = os.environ['TASK_ID']\nif not task_id.startswith('task_'):\n    raise SystemExit('请使用提交响应中的 FlowAPI id。')\n\ndeadline = time.monotonic() + 30 * 60\nwhile time.monotonic() \u003c deadline:\n    request = Request(\n        f'{base_url}/v1/videos/{task_id}',\n        headers={'Authorization': f'Bearer {token}'},\n    )\n    try:\n        with urlopen(request, timeout=60) as response:\n            task = json.load(response)\n    except HTTPError as error:\n        if error.code != 429 and error.code \u003c 500:\n            raise SystemExit(f'查询失败 HTTP {error.code}，请检查令牌及任务 ID。')\n        print(f'查询暂时失败 HTTP {error.code}，15 秒后继续查询原任务。')\n    except (URLError, TimeoutError):\n        print('查询连接暂时失败，15 秒后继续查询原任务。')\n    else:\n        status = task.get('status')\n        print(task_id, status, task.get('progress', ''))\n        if status == 'completed':\n            print(f'生成完成，请下载：{base_url}/v1/videos/{task_id}/content')\n            break\n        if status in ('failed', 'cancelled'):\n            raise SystemExit(f'任务失败：{task.get(\"error\") or \"请联系管理员查询原因\"}')\n    time.sleep(15)\nelse:\n    raise SystemExit('本次轮询已超时；任务未被取消，请保存 TASK_ID，稍后继续查询，不要重复提交。')\n```\n\n## 6. 常见问题\n\n- **401 / 403：** 检查 FlowAPI Key 是否有效、令牌是否选择 `video`，以及模型白名单是否允许该模型。不要使用供应商 Key 访问 FlowAPI。\n- **找不到任务：** 确认使用提交响应的 `id`，且使用同一账户的 Key；不要用上游任务 ID。\n- **进度不变或查询偶发超时：** 继续查询同一个任务，降低轮询频率，不要自动重新提交。\n- **状态为 `failed`：** 保留任务 ID 和 `error.message`。不要把客户端超时等同于任务失败。\n- **已完成但下载失败：** 稍后重试同一个 `/content` 地址。生成完成与下载成功是两个步骤，不需要重新生成。\n\n本文依据当前接入配置、接口实现与供应商协议整理；示例响应为结构示意，不代表某一次实际生成结果。\n"</script>
   <script>
     const markdown = JSON.parse(document.getElementById('markdown-source').textContent);
     const feedback = document.getElementById('copy-feedback');

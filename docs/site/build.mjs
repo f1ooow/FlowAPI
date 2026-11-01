@@ -36,10 +36,19 @@ const pages = [
     source: 'omni.md',
     output: 'omni.html',
     label: 'Omni 视频调用方法',
-    description: 'FlowAPI Gemini Omni 视频调用方法：提交任务、轮询进度、下载成片、参考素材，以及 0.20 元每秒的计费说明。',
+    description: 'FlowAPI Gemini Omni 视频调用方法：提交任务、轮询进度、下载成片，以及图片、视频和音频参考素材的使用示例。',
     eyebrow: '视频生成 / GEMINI OMNI',
-    tags: ['720p 视频', '4 / 6 / 8 / 10 秒', '0.20 元 / 秒', '参考素材'],
+    tags: ['720p 视频', '4 / 6 / 8 / 10 秒', '参考素材', '完整调用示例'],
     download: 'FlowAPI-Omni-调用方法.md',
+  },
+  {
+    source: 'kling4.md',
+    output: 'kling4.html',
+    label: 'Kling 4.0 视频调用方法',
+    description: 'FlowAPI Kling 4.0 视频调用方法：720p / 1080p、3–30 秒视频、图片与视频音频参考，以及任务提交、查询和下载。',
+    eyebrow: '视频生成 / KLING 4.0',
+    tags: ['720p / 1080p', '3–30 秒', '多模态参考', '完整调用示例'],
+    download: 'FlowAPI-Kling4-调用方法.md',
   },
 ]
 
