@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -56,7 +57,11 @@ func currentFetchProtection() (*common.SSRFProtection, bool, error) {
 }
 
 func newProtectedFetchHTTPClient() *http.Client {
-	return newProtectedFetchHTTPClientWithDialer(nil, nil, nil)
+	client := newProtectedFetchHTTPClientWithDialer(nil, nil, nil)
+	if err := configureFetchProxyRoutes(client, os.Getenv("FETCH_PROXY_ROUTES")); err != nil {
+		common.FatalLog(err)
+	}
+	return client
 }
 
 func newProtectedFetchHTTPClientWithDialer(resolver ssrfResolver, dialContext func(ctx context.Context, network, address string) (net.Conn, error), getProtection func() (*common.SSRFProtection, bool, error)) *http.Client {
