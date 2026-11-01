@@ -13,60 +13,93 @@ const markedPath = require.resolve('marked', {
   paths: [path.join(root, 'web'), process.cwd()],
 })
 const { marked } = await import(pathToFileURL(markedPath).href)
-const markdown = await readFile(path.join(root, 'docs/suno.md'), 'utf8')
-const sourceHash = createHash('sha256').update(markdown).digest('hex')
-const sourceJSON = JSON.stringify(markdown).replaceAll('<', '\\u003c')
-const tokens = marked.lexer(markdown)
-const title = tokens.find((token) => token.type === 'heading' && token.depth === 1)
-const leadIndex = tokens.findIndex((token) => token.type === 'paragraph')
-if (!title || leadIndex < 0) throw new Error('Suno Markdown needs a title and introduction.')
+const pages = [
+  {
+    source: 'suno.md',
+    output: 'index.html',
+    label: 'Suno 调用方法',
+    description: 'FlowAPI Suno 调用方法：灵感歌曲、自定义歌词、纯音乐生成，以及提交任务、轮询、音频结果与完整 Python 示例。',
+    eyebrow: '音乐生成 / SUNO',
+    tags: ['灵感创作', '自定义歌词', '纯音乐', '完整调用示例'],
+    download: 'FlowAPI-Suno-调用方法.md',
+  },
+  {
+    source: 'ocr.md',
+    output: 'ocr.html',
+    label: 'OCR 调用方法',
+    description: 'FlowAPI OCR 调用方法：通过 FlowAPI 或直连硅基流动调用 DeepSeek-OCR、PaddleOCR-VL-1.5，识别文字与坐标。',
+    eyebrow: '文字识别 / OCR',
+    tags: ['FlowAPI 网关', '硅基流动直连', '文字与坐标', '完整调用示例'],
+    download: 'FlowAPI-OCR-调用方法.md',
+  },
+  {
+    source: 'omni.md',
+    output: 'omni.html',
+    label: 'Omni 视频调用方法',
+    description: 'FlowAPI Gemini Omni 视频调用方法：提交任务、轮询进度、下载成片、参考素材，以及 0.20 元每秒的计费说明。',
+    eyebrow: '视频生成 / GEMINI OMNI',
+    tags: ['720p 视频', '4 / 6 / 8 / 10 秒', '0.20 元 / 秒', '参考素材'],
+    download: 'FlowAPI-Omni-调用方法.md',
+  },
+]
 
 function escapeHTML(value) {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
 }
 
-const copyIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>'
-const downloadIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>'
-const renderer = new marked.Renderer()
-const renderTable = renderer.table
-const toc = []
-let section = 0
-let subsection = 0
-let codeIndex = 0
-renderer.heading = function (token) {
-  const content = this.parser.parseInline(token.tokens)
-  let id
-  if (token.depth === 2) {
-    section += 1
-    subsection = 0
-    id = `section-${section}`
-    toc.push({ id, title: token.text.replace(/^\d+\.\s*/, '') })
-  } else {
-    subsection += 1
-    id = `section-${section}-${subsection}`
-  }
-  return `<h${token.depth} id="${id}">${content}</h${token.depth}>\n`
-}
-renderer.code = function (token) {
-  const index = codeIndex++
-  const language = (token.lang || 'text').split(/\s+/)[0]
-  return `<div class="code-block"><div class="code-bar"><span>${escapeHTML(language)}</span><button type="button" class="copy-code" data-copy-code="${index}" aria-label="复制第 ${index + 1} 个代码块">${copyIcon}<span>复制</span></button></div><pre tabindex="0"><code id="code-${index}" class="language-${escapeHTML(language)}">${escapeHTML(token.text)}</code></pre></div>\n`
-}
-renderer.table = function (token) {
-  return `<div class="table-scroll" tabindex="0" role="region" aria-label="文档表格，可横向滚动">${renderTable.call(this, token)}</div>\n`
-}
-const bodyTokens = tokens.slice(leadIndex + 1)
-bodyTokens.links = tokens.links
-const content = marked.parser(bodyTokens, { renderer })
-const lead = marked.parser([tokens[leadIndex]])
-const tocHTML = toc.map((entry, index) => `<a href="#${entry.id}"><span class="toc-number">${String(index + 1).padStart(2, '0')}</span>${escapeHTML(entry.title)}</a>`).join('\n')
+async function generatePage(page) {
+  const markdown = await readFile(path.join(root, 'docs', page.source), 'utf8')
+  const sourceHash = createHash('sha256').update(markdown).digest('hex')
+  const sourceJSON = JSON.stringify(markdown).replaceAll('<', '\\u003c')
+  const tokens = marked.lexer(markdown)
+  const title = tokens.find((token) => token.type === 'heading' && token.depth === 1)
+  const leadIndex = tokens.findIndex((token) => token.type === 'paragraph')
+  if (!title || leadIndex < 0) throw new Error(`${page.source} needs a title and introduction.`)
 
-const html = `<!doctype html>
+  const copyIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>'
+  const downloadIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>'
+  const renderer = new marked.Renderer()
+  const renderTable = renderer.table
+  const toc = []
+  let section = 0
+  let subsection = 0
+  let codeIndex = 0
+  renderer.heading = function (token) {
+    const content = this.parser.parseInline(token.tokens)
+    let id
+    if (token.depth === 2) {
+      section += 1
+      subsection = 0
+      id = `section-${section}`
+      toc.push({ id, title: token.text.replace(/^\d+\.\s*/, '') })
+    } else {
+      subsection += 1
+      id = `section-${section}-${subsection}`
+    }
+    return `<h${token.depth} id="${id}">${content}</h${token.depth}>\n`
+  }
+  renderer.code = function (token) {
+    const index = codeIndex++
+    const language = (token.lang || 'text').split(/\s+/)[0]
+    return `<div class="code-block"><div class="code-bar"><span>${escapeHTML(language)}</span><button type="button" class="copy-code" data-copy-code="${index}" aria-label="复制第 ${index + 1} 个代码块">${copyIcon}<span>复制</span></button></div><pre tabindex="0"><code id="code-${index}" class="language-${escapeHTML(language)}">${escapeHTML(token.text)}</code></pre></div>\n`
+  }
+  renderer.table = function (token) {
+    return `<div class="table-scroll" tabindex="0" role="region" aria-label="文档表格，可横向滚动">${renderTable.call(this, token)}</div>\n`
+  }
+  const bodyTokens = tokens.slice(leadIndex + 1)
+  bodyTokens.links = tokens.links
+  const content = marked.parser(bodyTokens, { renderer })
+  const lead = marked.parser([tokens[leadIndex]])
+  const tocHTML = toc.map((entry, index) => `<a href="#${entry.id}"><span class="toc-number">${String(index + 1).padStart(2, '0')}</span>${escapeHTML(entry.title)}</a>`).join('\n')
+  const documentLinks = pages.map((entry) => `<a class="document-link" href="${entry.output}"${entry.output === page.output ? ' aria-current="page"' : ''}>${escapeHTML(entry.label)}</a>`).join('\n')
+  const tagsHTML = page.tags.map((tag) => `<span class="meta-tag">${escapeHTML(tag)}</span>`).join('')
+
+  const html = `<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="FlowAPI Suno 调用方法：灵感歌曲、自定义歌词、纯音乐生成，以及提交任务、轮询、音频结果与完整 Python 示例。">
+  <meta name="description" content="${escapeHTML(page.description)}">
   <meta name="flowapi-markdown-sha256" content="${sourceHash}">
   <meta name="color-scheme" content="light">
   <title>${escapeHTML(title.text)} · FlowAPI 文档</title>
@@ -101,9 +134,11 @@ const html = `<!doctype html>
     .layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:56px;max-width:1232px;margin:auto;padding:44px 32px 80px}
     .sidebar{align-self:start;position:sticky;top:112px;font-size:13px;color:var(--muted)}
     .sidebar-label{margin:0 0 12px;color:var(--muted);font-size:11px;letter-spacing:1.4px;font-weight:600;text-transform:uppercase}
-    .document-link{display:flex;align-items:center;gap:10px;border-left:2px solid var(--accent);background:var(--accent-soft);padding:11px 14px;margin-bottom:32px;color:var(--accent-dark);font-size:14px;font-weight:600;border-radius:0 6px 6px 0}
-    .document-link svg{width:17px;height:17px;flex-shrink:0}
-    .document-link:hover{text-decoration:none;background:#e3f3f3}
+    .document-list{display:flex;flex-direction:column;gap:5px;margin-bottom:30px}
+    .document-link{display:flex;align-items:center;gap:10px;border-left:2px solid transparent;padding:11px 14px;color:var(--muted);font-size:14px;font-weight:600;border-radius:0 6px 6px 0}
+    .document-link[aria-current="page"]{border-left-color:var(--accent);background:var(--accent-soft);color:var(--accent-dark)}
+    .document-link:hover{text-decoration:none;background:#e3f3f3;color:var(--accent-dark)}
+    .mobile-documents{display:none}
     .toc{display:flex;flex-direction:column;gap:3px}
     .toc a{display:flex;align-items:baseline;gap:12px;line-height:1.5;color:var(--muted);padding:9px 10px;border-radius:6px}
     .toc a:hover,.toc a[aria-current="location"]{color:var(--accent-dark);background:var(--accent-soft);text-decoration:none}
@@ -149,10 +184,10 @@ const html = `<!doctype html>
     noscript{display:block;padding:12px 16px;background:var(--accent-soft);font-size:14px;color:var(--accent-dark)}
     @media(min-width:1450px){.layout{gap:76px}}
     @media(max-width:1000px){.layout{grid-template-columns:180px minmax(0,1fr);gap:30px;padding-inline:24px}.top-inner{padding-inline:24px}.sidebar{font-size:12px}.toc a{padding-inline:6px;gap:8px}.toc-number{display:none}}
-    @media(max-width:760px){.layout{display:block;padding:30px 20px 56px}.sidebar{display:none}.top-inner{padding-inline:20px;gap:16px}.brand-divider,.brand-area{display:none}.button{padding:9px 12px;font-size:13px}.button svg{height:16px;width:16px}.brand-name{font-size:17px}.brand-mark{width:29px;height:29px}.brand{gap:8px}.top-actions{gap:8px}.doc-header{padding-bottom:26px;margin-bottom:26px}.mobile-toc{display:block;border:1px solid var(--line);border-radius:8px;padding:0 14px;margin:0 0 30px;background:var(--bg)}.mobile-toc summary{cursor:pointer;padding:11px 0;font-size:13px;font-weight:600;color:var(--muted)}.mobile-toc .toc{padding:0 0 12px}.mobile-toc .toc-number{display:inline}.lead{font-size:15px}.doc-meta{gap:6px}article h2{font-size:22px;margin-top:39px}article h3{font-size:17px}article p{font-size:15px;line-height:1.9}th,td{padding:11px 12px}.code-block{margin:18px 0 22px}pre{padding:16px}article pre code{font-size:11px}}
+    @media(max-width:760px){.layout{display:block;padding:30px 20px 56px}.sidebar{display:none}.top-inner{padding-inline:20px;gap:16px}.brand-divider,.brand-area{display:none}.button{padding:9px 12px;font-size:13px}.button svg{height:16px;width:16px}.brand-name{font-size:17px}.brand-mark{width:29px;height:29px}.brand{gap:8px}.top-actions{gap:8px}.mobile-documents{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 24px}.mobile-documents .document-link{border:1px solid var(--line);border-radius:6px;padding:7px 12px;font-size:13px}.mobile-documents .document-link[aria-current="page"]{border-color:#b3d8d9}.doc-header{padding-bottom:26px;margin-bottom:26px}.mobile-toc{display:block;border:1px solid var(--line);border-radius:8px;padding:0 14px;margin:0 0 30px;background:var(--bg)}.mobile-toc summary{cursor:pointer;padding:11px 0;font-size:13px;font-weight:600;color:var(--muted)}.mobile-toc .toc{padding:0 0 12px}.mobile-toc .toc-number{display:inline}.lead{font-size:15px}.doc-meta{gap:6px}article h2{font-size:22px;margin-top:39px}article h3{font-size:17px}article p{font-size:15px;line-height:1.9}th,td{padding:11px 12px}.code-block{margin:18px 0 22px}pre{padding:16px}article pre code{font-size:11px}}
     @media(max-width:540px){html{scroll-padding-top:148px}.top-inner{flex-wrap:wrap;padding:12px 18px;gap:12px}.brand-divider,.brand-area{display:block}.brand-name{font-size:18px}.top-actions{width:100%}.top-actions .primary{flex:1}.top-actions .button{min-height:43px}.layout{padding-top:26px}article h2,article h3{scroll-margin-top:146px}.doc-header{margin-bottom:23px}.eyebrow{font-size:10px}h1{font-size:32px;letter-spacing:-1px}.meta-tag{font-size:10px}}
     @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{transition:none!important}}
-    @media print{.topbar,.sidebar,.mobile-toc,.toast,.copy-code,.skip-link{display:none}.layout{display:block;padding:0}.doc-header{background:none}.code-block,.table-scroll{break-inside:avoid}pre{white-space:pre-wrap;overflow-wrap:anywhere}article pre code{white-space:pre-wrap}.doc-footer{margin-top:28px}}
+    @media print{.topbar,.sidebar,.mobile-documents,.mobile-toc,.toast,.copy-code,.skip-link{display:none}.layout{display:block;padding:0}.doc-header{background:none}.code-block,.table-scroll{break-inside:avoid}pre{white-space:pre-wrap;overflow-wrap:anywhere}article pre code{white-space:pre-wrap}.doc-footer{margin-top:28px}}
   </style>
 </head>
 <body>
@@ -173,20 +208,21 @@ const html = `<!doctype html>
   <div class="layout">
     <aside class="sidebar" aria-label="文档导航">
       <p class="sidebar-label">开发者文档</p>
-      <a class="document-link" href="#main-content" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M9 18V5l12-2v13M9 8l12-2"/><ellipse cx="6" cy="18" rx="3" ry="2"/><ellipse cx="18" cy="16" rx="3" ry="2"/></svg>Suno 调用方法</a>
+      <nav class="document-list" aria-label="开发者文档列表">${documentLinks}</nav>
       <p class="sidebar-label">本页内容</p>
       <nav class="toc" aria-label="本页目录">${tocHTML}</nav>
       <a class="sidebar-footer" href="https://flowapi.robusta.top/">← 返回 FlowAPI</a>
     </aside>
     <main id="main-content" tabindex="-1">
+      <nav class="mobile-documents" aria-label="移动端开发者文档列表">${documentLinks}</nav>
       <header class="doc-header">
-        <p class="eyebrow">音乐生成 / SUNO</p>
+        <p class="eyebrow">${escapeHTML(page.eyebrow)}</p>
         <h1>${escapeHTML(title.text)}</h1>
         <div class="lead">${lead}</div>
-        <div class="doc-meta"><span class="meta-tag">灵感创作</span><span class="meta-tag">自定义歌词</span><span class="meta-tag">纯音乐</span><span class="meta-tag">完整调用示例</span></div>
+        <div class="doc-meta">${tagsHTML}</div>
       </header>
       <details class="mobile-toc"><summary>本页目录</summary><nav class="toc" aria-label="移动端本页目录">${tocHTML}</nav></details>
-      <article aria-label="Suno 完整调用文档">${content}</article>
+      <article aria-label="${escapeHTML(page.label)}完整文档">${content}</article>
       <footer class="doc-footer"><span>FlowAPI · 开发者文档</span><a href="#main-content">返回顶部 ↑</a></footer>
     </main>
   </div>
@@ -256,7 +292,7 @@ const html = `<!doctype html>
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'FlowAPI-Suno-调用方法.md';
+      link.download = ${JSON.stringify(page.download)};
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -282,5 +318,8 @@ const html = `<!doctype html>
 </html>
 `
 
-await writeFile(path.join(directory, 'index.html'), html, 'utf8')
-console.log(`Generated docs/site/index.html from docs/suno.md (${codeIndex} code blocks, SHA-256 ${sourceHash}).`)
+  await writeFile(path.join(directory, page.output), html, 'utf8')
+  console.log(`Generated docs/site/${page.output} from docs/${page.source} (${codeIndex} code blocks, SHA-256 ${sourceHash}).`)
+}
+
+for (const page of pages) await generatePage(page)

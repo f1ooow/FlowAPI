@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="FlowAPI OCR 调用方法：通过 FlowAPI 或直连硅基流动调用 DeepSeek-OCR、PaddleOCR-VL-1.5，识别文字与坐标。">
+  <meta name="flowapi-markdown-sha256" content="02986d20610bce57bda1c2e5defc7e5ec5a8b667f3bca2af6ada26bed64e1239">
+  <meta name="color-scheme" content="light">
+  <title>OCR API 接口文档 · FlowAPI 文档</title>
+  <style>
+    :root{--bg:#fff;--surface:#f6f8fa;--ink:#17212d;--muted:#5a6978;--line:#e2e8ed;--accent:#087e86;--accent-dark:#065f66;--accent-soft:#edf8f8;--radius:12px}
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth;scroll-padding-top:112px}
+    body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.8 'Public Sans','Avenir Next','PingFang SC','Microsoft YaHei',sans-serif;-webkit-font-smoothing:antialiased}
+    a{color:var(--accent);text-decoration:none}
+    a:hover{text-decoration:underline;text-underline-offset:4px}
+    button,a{-webkit-tap-highlight-color:transparent}
+    button{font:inherit;cursor:pointer}
+    :focus-visible{outline:3px solid #159ca6;outline-offset:4px}
+    button:disabled{cursor:wait;opacity:.7}
+    .skip-link{position:fixed;top:-80px;left:16px;z-index:60;padding:8px 16px;background:var(--ink);color:white;border-radius:8px}
+    .skip-link:focus{top:12px}
+    .topbar{position:sticky;top:0;z-index:30;border-bottom:1px solid var(--line);background:rgba(255,255,255,.97)}
+    .top-inner{max-width:1320px;min-height:76px;margin:auto;padding:14px 32px;display:flex;align-items:center;justify-content:space-between;gap:24px}
+    .brand{display:inline-flex;align-items:center;gap:12px;color:var(--ink);flex-shrink:0}
+    .brand:hover{text-decoration:none}
+    .brand-mark{width:32px;height:32px;display:grid;place-items:center;border-radius:9px;background:var(--accent);color:white}
+    .brand-mark svg{width:22px;height:22px}
+    .brand-name{font-size:19px;font-weight:700;letter-spacing:-.6px}
+    .brand-divider{width:1px;height:20px;background:var(--line);margin-inline:3px}
+    .brand-area{font-size:14px;color:var(--muted);font-weight:500}
+    .top-actions{display:flex;align-items:center;gap:10px}
+    .button{display:inline-flex;justify-content:center;align-items:center;gap:9px;min-height:44px;padding:9px 17px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font-size:14px;font-weight:600;line-height:1.5;white-space:nowrap;transition:background .15s,border-color .15s}
+    .button svg{width:17px;height:17px;flex-shrink:0}
+    .button:hover{background:var(--surface);border-color:#b8c8ce}
+    .button.primary{border-color:var(--accent);background:var(--accent);color:white}
+    .button.primary:hover{background:var(--accent-dark);border-color:var(--accent-dark)}
+    .layout{display:grid;grid-template-columns:220px minmax(0,1fr);gap:56px;max-width:1232px;margin:auto;padding:44px 32px 80px}
+    .sidebar{align-self:start;position:sticky;top:112px;font-size:13px;color:var(--muted)}
+    .sidebar-label{margin:0 0 12px;color:var(--muted);font-size:11px;letter-spacing:1.4px;font-weight:600;text-transform:uppercase}
+    .document-list{display:flex;flex-direction:column;gap:5px;margin-bottom:30px}
+    .document-link{display:flex;align-items:center;gap:10px;border-left:2px solid transparent;padding:11px 14px;color:var(--muted);font-size:14px;font-weight:600;border-radius:0 6px 6px 0}
+    .document-link[aria-current="page"]{border-left-color:var(--accent);background:var(--accent-soft);color:var(--accent-dark)}
+    .document-link:hover{text-decoration:none;background:#e3f3f3;color:var(--accent-dark)}
+    .mobile-documents{display:none}
+    .toc{display:flex;flex-direction:column;gap:3px}
+    .toc a{display:flex;align-items:baseline;gap:12px;line-height:1.5;color:var(--muted);padding:9px 10px;border-radius:6px}
+    .toc a:hover,.toc a[aria-current="location"]{color:var(--accent-dark);background:var(--accent-soft);text-decoration:none}
+    .toc-number{font-size:10px;font-weight:600;letter-spacing:.3px;color:#7d8d97;font-variant-numeric:tabular-nums}
+    .sidebar-footer{display:block;margin:30px 10px 0;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
+    main{min-width:0;max-width:836px}
+    .doc-header{padding:0 0 31px;border-bottom:1px solid var(--line);margin-bottom:35px;background:radial-gradient(ellipse at 100% 0,rgba(13,148,154,.035),transparent 65%)}
+    .eyebrow{display:flex;align-items:center;gap:8px;margin:0 0 14px;color:var(--accent);font-size:12px;font-weight:700;letter-spacing:1.5px}
+    .eyebrow:before{content:'';width:6px;height:6px;border-radius:50%;background:var(--accent)}
+    h1{font-size:clamp(30px,3.5vw,40px);line-height:1.25;letter-spacing:-1.2px;font-weight:700;margin:0 0 18px}
+    .lead{max-width:700px;font-size:16px;line-height:1.9;color:var(--muted)}
+    .lead p{margin:0}
+    .doc-meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:21px}
+    .meta-tag{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:5px;padding:3px 9px;color:var(--muted);background:white;font-size:11px;line-height:1.5;font-weight:500}
+    .mobile-toc{display:none}
+    article{overflow-wrap:anywhere}
+    article h2{font-size:24px;line-height:1.45;font-weight:650;letter-spacing:-.5px;margin:49px 0 18px;padding-top:5px;scroll-margin-top:108px}
+    article h2:first-child{margin-top:0}
+    article h3{font-size:18px;line-height:1.5;font-weight:600;margin:30px 0 14px;scroll-margin-top:108px}
+    article p{margin:14px 0}
+    article strong{font-weight:650;color:#102c35}
+    article p>strong:only-child{display:block;border-left:3px solid var(--accent);border-radius:0 6px 6px 0;background:var(--accent-soft);padding:13px 16px;font-size:14px;line-height:1.85}
+    article code{font-family:'SFMono-Regular','Cascadia Code','Consolas',monospace;font-size:.85em;background:#f0f4f6;border:1px solid #e8eef1;border-radius:4px;padding:2px 5px;word-break:normal}
+    .table-scroll{width:100%;max-width:100%;overflow-x:auto;border:1px solid var(--line);border-radius:9px;margin:20px 0 24px;-webkit-overflow-scrolling:touch}
+    table{border-collapse:collapse;width:100%;font-size:13px;line-height:1.8}
+    th,td{border-bottom:1px solid var(--line);padding:12px 14px;text-align:left;vertical-align:top}
+    th{background:var(--surface);color:var(--muted);font-size:11px;letter-spacing:.2px;font-weight:600;white-space:nowrap}
+    th:first-child,td:first-child{min-width:118px}
+    td code{font-size:12px;white-space:normal}
+    tr:last-child td{border-bottom:0}
+    .code-block{margin:20px 0 24px;border:1px solid #dce5e9;border-radius:10px;overflow:hidden;background:#f7f9fb;box-shadow:0 1px 1px rgba(18,39,48,.025)}
+    .code-bar{min-height:43px;display:flex;justify-content:space-between;align-items:center;padding:0 9px 0 16px;border-bottom:1px solid #e3eaee;background:#f0f4f6;color:var(--muted);font:10px/1.4 'Avenir Next','Public Sans',sans-serif;letter-spacing:.8px;text-transform:uppercase}
+    .copy-code{min-width:66px;min-height:36px;padding:6px 8px;display:flex;align-items:center;gap:6px;border:0;border-radius:5px;background:transparent;color:#465d69;font-size:12px;letter-spacing:0}
+    .copy-code svg{height:14px;width:14px}
+    .copy-code:hover{background:#e3ebef;color:var(--accent-dark)}
+    .copy-code[data-copied="true"]{color:var(--accent-dark);background:#ddf0ef}
+    pre{margin:0;padding:20px;overflow:auto;line-height:1.9;tab-size:4;white-space:pre;-webkit-overflow-scrolling:touch}
+    article pre code{display:block;border:0;padding:0;background:transparent;border-radius:0;color:#263d4a;font-size:12px;overflow-wrap:normal;white-space:pre}
+    .doc-footer{margin-top:52px;padding-top:24px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;color:var(--muted);font-size:11px}
+    .doc-footer a{color:var(--muted)}
+    .toast{position:fixed;left:50%;bottom:28px;z-index:50;max-width:calc(100% - 32px);transform:translate(-50%,12px);padding:11px 18px;border:1px solid #cce1e2;border-radius:9px;background:#f0fafa;color:var(--accent-dark);box-shadow:0 6px 24px rgba(23,52,58,.1);font-size:14px;line-height:1.5;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s}
+    .toast.visible{transform:translate(-50%,0);opacity:1}
+    noscript{display:block;padding:12px 16px;background:var(--accent-soft);font-size:14px;color:var(--accent-dark)}
+    @media(min-width:1450px){.layout{gap:76px}}
+    @media(max-width:1000px){.layout{grid-template-columns:180px minmax(0,1fr);gap:30px;padding-inline:24px}.top-inner{padding-inline:24px}.sidebar{font-size:12px}.toc a{padding-inline:6px;gap:8px}.toc-number{display:none}}
+    @media(max-width:760px){.layout{display:block;padding:30px 20px 56px}.sidebar{display:none}.top-inner{padding-inline:20px;gap:16px}.brand-divider,.brand-area{display:none}.button{padding:9px 12px;font-size:13px}.button svg{height:16px;width:16px}.brand-name{font-size:17px}.brand-mark{width:29px;height:29px}.brand{gap:8px}.top-actions{gap:8px}.mobile-documents{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 24px}.mobile-documents .document-link{border:1px solid var(--line);border-radius:6px;padding:7px 12px;font-size:13px}.mobile-documents .document-link[aria-current="page"]{border-color:#b3d8d9}.doc-header{padding-bottom:26px;margin-bottom:26px}.mobile-toc{display:block;border:1px solid var(--line);border-radius:8px;padding:0 14px;margin:0 0 30px;background:var(--bg)}.mobile-toc summary{cursor:pointer;padding:11px 0;font-size:13px;font-weight:600;color:var(--muted)}.mobile-toc .toc{padding:0 0 12px}.mobile-toc .toc-number{display:inline}.lead{font-size:15px}.doc-meta{gap:6px}article h2{font-size:22px;margin-top:39px}article h3{font-size:17px}article p{font-size:15px;line-height:1.9}th,td{padding:11px 12px}.code-block{margin:18px 0 22px}pre{padding:16px}article pre code{font-size:11px}}
+    @media(max-width:540px){html{scroll-padding-top:148px}.top-inner{flex-wrap:wrap;padding:12px 18px;gap:12px}.brand-divider,.brand-area{display:block}.brand-name{font-size:18px}.top-actions{width:100%}.top-actions .primary{flex:1}.top-actions .button{min-height:43px}.layout{padding-top:26px}article h2,article h3{scroll-margin-top:146px}.doc-header{margin-bottom:23px}.eyebrow{font-size:10px}h1{font-size:32px;letter-spacing:-1px}.meta-tag{font-size:10px}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{transition:none!important}}
+    @media print{.topbar,.sidebar,.mobile-documents,.mobile-toc,.toast,.copy-code,.skip-link{display:none}.layout{display:block;padding:0}.doc-header{background:none}.code-block,.table-scroll{break-inside:avoid}pre{white-space:pre-wrap;overflow-wrap:anywhere}article pre code{white-space:pre-wrap}.doc-footer{margin-top:28px}}
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳到文档正文</a>
+  <header class="topbar">
+    <div class="top-inner">
+      <a class="brand" href="https://flowapi.robusta.top/" aria-label="返回 FlowAPI 首页">
+        <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 8h14M5 16h14M9 4l-4 4 4 4m6 0 4 4-4 4"/></svg></span>
+        <span class="brand-name">Flow API</span><span class="brand-divider"></span><span class="brand-area">文档区</span>
+      </a>
+      <div class="top-actions">
+        <button id="copy-markdown" class="button primary" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>一键复制 Markdown</span></button>
+        <button id="download-markdown" class="button" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg><span>下载 .md</span></button>
+      </div>
+    </div>
+  </header>
+  <noscript>正文可以直接阅读。复制全文、复制代码和下载 Markdown 功能需要启用 JavaScript。</noscript>
+  <div class="layout">
+    <aside class="sidebar" aria-label="文档导航">
+      <p class="sidebar-label">开发者文档</p>
+      <nav class="document-list" aria-label="开发者文档列表"><a class="document-link" href="index.html">Suno 调用方法</a>
+<a class="document-link" href="ocr.html" aria-current="page">OCR 调用方法</a>
+<a class="document-link" href="omni.html">Omni 视频调用方法</a></nav>
+      <p class="sidebar-label">本页内容</p>
+      <nav class="toc" aria-label="本页目录"><a href="#section-1"><span class="toc-number">01</span>通过 FlowAPI 调用</a>
+<a href="#section-2"><span class="toc-number">02</span>直连硅基流动</a>
+<a href="#section-3"><span class="toc-number">03</span>共享请求体</a>
+<a href="#section-4"><span class="toc-number">04</span>正常返回结构</a>
+<a href="#section-5"><span class="toc-number">05</span>识别内容与坐标</a>
+<a href="#section-6"><span class="toc-number">06</span>官方参考</a></nav>
+      <a class="sidebar-footer" href="https://flowapi.robusta.top/">← 返回 FlowAPI</a>
+    </aside>
+    <main id="main-content" tabindex="-1">
+      <nav class="mobile-documents" aria-label="移动端开发者文档列表"><a class="document-link" href="index.html">Suno 调用方法</a>
+<a class="document-link" href="ocr.html" aria-current="page">OCR 调用方法</a>
+<a class="document-link" href="omni.html">Omni 视频调用方法</a></nav>
+      <header class="doc-header">
+        <p class="eyebrow">文字识别 / OCR</p>
+        <h1>OCR API 接口文档</h1>
+        <div class="lead"><p>通过 FlowAPI 或直连硅基流动调用 OCR 模型。两种入口使用相同的请求体与响应结构，均为 OpenAI Chat Completions 格式。</p>
+</div>
+        <div class="doc-meta"><span class="meta-tag">FlowAPI 网关</span><span class="meta-tag">硅基流动直连</span><span class="meta-tag">文字与坐标</span><span class="meta-tag">完整调用示例</span></div>
+      </header>
+      <details class="mobile-toc"><summary>本页目录</summary><nav class="toc" aria-label="移动端本页目录"><a href="#section-1"><span class="toc-number">01</span>通过 FlowAPI 调用</a>
+<a href="#section-2"><span class="toc-number">02</span>直连硅基流动</a>
+<a href="#section-3"><span class="toc-number">03</span>共享请求体</a>
+<a href="#section-4"><span class="toc-number">04</span>正常返回结构</a>
+<a href="#section-5"><span class="toc-number">05</span>识别内容与坐标</a>
+<a href="#section-6"><span class="toc-number">06</span>官方参考</a></nav></details>
+      <article aria-label="OCR 调用方法完整文档"><h2 id="section-1">1. 通过 FlowAPI 调用</h2>
+<p><strong>POST <code>https://flowapi.robusta.top/v1/chat/completions</code></strong></p>
+<p>请求头：</p>
+<div class="code-block"><div class="code-bar"><span>http</span><button type="button" class="copy-code" data-copy-code="0" aria-label="复制第 1 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-0" class="language-http">Content-Type: application/json
+Authorization: Bearer &lt;TOKEN&gt;</code></pre></div>
+<p><code>request.json</code> 使用第 3 节的共享请求体。</p>
+<div class="code-block"><div class="code-bar"><span>bash</span><button type="button" class="copy-code" data-copy-code="1" aria-label="复制第 2 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-1" class="language-bash">curl --request POST \
+  --url 'https://flowapi.robusta.top/v1/chat/completions' \
+  --header 'Content-Type: application/json' \
+  --header 'Authorization: Bearer &lt;TOKEN&gt;' \
+  --data-binary @request.json</code></pre></div>
+<h2 id="section-2">2. 直连硅基流动</h2>
+<p><strong>POST <code>https://api.siliconflow.cn/v1/chat/completions</code></strong></p>
+<p>请求头：</p>
+<div class="code-block"><div class="code-bar"><span>http</span><button type="button" class="copy-code" data-copy-code="2" aria-label="复制第 3 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-2" class="language-http">Content-Type: application/json
+Authorization: Bearer &lt;TOKEN&gt;</code></pre></div>
+<p><code>request.json</code> 使用第 3 节的同一个共享请求体。</p>
+<div class="code-block"><div class="code-bar"><span>bash</span><button type="button" class="copy-code" data-copy-code="3" aria-label="复制第 4 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-3" class="language-bash">curl --request POST \
+  --url 'https://api.siliconflow.cn/v1/chat/completions' \
+  --header 'Content-Type: application/json' \
+  --header 'Authorization: Bearer &lt;TOKEN&gt;' \
+  --data-binary @request.json</code></pre></div>
+<h2 id="section-3">3. 共享请求体</h2>
+<p>以下为 DeepSeek-OCR 的文字与坐标请求。<code>data:image/png;base64,...</code> 为格式占位，必须替换为真实图片的 Base64 Data URL。</p>
+<div class="code-block"><div class="code-bar"><span>json</span><button type="button" class="copy-code" data-copy-code="4" aria-label="复制第 5 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-4" class="language-json">{
+  &quot;model&quot;: &quot;deepseek-ai/DeepSeek-OCR&quot;,
+  &quot;messages&quot;: [
+    {
+      &quot;role&quot;: &quot;user&quot;,
+      &quot;content&quot;: [
+        {
+          &quot;type&quot;: &quot;image_url&quot;,
+          &quot;image_url&quot;: {
+            &quot;url&quot;: &quot;data:image/png;base64,...&quot;
+          }
+        },
+        {
+          &quot;type&quot;: &quot;text&quot;,
+          &quot;text&quot;: &quot;&lt;image&gt;\n&lt;|grounding|&gt;OCR this image.&quot;
+        }
+      ]
+    }
+  ],
+  &quot;max_tokens&quot;: 4096,
+  &quot;temperature&quot;: 0,
+  &quot;stream&quot;: false
+}</code></pre></div>
+<h3 id="section-3-1">请求参数</h3>
+<div class="table-scroll" tabindex="0" role="region" aria-label="文档表格，可横向滚动"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>model</code></td>
+<td>string</td>
+<td>模型完整 ID，见下表</td>
+</tr>
+<tr>
+<td><code>messages</code></td>
+<td>array</td>
+<td>消息列表；图片与提示词放在同一条用户消息中</td>
+</tr>
+<tr>
+<td><code>messages[].role</code></td>
+<td>string</td>
+<td>本接口示例使用 <code>user</code></td>
+</tr>
+<tr>
+<td><code>messages[].content</code></td>
+<td>array</td>
+<td>包含 <code>image_url</code> 图片项和 <code>text</code> 提示词项</td>
+</tr>
+<tr>
+<td><code>image_url.url</code></td>
+<td>string</td>
+<td>图片 URL 或 Base64 Data URL；不可直接传 PDF/PPT 文件</td>
+</tr>
+<tr>
+<td><code>text</code></td>
+<td>string</td>
+<td>对应模型及识别模式的提示词，见下表</td>
+</tr>
+<tr>
+<td><code>max_tokens</code></td>
+<td>integer</td>
+<td>输出 token 上限；图片输入也占用模型上下文</td>
+</tr>
+<tr>
+<td><code>temperature</code></td>
+<td>number</td>
+<td>示例为 <code>0</code></td>
+</tr>
+<tr>
+<td><code>stream</code></td>
+<td>boolean</td>
+<td>本文使用 <code>false</code>，返回完整 JSON 响应</td>
+</tr>
+</tbody></table>
+</div>
+<h3 id="section-3-2">模型与提示词</h3>
+<div class="table-scroll" tabindex="0" role="region" aria-label="文档表格，可横向滚动"><table>
+<thead>
+<tr>
+<th><code>model</code></th>
+<th>纯文字识别 <code>text</code></th>
+<th>文字与坐标 <code>text</code></th>
+<th>建议 <code>max_tokens</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>deepseek-ai/DeepSeek-OCR</code></td>
+<td><code>&lt;image&gt;\nFree OCR.</code></td>
+<td><code>&lt;image&gt;\n&lt;|grounding|&gt;OCR this image.</code></td>
+<td><code>4096</code></td>
+</tr>
+<tr>
+<td><code>PaddlePaddle/PaddleOCR-VL-1.5</code></td>
+<td><code>OCR:</code></td>
+<td><code>Spotting:</code></td>
+<td><code>8192</code></td>
+</tr>
+</tbody></table>
+</div>
+<p><code>\n</code> 表示换行。切换模型时同时替换 <code>model</code>、<code>text</code> 和 <code>max_tokens</code>。DeepSeek 不要直接将输出上限设为 <code>8192</code>：图片输入与输出之和可能超过其上下文限制。</p>
+<h2 id="section-4">4. 正常返回结构</h2>
+<p>以下仅展示 JSON 结构；ID、时间、识别文字与 token 数值均为示意，不是实际识别结果。</p>
+<div class="code-block"><div class="code-bar"><span>json</span><button type="button" class="copy-code" data-copy-code="5" aria-label="复制第 6 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-5" class="language-json">{
+  &quot;id&quot;: &quot;chatcmpl-example&quot;,
+  &quot;object&quot;: &quot;chat.completion&quot;,
+  &quot;created&quot;: 0,
+  &quot;model&quot;: &quot;deepseek-ai/DeepSeek-OCR&quot;,
+  &quot;choices&quot;: [
+    {
+      &quot;index&quot;: 0,
+      &quot;message&quot;: {
+        &quot;role&quot;: &quot;assistant&quot;,
+        &quot;content&quot;: &quot;示意识别文字&quot;
+      },
+      &quot;finish_reason&quot;: &quot;stop&quot;
+    }
+  ],
+  &quot;usage&quot;: {
+    &quot;prompt_tokens&quot;: 100,
+    &quot;completion_tokens&quot;: 20,
+    &quot;total_tokens&quot;: 120
+  }
+}</code></pre></div>
+<div class="table-scroll" tabindex="0" role="region" aria-label="文档表格，可横向滚动"><table>
+<thead>
+<tr>
+<th>返回字段</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>id</code></td>
+<td>响应 ID</td>
+</tr>
+<tr>
+<td><code>object</code></td>
+<td>非流式响应类型，通常为 <code>chat.completion</code></td>
+</tr>
+<tr>
+<td><code>created</code></td>
+<td>响应创建时间，Unix 秒级时间戳</td>
+</tr>
+<tr>
+<td><code>model</code></td>
+<td>返回响应对应的模型</td>
+</tr>
+<tr>
+<td><code>choices[].index</code></td>
+<td>候选结果序号</td>
+</tr>
+<tr>
+<td><code>choices[].message.role</code></td>
+<td>本例为 <code>assistant</code></td>
+</tr>
+<tr>
+<td><code>choices[].message.content</code></td>
+<td>OCR 原始结果字符串；格式取决于模型与提示词</td>
+</tr>
+<tr>
+<td><code>choices[].finish_reason</code></td>
+<td><code>stop</code> 表示正常结束；<code>length</code> 表示输出被长度限制截断</td>
+</tr>
+<tr>
+<td><code>usage.prompt_tokens</code></td>
+<td>输入 token 数量</td>
+</tr>
+<tr>
+<td><code>usage.completion_tokens</code></td>
+<td>输出 token 数量</td>
+</tr>
+<tr>
+<td><code>usage.total_tokens</code></td>
+<td>总 token 数量</td>
+</tr>
+</tbody></table>
+</div>
+<h2 id="section-5">5. 识别内容与坐标</h2>
+<h3 id="section-5-1">纯文字识别</h3>
+<p>DeepSeek 使用 <code>&lt;image&gt;\nFree OCR.</code> 提示词，Paddle 使用 <code>OCR:</code> 提示词。两者均从 <code>choices[0].message.content</code> 读取文字字符串，不包含统一的独立 <code>boxes</code> 字段。</p>
+<div class="code-block"><div class="code-bar"><span>text</span><button type="button" class="copy-code" data-copy-code="6" aria-label="复制第 7 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-6" class="language-text">示意标题
+示意正文</code></pre></div>
+<h3 id="section-5-2">DeepSeek-OCR：文字与坐标</h3>
+<p>使用 <code>&lt;image&gt;\n&lt;|grounding|&gt;OCR this image.</code>。以下为格式示意：</p>
+<div class="code-block"><div class="code-bar"><span>text</span><button type="button" class="copy-code" data-copy-code="7" aria-label="复制第 8 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-7" class="language-text">&lt;|ref|&gt;示意识别文字&lt;|/ref|&gt;&lt;|det|&gt;[[100,200,600,260]]&lt;|/det|&gt;</code></pre></div>
+<ul>
+<li><code>det</code> 是矩形列表，每个矩形为 <code>[x1, y1, x2, y2]</code>。</li>
+<li>坐标按 <strong>999</strong> 归一化：<code>pixel_x = x / 999 × width</code>，<code>pixel_y = y / 999 × height</code>。</li>
+<li><code>ref</code> 在本页图片 OCR 提示词下可为识别文字；文档转 Markdown 等其他模式下也可能是区域类别，不能统一当作正文。</li>
+</ul>
+<h3 id="section-5-3">PaddleOCR-VL-1.5：文字与坐标</h3>
+<p>使用 <code>Spotting:</code>。以下为格式示意，八个 <code>LOC</code> 整数依次为 <code>x1,y1,x2,y2,x3,y3,x4,y4</code>：</p>
+<div class="code-block"><div class="code-bar"><span>text</span><button type="button" class="copy-code" data-copy-code="8" aria-label="复制第 9 个代码块"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg><span>复制</span></button></div><pre tabindex="0"><code id="code-8" class="language-text">示意识别文字&lt;|LOC_100|&gt;&lt;|LOC_200|&gt;&lt;|LOC_600|&gt;&lt;|LOC_200|&gt;&lt;|LOC_600|&gt;&lt;|LOC_260|&gt;&lt;|LOC_100|&gt;&lt;|LOC_260|&gt;</code></pre></div>
+<ul>
+<li>四组坐标构成四边形，按 <strong>1000</strong> 归一化：<code>pixel_x = x / 1000 × width</code>，<code>pixel_y = y / 1000 × height</code>。</li>
+<li>部分输出包含 <code>TEXT_START</code>、<code>TEXT_END</code>、<code>LOC_BEGIN</code>、<code>LOC_END</code> 包装标记。</li>
+<li><code>width</code>、<code>height</code> 均指实际提交图片的像素尺寸；保留原始特殊标记再解析，不能先过滤 <code>LOC</code> 或 <code>det</code>。</li>
+</ul>
+<h2 id="section-6">6. 官方参考</h2>
+<ul>
+<li><a href="https://docs.siliconflow.cn/docs/userguide/capabilities/multimodal-vision">硅基流动：多模态请求格式</a></li>
+<li><a href="https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.5">PaddleOCR-VL-1.5：模型与 Spotting 提示词</a></li>
+</ul>
+</article>
+      <footer class="doc-footer"><span>FlowAPI · 开发者文档</span><a href="#main-content">返回顶部 ↑</a></footer>
+    </main>
+  </div>
+  <div id="copy-feedback" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+  <script id="markdown-source" type="application/json">"# OCR API 接口文档\n\n通过 FlowAPI 或直连硅基流动调用 OCR 模型。两种入口使用相同的请求体与响应结构，均为 OpenAI Chat Completions 格式。\n\n## 1. 通过 FlowAPI 调用\n\n**POST `https://flowapi.robusta.top/v1/chat/completions`**\n\n请求头：\n\n```http\nContent-Type: application/json\nAuthorization: Bearer \u003cTOKEN>\n```\n\n`request.json` 使用第 3 节的共享请求体。\n\n```bash\ncurl --request POST \\\n  --url 'https://flowapi.robusta.top/v1/chat/completions' \\\n  --header 'Content-Type: application/json' \\\n  --header 'Authorization: Bearer \u003cTOKEN>' \\\n  --data-binary @request.json\n```\n\n## 2. 直连硅基流动\n\n**POST `https://api.siliconflow.cn/v1/chat/completions`**\n\n请求头：\n\n```http\nContent-Type: application/json\nAuthorization: Bearer \u003cTOKEN>\n```\n\n`request.json` 使用第 3 节的同一个共享请求体。\n\n```bash\ncurl --request POST \\\n  --url 'https://api.siliconflow.cn/v1/chat/completions' \\\n  --header 'Content-Type: application/json' \\\n  --header 'Authorization: Bearer \u003cTOKEN>' \\\n  --data-binary @request.json\n```\n\n## 3. 共享请求体\n\n以下为 DeepSeek-OCR 的文字与坐标请求。`data:image/png;base64,...` 为格式占位，必须替换为真实图片的 Base64 Data URL。\n\n```json\n{\n  \"model\": \"deepseek-ai/DeepSeek-OCR\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": [\n        {\n          \"type\": \"image_url\",\n          \"image_url\": {\n            \"url\": \"data:image/png;base64,...\"\n          }\n        },\n        {\n          \"type\": \"text\",\n          \"text\": \"\u003cimage>\\n\u003c|grounding|>OCR this image.\"\n        }\n      ]\n    }\n  ],\n  \"max_tokens\": 4096,\n  \"temperature\": 0,\n  \"stream\": false\n}\n```\n\n### 请求参数\n\n| 字段 | 类型 | 说明 |\n| --- | --- | --- |\n| `model` | string | 模型完整 ID，见下表 |\n| `messages` | array | 消息列表；图片与提示词放在同一条用户消息中 |\n| `messages[].role` | string | 本接口示例使用 `user` |\n| `messages[].content` | array | 包含 `image_url` 图片项和 `text` 提示词项 |\n| `image_url.url` | string | 图片 URL 或 Base64 Data URL；不可直接传 PDF/PPT 文件 |\n| `text` | string | 对应模型及识别模式的提示词，见下表 |\n| `max_tokens` | integer | 输出 token 上限；图片输入也占用模型上下文 |\n| `temperature` | number | 示例为 `0` |\n| `stream` | boolean | 本文使用 `false`，返回完整 JSON 响应 |\n\n### 模型与提示词\n\n| `model` | 纯文字识别 `text` | 文字与坐标 `text` | 建议 `max_tokens` |\n| --- | --- | --- | --- |\n| `deepseek-ai/DeepSeek-OCR` | `\u003cimage>\\nFree OCR.` | `\u003cimage>\\n\u003c\\|grounding\\|>OCR this image.` | `4096` |\n| `PaddlePaddle/PaddleOCR-VL-1.5` | `OCR:` | `Spotting:` | `8192` |\n\n`\\n` 表示换行。切换模型时同时替换 `model`、`text` 和 `max_tokens`。DeepSeek 不要直接将输出上限设为 `8192`：图片输入与输出之和可能超过其上下文限制。\n\n## 4. 正常返回结构\n\n以下仅展示 JSON 结构；ID、时间、识别文字与 token 数值均为示意，不是实际识别结果。\n\n```json\n{\n  \"id\": \"chatcmpl-example\",\n  \"object\": \"chat.completion\",\n  \"created\": 0,\n  \"model\": \"deepseek-ai/DeepSeek-OCR\",\n  \"choices\": [\n    {\n      \"index\": 0,\n      \"message\": {\n        \"role\": \"assistant\",\n        \"content\": \"示意识别文字\"\n      },\n      \"finish_reason\": \"stop\"\n    }\n  ],\n  \"usage\": {\n    \"prompt_tokens\": 100,\n    \"completion_tokens\": 20,\n    \"total_tokens\": 120\n  }\n}\n```\n\n| 返回字段 | 说明 |\n| --- | --- |\n| `id` | 响应 ID |\n| `object` | 非流式响应类型，通常为 `chat.completion` |\n| `created` | 响应创建时间，Unix 秒级时间戳 |\n| `model` | 返回响应对应的模型 |\n| `choices[].index` | 候选结果序号 |\n| `choices[].message.role` | 本例为 `assistant` |\n| `choices[].message.content` | OCR 原始结果字符串；格式取决于模型与提示词 |\n| `choices[].finish_reason` | `stop` 表示正常结束；`length` 表示输出被长度限制截断 |\n| `usage.prompt_tokens` | 输入 token 数量 |\n| `usage.completion_tokens` | 输出 token 数量 |\n| `usage.total_tokens` | 总 token 数量 |\n\n## 5. 识别内容与坐标\n\n### 纯文字识别\n\nDeepSeek 使用 `\u003cimage>\\nFree OCR.` 提示词，Paddle 使用 `OCR:` 提示词。两者均从 `choices[0].message.content` 读取文字字符串，不包含统一的独立 `boxes` 字段。\n\n```text\n示意标题\n示意正文\n```\n\n### DeepSeek-OCR：文字与坐标\n\n使用 `\u003cimage>\\n\u003c|grounding|>OCR this image.`。以下为格式示意：\n\n```text\n\u003c|ref|>示意识别文字\u003c|/ref|>\u003c|det|>[[100,200,600,260]]\u003c|/det|>\n```\n\n- `det` 是矩形列表，每个矩形为 `[x1, y1, x2, y2]`。\n- 坐标按 **999** 归一化：`pixel_x = x / 999 × width`，`pixel_y = y / 999 × height`。\n- `ref` 在本页图片 OCR 提示词下可为识别文字；文档转 Markdown 等其他模式下也可能是区域类别，不能统一当作正文。\n\n### PaddleOCR-VL-1.5：文字与坐标\n\n使用 `Spotting:`。以下为格式示意，八个 `LOC` 整数依次为 `x1,y1,x2,y2,x3,y3,x4,y4`：\n\n```text\n示意识别文字\u003c|LOC_100|>\u003c|LOC_200|>\u003c|LOC_600|>\u003c|LOC_200|>\u003c|LOC_600|>\u003c|LOC_260|>\u003c|LOC_100|>\u003c|LOC_260|>\n```\n\n- 四组坐标构成四边形，按 **1000** 归一化：`pixel_x = x / 1000 × width`，`pixel_y = y / 1000 × height`。\n- 部分输出包含 `TEXT_START`、`TEXT_END`、`LOC_BEGIN`、`LOC_END` 包装标记。\n- `width`、`height` 均指实际提交图片的像素尺寸；保留原始特殊标记再解析，不能先过滤 `LOC` 或 `det`。\n\n## 6. 官方参考\n\n- [硅基流动：多模态请求格式](https://docs.siliconflow.cn/docs/userguide/capabilities/multimodal-vision)\n- [PaddleOCR-VL-1.5：模型与 Spotting 提示词](https://huggingface.co/PaddlePaddle/PaddleOCR-VL-1.5)\n"</script>
+  <script>
+    const markdown = JSON.parse(document.getElementById('markdown-source').textContent);
+    const feedback = document.getElementById('copy-feedback');
+    const resetTimers = new WeakMap();
+    let feedbackTimer;
+    function announce(message) {
+      clearTimeout(feedbackTimer);
+      feedback.textContent = message;
+      feedback.classList.add('visible');
+      feedbackTimer = setTimeout(() => feedback.classList.remove('visible'), 3200);
+    }
+    async function copyText(text) {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+          return;
+        }
+      } catch (_) {}
+      const previousFocus = document.activeElement;
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.readOnly = true;
+      textarea.style.cssText = 'position:fixed;top:0;left:-9999px;opacity:0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand('copy');
+      textarea.remove();
+      if (previousFocus instanceof HTMLElement) previousFocus.focus({preventScroll:true});
+      if (!copied) throw new Error('Clipboard is unavailable');
+    }
+    async function copyWithFeedback(button, text, message) {
+      const label = button.querySelector('span');
+      const original = button.id === 'copy-markdown' ? '一键复制 Markdown' : '复制';
+      clearTimeout(resetTimers.get(button));
+      button.disabled = true;
+      try {
+        await copyText(text);
+        label.textContent = '已复制';
+        button.dataset.copied = 'true';
+        announce(message);
+      } catch (_) {
+        announce('复制未成功，请使用「下载 .md」保存完整文档。');
+      } finally {
+        button.disabled = false;
+        resetTimers.set(button, setTimeout(() => {
+          label.textContent = original;
+          delete button.dataset.copied;
+        }, 2200));
+      }
+    }
+    document.getElementById('copy-markdown').addEventListener('click', function () {
+      copyWithFeedback(this, markdown, '已复制完整 Markdown，可直接粘贴给开发工具或团队成员。');
+    });
+    document.querySelectorAll('[data-copy-code]').forEach((button) => {
+      button.addEventListener('click', function () {
+        const code = document.getElementById('code-' + this.dataset.copyCode);
+        copyWithFeedback(this, code.textContent, '代码已复制。');
+      });
+    });
+    document.getElementById('download-markdown').addEventListener('click', () => {
+      const blob = new Blob([markdown], {type:'text/markdown;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = "FlowAPI-OCR-调用方法.md";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      announce('Markdown 下载已开始。');
+    });
+    const headings = document.querySelectorAll('article h2');
+    const tocLinks = document.querySelectorAll('.toc a');
+    if ('IntersectionObserver' in window) {
+      const observer = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          tocLinks.forEach((link) => {
+            if (link.hash === '#' + entry.target.id) link.setAttribute('aria-current', 'location');
+            else link.removeAttribute('aria-current');
+          });
+        }
+      }, {rootMargin:'-150px 0px -65% 0px', threshold:0});
+      headings.forEach((heading) => observer.observe(heading));
+    }
+  </script>
+</body>
+</html>
