@@ -135,6 +135,11 @@ func GetHttpClient() *http.Client {
 // ssrfProtectedHTTPClient 由 InitHttpClient 在启动时初始化，运行期只读。
 func GetSSRFProtectedHTTPClient() *http.Client {
 	if fetchSetting := system_setting.GetFetchSetting(); fetchSetting != nil && !fetchSetting.EnableSSRFProtection {
+		if ssrfProtectedHTTPClient != nil {
+			if _, routed := ssrfProtectedHTTPClient.Transport.(*fetchProxyRouter); routed {
+				return ssrfProtectedHTTPClient
+			}
+		}
 		return GetHttpClient()
 	}
 	return ssrfProtectedHTTPClient
