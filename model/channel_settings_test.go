@@ -42,6 +42,34 @@ func TestChannelValidateSettingsRejectsInvalidHTTPTransport(t *testing.T) {
 	}
 }
 
+func TestChannelValidateSettingsVideoProtocols(t *testing.T) {
+	for _, protocol := range []string{"", "wan-rolldek-v1", "rolldek-kling4"} {
+		t.Run(protocol, func(t *testing.T) {
+			channel := &Channel{Type: constant.ChannelTypeSora}
+			channel.SetOtherSettings(dto.ChannelOtherSettings{VideoProtocol: protocol})
+			require.NoError(t, channel.ValidateSettings())
+			assert.Equal(t, protocol, channel.GetOtherSettings().VideoProtocol)
+		})
+	}
+	channel := &Channel{}
+	channel.SetOtherSettings(dto.ChannelOtherSettings{VideoProtocol: "unsupported"})
+	require.ErrorContains(t, channel.ValidateSettings(), "unsupported video_protocol")
+}
+
+func TestChannelValidateSettingsKling4RequiresSupportedType(t *testing.T) {
+	for _, channelType := range []int{constant.ChannelTypeOpenAI, constant.ChannelTypeSora, constant.ChannelTypeKling, constant.ChannelTypeNewAPI} {
+		channel := &Channel{Type: channelType}
+		channel.SetOtherSettings(dto.ChannelOtherSettings{VideoProtocol: "rolldek-kling4"})
+		if channelType == constant.ChannelTypeOpenAI || channelType == constant.ChannelTypeSora {
+			require.NoError(t, channel.ValidateSettings())
+		} else {
+			require.ErrorContains(t, channel.ValidateSettings(), "requires an OpenAI or Sora channel")
+		}
+		// Reads must retain the profile so runtime guards can reject bad legacy rows.
+		assert.Equal(t, "rolldek-kling4", channel.GetOtherSettings().VideoProtocol)
+	}
+}
+
 func TestAdvancedCustomChannelRequiresModelListRouteOnlyWhenUpdateChecksEnabled(t *testing.T) {
 	inferenceRoute := dto.AdvancedCustomRoute{
 		IncomingPath: "/v1/chat/completions",

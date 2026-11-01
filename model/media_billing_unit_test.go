@@ -20,3 +20,7 @@ func TestMediaBillingUnitExpressionDoesNotOverrideTaskContract(t *testing.T) {
 	require.Equal(t, "seconds", MediaBillingUnit("happyhorse-1.1-t2v", true, "tiered_expr"))
 	require.Equal(t, "expression", MediaBillingUnit("text-model", false, "tiered_expr"))
 }
+
+func TestMediaBillingUnitKling4UsesSeconds(t *testing.T) {
+	require.Equal(t, "seconds", MediaBillingUnit("kling-4.0", true, ""))
+}

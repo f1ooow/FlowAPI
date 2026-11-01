@@ -322,6 +322,7 @@ export const STATIC_I18N_KEYS = [
   'resolution/duration tier',
   'Media provider settings',
   'Rolldek Wan protocol',
+  'Kling 4.0 requires an OpenAI or Sora channel.',
   'Enable only for a provider that supports wan-rolldek-v1.',
   'Task submit path',
   'Task query path',

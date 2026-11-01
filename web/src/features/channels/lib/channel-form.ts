@@ -18,8 +18,6 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { z } from 'zod'
 
-import { isValidTaskEndpointPath } from './media-settings'
-
 import {
   CLAUDE_FIELD_PASSTHROUGH_TYPES,
   CHANNEL_TYPE_NEW_API,
@@ -29,7 +27,7 @@ import {
   MODEL_FETCHABLE_TYPES,
   OPENAI_FIELD_PASSTHROUGH_TYPES,
 } from '../constants'
-import type { Channel } from '../types'
+import type { Channel, ChannelOtherSettings } from '../types'
 import {
   CHANNEL_TYPE_ADVANCED_CUSTOM,
   advancedCustomConfigUsesRelativeUpstreamPath,
@@ -38,6 +36,7 @@ import {
   stringifyAdvancedCustomConfig,
   validateAdvancedCustomConfig,
 } from './advanced-custom'
+import { isValidTaskEndpointPath } from './media-settings'
 import {
   normalizeModelRedirectJson,
   validateModelRedirectRules,
@@ -254,10 +253,25 @@ export const channelFormSchema = z
       .refine(isOptionalJsonObject, ERROR_MESSAGES.INVALID_JSON),
     advanced_custom: z.string().optional(),
     other: z.string().optional(),
-    other_info: z.string().optional().refine(isOptionalJsonObject, ERROR_MESSAGES.INVALID_JSON),
-    video_protocol: z.enum(['', 'wan-rolldek-v1']).optional(),
-    task_submit_path: z.string().optional().refine((value) => isValidTaskEndpointPath(value, false), 'Use a same-origin path without placeholders.'),
-    task_fetch_path: z.string().optional().refine((value) => isValidTaskEndpointPath(value, true), 'Use a same-origin path with {task_id} exactly once.'),
+    other_info: z
+      .string()
+      .optional()
+      .refine(isOptionalJsonObject, ERROR_MESSAGES.INVALID_JSON),
+    video_protocol: z.enum(['', 'wan-rolldek-v1', 'rolldek-kling4']).optional(),
+    task_submit_path: z
+      .string()
+      .optional()
+      .refine(
+        (value) => isValidTaskEndpointPath(value, false),
+        'Use a same-origin path without placeholders.'
+      ),
+    task_fetch_path: z
+      .string()
+      .optional()
+      .refine(
+        (value) => isValidTaskEndpointPath(value, true),
+        'Use a same-origin path with {task_id} exactly once.'
+      ),
     // Multi-key options (not sent to backend directly)
     multi_key_mode: z.enum(['single', 'batch', 'multi_to_single']).optional(),
     multi_key_type: z.enum(['random', 'polling']).optional(),
@@ -314,6 +328,16 @@ export const channelFormSchema = z
       ),
   })
   .superRefine((data, ctx) => {
+    if (
+      data.video_protocol === 'rolldek-kling4' &&
+      ![1, 55].includes(data.type)
+    ) {
+      addRequiredIssue(
+        ctx,
+        'video_protocol',
+        'Kling 4.0 requires an OpenAI or Sora channel.'
+      )
+    }
     if (
       [3, 8, 36, 45, CHANNEL_TYPE_NEW_API, 103].includes(data.type) &&
       !data.base_url?.trim()
@@ -554,7 +578,7 @@ export function transformChannelToFormDefaults(
   let allowSpeed = false
   let claudeBetaQuery = false
   let disableTaskPollingSleep = false
-  let videoProtocol: '' | 'wan-rolldek-v1' = ''
+  let videoProtocol: ChannelOtherSettings['video_protocol'] = ''
   let taskSubmitPath = ''
   let taskFetchPath = ''
   let upstreamModelUpdateCheckEnabled = false
@@ -582,7 +606,11 @@ export function transformChannelToFormDefaults(
       allowSpeed = parsed.allow_speed === true
       claudeBetaQuery = parsed.claude_beta_query === true
       disableTaskPollingSleep = parsed.disable_task_polling_sleep === true
-      videoProtocol = parsed.video_protocol === 'wan-rolldek-v1' ? parsed.video_protocol : ''
+      videoProtocol =
+        parsed.video_protocol === 'wan-rolldek-v1' ||
+        parsed.video_protocol === 'rolldek-kling4'
+          ? parsed.video_protocol
+          : ''
       taskSubmitPath = parsed.task_endpoint_override?.submit_path || ''
       taskFetchPath = parsed.task_endpoint_override?.fetch_path || ''
       upstreamModelUpdateCheckEnabled =
@@ -806,8 +834,11 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
   settingsObj.disable_task_polling_sleep =
     formData.disable_task_polling_sleep === true
 
-  if (formData.video_protocol) settingsObj.video_protocol = formData.video_protocol
-  else delete settingsObj.video_protocol
+  if (formData.video_protocol) {
+    settingsObj.video_protocol = formData.video_protocol
+  } else {
+    delete settingsObj.video_protocol
+  }
   if (formData.task_submit_path || formData.task_fetch_path) {
     settingsObj.task_endpoint_override = {
       submit_path: formData.task_submit_path || undefined,

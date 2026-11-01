@@ -1302,8 +1302,11 @@ func (channel *Channel) ValidateSettings() error {
 	if err := channelOtherSettings.TaskEndpointOverride.Validate(); err != nil {
 		return err
 	}
-	if channelOtherSettings.VideoProtocol != "" && channelOtherSettings.VideoProtocol != "wan-rolldek-v1" {
+	if channelOtherSettings.VideoProtocol != "" && channelOtherSettings.VideoProtocol != "wan-rolldek-v1" && channelOtherSettings.VideoProtocol != "rolldek-kling4" {
 		return fmt.Errorf("unsupported video_protocol")
+	}
+	if channelOtherSettings.VideoProtocol == "rolldek-kling4" && channel.Type != constant.ChannelTypeOpenAI && channel.Type != constant.ChannelTypeSora {
+		return fmt.Errorf("rolldek-kling4 requires an OpenAI or Sora channel")
 	}
 	if channelOtherSettings.Reliability != nil {
 		if err := channelOtherSettings.Reliability.Validate(); err != nil {

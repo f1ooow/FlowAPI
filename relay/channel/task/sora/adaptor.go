@@ -64,10 +64,11 @@ type responseTask struct {
 
 type TaskAdaptor struct {
 	taskcommon.BaseBilling
-	ChannelType int
-	apiKey      string
-	baseURL     string
-	wanProtocol bool
+	ChannelType    int
+	apiKey         string
+	baseURL        string
+	wanProtocol    bool
+	kling4Protocol bool
 }
 
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
@@ -75,6 +76,7 @@ func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
 	a.baseURL = info.ChannelBaseUrl
 	a.apiKey = info.ApiKey
 	a.wanProtocol = info.ChannelOtherSettings.VideoProtocol == dto.WanProtocolRolldek
+	a.kling4Protocol = info.ChannelOtherSettings.VideoProtocol == dto.Kling4ProtocolRolldek
 }
 
 func validateRemixRequest(c *gin.Context) *dto.TaskError {
@@ -91,6 +93,9 @@ func validateRemixRequest(c *gin.Context) *dto.TaskError {
 }
 
 func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycommon.RelayInfo) (taskErr *dto.TaskError) {
+	if a.kling4Protocol {
+		return a.validateKling4(c, info)
+	}
 	if c.Request.URL.Path == dto.WanCreatePath {
 		return a.validateWan(c, info)
 	}
@@ -105,6 +110,10 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 
 // EstimateBilling 根据用户请求的 seconds 和 size 计算 OtherRatios。
 func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInfo) map[string]float64 {
+	if a.kling4Protocol {
+		req := c.MustGet("kling4_request").(*dto.Kling4Request)
+		return map[string]float64{"seconds": c.GetFloat64("kling4_billed_seconds"), "resolution": req.ResolutionRatio()}
+	}
 	if a.wanProtocol {
 		req := c.MustGet("wan_request").(*dto.WanRequest)
 		// Rolldek video models bill output plus distinct reference video seconds.
@@ -159,6 +168,13 @@ func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info
 }
 
 func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayInfo) (io.Reader, error) {
+	if a.kling4Protocol {
+		if info.UpstreamModelName != "kling-4.0" {
+			return nil, fmt.Errorf("Kling 4 profile requires upstream model kling-4.0")
+		}
+		body, err := common.Marshal(c.MustGet("kling4_request").(*dto.Kling4Request))
+		return bytes.NewReader(body), err
+	}
 	if a.wanProtocol {
 		return a.buildWan(c, info)
 	}

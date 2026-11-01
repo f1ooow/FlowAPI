@@ -103,7 +103,7 @@ export interface ChannelSettings {
 }
 
 export interface ChannelOtherSettings {
-  video_protocol?: '' | 'wan-rolldek-v1'
+  video_protocol?: '' | 'wan-rolldek-v1' | 'rolldek-kling4'
   task_endpoint_override?: { submit_path?: string; fetch_path?: string }
   azure_responses_version?: string
   vertex_key_type?: 'json' | 'api_key'

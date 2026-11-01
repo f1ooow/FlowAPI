@@ -149,11 +149,20 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 // 控制器负责 defer Refund 和成功后 Settle。
 func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitResult, *dto.TaskError) {
 	info.InitChannelMeta(c)
+	if _, validatedKling4 := c.Get("kling4_request"); validatedKling4 && info.ChannelOtherSettings.VideoProtocol != dto.Kling4ProtocolRolldek {
+		return nil, service.TaskErrorWrapperLocal(fmt.Errorf("Kling 4 retry requires the same billing profile"), "unsupported_channel_protocol", http.StatusBadRequest)
+	}
+	if info.ChannelOtherSettings.VideoProtocol == dto.Kling4ProtocolRolldek && info.ChannelType != constant.ChannelTypeOpenAI && info.ChannelType != constant.ChannelTypeSora {
+		return nil, service.TaskErrorWrapperLocal(fmt.Errorf("Kling 4 profile requires an OpenAI or Sora channel"), "unsupported_channel_protocol", http.StatusBadRequest)
+	}
 
 	// 1. 确定 platform → 创建适配器 → 验证请求
 	platform := constant.TaskPlatform(c.GetString("platform"))
 	if platform == "" {
 		platform = GetTaskPlatform(c)
+	}
+	if info.ChannelOtherSettings.VideoProtocol == dto.Kling4ProtocolRolldek && platform != constant.TaskPlatform(strconv.Itoa(info.ChannelType)) {
+		return nil, service.TaskErrorWrapperLocal(fmt.Errorf("Kling 4 profile requires the channel's video task adaptor"), "unsupported_channel_protocol", http.StatusBadRequest)
 	}
 	adaptor := GetTaskAdaptor(platform)
 	if adaptor == nil {
@@ -176,6 +185,9 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	if err := helper.ModelMappedHelper(c, info, nil); err != nil {
 		return nil, service.TaskErrorWrapperLocal(err, "model_mapping_failed", http.StatusBadRequest)
 	}
+	if info.ChannelOtherSettings.VideoProtocol == dto.Kling4ProtocolRolldek && info.UpstreamModelName != "kling-4.0" {
+		return nil, service.TaskErrorWrapperLocal(fmt.Errorf("Kling 4 profile requires upstream model kling-4.0"), "model_mapping_failed", http.StatusBadRequest)
+	}
 	if info.ChannelType == constant.ChannelTypeFastAIToken {
 		if _, _, ok := taskfastaitoken.ResolveModel(info.UpstreamModelName); !ok {
 			return nil, service.TaskErrorWrapperLocal(fmt.Errorf("unsupported FastAI video model: %s", info.UpstreamModelName), "invalid_request", http.StatusBadRequest)
@@ -195,6 +207,9 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	}
 	if _, ok := c.Get("wan_request"); ok && !priceData.UsePrice {
 		return nil, service.TaskErrorWrapperLocal(fmt.Errorf("Wan requires an explicit per-second ModelPrice"), "model_price_error", http.StatusBadRequest)
+	}
+	if _, ok := c.Get("kling4_request"); ok && (!priceData.UsePrice || common.StringsContains(constant.TaskPricePatches, modelName)) {
+		return nil, service.TaskErrorWrapperLocal(fmt.Errorf("Kling 4 requires a per-second ModelPrice without TASK_PRICE_PATCH"), "model_price_error", http.StatusBadRequest)
 	}
 	info.PriceData = priceData
 

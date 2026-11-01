@@ -83,6 +83,10 @@
     "fixed": "seconds",
     "task": true
   },
+  "kling-4.0": {
+    "fixed": "seconds",
+    "task": true
+  },
   "minimax-files-upload": {
     "fixed": "free",
     "ratio": "free",
