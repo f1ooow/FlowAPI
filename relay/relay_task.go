@@ -495,6 +495,11 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 		taskResp = service.TaskErrorWrapperLocal(errors.New("task_not_exist"), "task_not_exist", http.StatusBadRequest)
 		return
 	}
+	defer func() {
+		if taskResp == nil && len(respBody) > 0 {
+			respBody = videoTaskTimingResponse(c.Request.Context(), originTask, respBody)
+		}
+	}()
 
 	if strings.HasPrefix(c.Request.URL.Path, "/api/v1/tasks/") {
 		if !dto.IsWanModel(originTask.Properties.OriginModelName) {

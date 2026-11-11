@@ -3,10 +3,11 @@ package perf_metrics_setting
 import "github.com/QuantumNous/new-api/setting/config"
 
 type PerfMetricsSetting struct {
-	Enabled       bool   `json:"enabled"`
-	FlushInterval int    `json:"flush_interval"`
-	BucketTime    string `json:"bucket_time"`
-	RetentionDays int    `json:"retention_days"`
+	Enabled               bool   `json:"enabled"`
+	FlushInterval         int    `json:"flush_interval"`
+	BucketTime            string `json:"bucket_time"`
+	RetentionDays         int    `json:"retention_days"`
+	TaskTimingSampleLimit int    `json:"task_timing_sample_limit"`
 }
 
 // BucketTime defaults to 5min so consumers (group monitoring, model square) can
@@ -14,10 +15,11 @@ type PerfMetricsSetting struct {
 // perfmetrics.cleanupExpiredMetrics skips cleanup entirely at 0, which would let
 // the finer buckets grow unbounded.
 var perfMetricsSetting = PerfMetricsSetting{
-	Enabled:       true,
-	FlushInterval: 5,
-	BucketTime:    "5min",
-	RetentionDays: 7,
+	Enabled:               true,
+	FlushInterval:         5,
+	BucketTime:            "5min",
+	RetentionDays:         7,
+	TaskTimingSampleLimit: 100,
 }
 
 func init() {
