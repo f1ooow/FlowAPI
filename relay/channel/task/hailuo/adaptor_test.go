@@ -3,6 +3,7 @@ package hailuo
 import (
 	"bytes"
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -199,7 +200,7 @@ func TestBuildH3Request(t *testing.T) {
 		},
 		{
 			name:    "reject invalid resolution",
-			req:     relaycommon.TaskSubmitReq{Prompt: "bad resolution", Duration: 5, Size: "1080P", Metadata: map[string]any{"ratio": "16:9"}},
+			req:     relaycommon.TaskSubmitReq{Prompt: "bad resolution", Duration: 5, Size: "4K", Metadata: map[string]any{"ratio": "16:9"}},
 			wantErr: "only supports resolution",
 		},
 	}
@@ -355,6 +356,8 @@ func TestH3EstimateBilling(t *testing.T) {
 			{name: "2K", resolution: Resolution2K, metadata: map[string]any{"ratio": "16:9"}, wantRatio: 5.0 / 3.0, wantSeconds: float64(duration)},
 			{name: "images and audio are free", resolution: Resolution768P, metadata: map[string]any{"reference_images": []string{"https://example.com/a.png"}, "reference_audios": []string{"https://example.com/a.mp3"}}, wantRatio: 1, wantSeconds: float64(duration)},
 			{name: "reference video reserves 15s", resolution: Resolution2K, metadata: map[string]any{"reference_videos": []string{"mm_file://1", "https://example.com/b.mp4"}}, wantRatio: 5.0 / 3.0, wantSeconds: float64(duration) + 15},
+			{name: "480P reference video reserves 15s", resolution: Resolution480P, metadata: map[string]any{"reference_videos": []string{"https://example.com/a.mp4"}}, wantRatio: 2.0 / 3.0, wantSeconds: float64(duration) + 15},
+			{name: "1080P reference video reserves 15s", resolution: Resolution1080P, metadata: map[string]any{"reference_videos": []string{"https://example.com/a.mp4"}}, wantRatio: 14.0 / 9.0, wantSeconds: float64(duration) + 15},
 		} {
 			t.Run(tc.name+"-"+strconv.Itoa(duration), func(t *testing.T) {
 				ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -393,6 +396,69 @@ func TestBuildRequestBodySerializesH3WithoutLegacyFields(t *testing.T) {
 	assert.False(t, bytes.Contains(data, []byte(`"prompt"`)))
 	assert.False(t, bytes.Contains(data, []byte(`"first_frame_image"`)))
 	assert.False(t, bytes.Contains(data, []byte(`"mode"`)))
+}
+
+func TestH3ResolutionWireAndBilling(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		size  string
+		wire  string
+		ratio float64
+	}{
+		{"480p", "480P", 2.0 / 3.0},
+		{"768P", "768P", 1},
+		{" 1080p ", "1080P", 14.0 / 9.0},
+		{"2k", "2K", 5.0 / 3.0},
+	} {
+		t.Run(tc.wire, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Set("task_request", relaycommon.TaskSubmitReq{
+				Prompt: "four resolution tiers", Duration: 5, Size: tc.size,
+				Metadata: map[string]any{"ratio": "16:9", "resolution": "4K"},
+			})
+			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: ModelMiniMaxH3}}
+			a := &TaskAdaptor{}
+			body, err := a.BuildRequestBody(c, info)
+			require.NoError(t, err)
+			var payload H3VideoRequest
+			require.NoError(t, common.DecodeJson(body, &payload))
+			assert.Equal(t, tc.wire, payload.Resolution)
+			assert.Equal(t, 5, payload.Duration)
+			ratios := a.EstimateBilling(c, info)
+			require.NotNil(t, ratios)
+			assert.Equal(t, tc.ratio, ratios["hailuo-h3-resolution"])
+			assert.Equal(t, 5.0, ratios["hailuo-h3-duration"])
+		})
+	}
+}
+
+func TestH3VideoResponseReportsDeliveredResolution(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, want string
+	}{
+		{"direct task", `{"task":{"resolution":"768P"}}`, "768P"},
+		{"nested task", `{"result":{"task":{"resolution":"480P"}}}`, "480P"},
+		{"flat result", `{"result":{"status":"succeeded","resolution":"1080P"}}`, "1080P"},
+		{"missing resolution", `{"task":{"status":"succeeded"}}`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			task := &model.Task{Status: model.TaskStatusSuccess, Data: []byte(tc.body),
+				Properties:  model.Properties{UpstreamModelName: ModelMiniMaxH3},
+				PrivateData: model.TaskPrivateData{BillingContext: &model.TaskBillingContext{Resolution: "2K"}},
+			}
+			data, err := (&TaskAdaptor{}).ConvertToOpenAIVideo(task)
+			require.NoError(t, err)
+			var response struct {
+				Metadata map[string]any `json:"metadata"`
+			}
+			require.NoError(t, common.Unmarshal(data, &response))
+			if tc.want == "" {
+				assert.NotContains(t, response.Metadata, "resolution", "requested size is not evidence of delivered resolution")
+			} else {
+				assert.Equal(t, tc.want, response.Metadata["resolution"])
+			}
+		})
+	}
 }
 
 func TestHailuoMetadataTierMatchesWireAndBounds(t *testing.T) {

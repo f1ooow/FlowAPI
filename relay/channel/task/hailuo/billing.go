@@ -2,6 +2,7 @@ package hailuo
 
 import (
 	"math"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -13,7 +14,8 @@ import (
 // against the immutable submission snapshot. It only ever refunds: the
 // reservation already covers output plus the full reference-video cap, and a
 // charge above it could not be collected safely after the fact. Missing,
-// out-of-range or untrustworthy usage keeps the reservation.
+// out-of-range or untrustworthy usage keeps the reservation. A confirmed lower
+// delivered resolution also refunds the premium at the frozen base price.
 func (a *TaskAdaptor) AdjustBillingOnCompleteChecked(task *model.Task, result *relaycommon.TaskInfo) (int, *common.QuotaClamp, bool) {
 	if task == nil || result == nil || result.Status != model.TaskStatusSuccess {
 		return 0, nil, false
@@ -40,7 +42,18 @@ func (a *TaskAdaptor) AdjustBillingOnCompleteChecked(task *model.Task, result *r
 		return 0, nil, false
 	}
 	reserved := bc.OtherRatios["hailuo-h3-duration"]
-	if reserved <= 0 || output+input >= reserved {
+	reservedResolutionRatio := bc.OtherRatios["hailuo-h3-resolution"]
+	deliveredResolutionRatio, knownResolution := H3ResolutionRatios[strings.ToUpper(strings.TrimSpace(h3Task.Resolution))]
+	resolutionDowngrade := false
+	if knownResolution && deliveredResolutionRatio < reservedResolutionRatio {
+		for _, factor := range H3ResolutionRatios {
+			if factor == reservedResolutionRatio {
+				resolutionDowngrade = true
+				break
+			}
+		}
+	}
+	if math.IsNaN(reserved) || math.IsInf(reserved, 0) || reserved <= 0 || output+input > reserved || (output+input == reserved && !resolutionDowngrade) {
 		return 0, nil, false
 	}
 
@@ -59,6 +72,9 @@ func (a *TaskAdaptor) AdjustBillingOnCompleteChecked(task *model.Task, result *r
 		}
 		if math.IsNaN(factor) || math.IsInf(factor, 0) || factor <= 0 {
 			return 0, nil, false
+		}
+		if name == "hailuo-h3-resolution" && resolutionDowngrade {
+			factor = deliveredResolutionRatio
 		}
 		amount = amount.Mul(decimal.NewFromFloat(factor))
 	}

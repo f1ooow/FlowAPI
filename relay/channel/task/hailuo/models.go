@@ -101,6 +101,7 @@ type H3Task struct {
 	TaskType      string          `json:"task_type,omitempty"`
 	ID            json.RawMessage `json:"id,omitempty"`
 	Status        string          `json:"status,omitempty"`
+	Resolution    string          `json:"resolution,omitempty"`
 	Content       H3TaskContent   `json:"content,omitempty"`
 	Output        H3TaskContent   `json:"output,omitempty"`
 	Error         *H3ErrorDetail  `json:"error,omitempty"`
@@ -193,14 +194,14 @@ func isH3ContextIRModel(model string) bool {
 }
 
 func normalizeH3Resolution(size string) (string, error) {
-	switch strings.ToUpper(strings.TrimSpace(size)) {
-	case "", Resolution768P:
-		return Resolution768P, nil
-	case Resolution2K:
-		return Resolution2K, nil
-	default:
-		return "", fmt.Errorf("MiniMax-H3 only supports resolution %s or %s", Resolution768P, Resolution2K)
+	resolution := strings.ToUpper(strings.TrimSpace(size))
+	if resolution == "" {
+		resolution = Resolution768P
 	}
+	if _, ok := H3ResolutionRatios[resolution]; !ok {
+		return "", fmt.Errorf("MiniMax-H3 only supports resolution %s, %s, %s or %s", Resolution480P, Resolution768P, Resolution1080P, Resolution2K)
+	}
+	return resolution, nil
 }
 
 func validateH3MediaList(name string, values []string, max int) error {
@@ -395,7 +396,7 @@ func GetModelConfig(model string) ModelConfig {
 			Name:                 ModelMiniMaxH3,
 			DefaultResolution:    Resolution768P,
 			SupportedDurations:   []int{4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
-			SupportedResolutions: []string{Resolution768P, Resolution2K},
+			SupportedResolutions: []string{Resolution480P, Resolution768P, Resolution1080P, Resolution2K},
 			HasPromptOptimizer:   false,
 			HasFastPretreatment:  false,
 		},
