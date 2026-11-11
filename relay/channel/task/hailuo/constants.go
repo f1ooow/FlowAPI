@@ -49,6 +49,7 @@ const (
 )
 
 const (
+	Resolution480P  = "480P"
 	Resolution512P  = "512P"
 	Resolution720P  = "720P"
 	Resolution768P  = "768P"
@@ -70,6 +71,17 @@ const (
 	H3BillingUnit      = "h3_total_seconds"
 	H3MediaBillingUnit = "h3_media_v2"
 )
+
+// H3ResolutionRatios follows MetaSo's standard <=15s rates relative to 768P:
+// 0.06 / 0.09 / 0.14 / 0.15 CNY per output or reference-video second.
+// Source: https://metaso.cn/minimax-h3 (2026-11-11). The existing ModelPrice
+// baseline and effective group/channel ratios remain independently configured.
+var H3ResolutionRatios = map[string]float64{
+	Resolution480P:  2.0 / 3.0,
+	Resolution768P:  1,
+	Resolution1080P: 14.0 / 9.0,
+	Resolution2K:    H3HighResolutionRatio,
+}
 
 // HailuoTierRatios 是 Hailuo 视频"分辨率 × 时长"分档倍率表。
 // 基准: 每个模型的 ModelPrice 配为 768P 6s 单价，其他档位通过此倍率表换算。

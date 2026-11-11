@@ -20,6 +20,8 @@ func TestTaskQuotaWithRatiosIsExact(t *testing.T) {
 	}{
 		{name: "H3 Context IR with group ratio", price: 0.0625, groupRatio: 1.2, want: 37500},
 		{name: "H3 revised 768P baseline with group ratio", price: 0.1125, groupRatio: 1.2, ratios: map[string]float64{"hailuo-h3-duration": 5}, want: 337500},
+		{name: "H3 480P five seconds with group ratio", price: 0.1125, groupRatio: 1.2, ratios: map[string]float64{"hailuo-h3-duration": 5, "hailuo-h3-resolution": 2.0 / 3.0}, want: 225000},
+		{name: "H3 1080P five seconds with group ratio", price: 0.1125, groupRatio: 1.2, ratios: map[string]float64{"hailuo-h3-duration": 5, "hailuo-h3-resolution": 14.0 / 9.0}, want: 525000},
 		{name: "H3 2K one second", price: 0.15, groupRatio: 1, ratios: map[string]float64{"hailuo-h3-duration": 1, "hailuo-h3-resolution": 5.0 / 3.0}, want: 125000},
 		{name: "H3 768P one second", price: 0.15, groupRatio: 1, ratios: map[string]float64{"hailuo-h3-duration": 1, "hailuo-h3-resolution": 1}, want: 75000},
 		{name: "H3 2K 25 seconds", price: 0.15, groupRatio: 1, ratios: map[string]float64{"hailuo-h3-duration": 25, "hailuo-h3-resolution": 5.0 / 3.0}, want: 25 * 125000},

@@ -471,6 +471,9 @@ func (a *TaskAdaptor) ConvertToOpenAIVideo(originTask *model.Task) ([]byte, erro
 		openAIVideo := originTask.ToOpenAIVideo()
 		var h3Resp H3QueryResponse
 		if err := common.Unmarshal(originTask.Data, &h3Resp); err == nil {
+			if task := h3Resp.GetTask(); task != nil && strings.TrimSpace(task.Resolution) != "" {
+				openAIVideo.SetMetadata("resolution", task.Resolution)
+			}
 			if task := h3Resp.GetTask(); task != nil && task.Usage != nil {
 				openAIVideo.SetMetadata("usage", task.Usage)
 			}
@@ -595,10 +598,7 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 		if err != nil {
 			return nil
 		}
-		resolutionRatio := 1.0
-		if payload.Resolution == Resolution2K {
-			resolutionRatio = H3HighResolutionRatio
-		}
+		resolutionRatio := H3ResolutionRatios[payload.Resolution]
 		inputSeconds := 0.0
 		imageCount := 0
 		for _, item := range payload.Content {
