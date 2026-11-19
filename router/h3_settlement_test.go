@@ -56,6 +56,7 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 
 	var upstreamID, status, resolution string
 	var queries int
+	var onDispatch func()
 	service.InitHttpClient()
 	client := service.GetHttpClient()
 	oldTransport := client.Transport
@@ -64,6 +65,9 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 		body := ""
 		switch request.Method + " " + request.URL.String() {
 		case "POST " + baseURL + hailuo.H3CreateEndpoint:
+			if onDispatch != nil {
+				onDispatch()
+			}
 			body = fmt.Sprintf(`{"task_id":%q}`, upstreamID)
 		case "GET " + baseURL + "/v2/query/video_generation/" + upstreamID:
 			queries++
@@ -201,4 +205,59 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 	require.NoError(t, db.Create(&otherToken).Error)
 	denied := call(t, "GET", "/v1/video/generations/old-success", otherToken.Key, "", 400)
 	assert.Equal(t, "task_not_exist", denied["code"])
+	const payload = `{"model":"MiniMax-H3","prompt":"fixture","size":"1080P","seconds":"5","metadata":{"ratio":"16:9"}}`
+	t.Run("interrupted acceptance keeps queryable reservation", func(t *testing.T) {
+		upstreamID = "provider-interrupted"
+		var intent model.Task
+		onDispatch = func() {
+			require.NoError(t, db.Where("status = ?", "DISPATCHING").First(&intent).Error)
+			require.NoError(t, db.Exec(`CREATE TRIGGER reject_accept BEFORE UPDATE ON tasks WHEN OLD.status = 'DISPATCHING' AND NEW.status = 'NOT_START' BEGIN SELECT RAISE(ABORT, 'interrupted acceptance'); END`).Error)
+		}
+		defer func() { onDispatch = nil }()
+		result := call(t, "POST", "/v1/videos", token.Key, payload, 202)
+		require.Equal(t, intent.TaskID, result["id"])
+		assert.Equal(t, "DISPATCHING", fetch(t, intent.TaskID)["status"])
+		require.NoError(t, db.Exec(`DROP TRIGGER reject_accept`).Error)
+		oldTimeout := constant.TaskTimeoutMinutes
+		constant.TaskTimeoutMinutes = 1
+		t.Cleanup(func() { constant.TaskTimeoutMinutes = oldTimeout })
+		require.NoError(t, db.Model(&intent).Update("submit_time", time.Now().Add(-2*time.Minute).Unix()).Error)
+		service.RunTaskPollingOnce(t.Context(), nil)
+		assert.Equal(t, float64(0), fetch(t, intent.TaskID)["settled_quota"])
+		requests++
+		refunds++
+		ledger(t)
+	})
+	t.Run("retired channel and revoked token", func(t *testing.T) {
+		upstreamID = "provider-retired"
+		onDispatch = func() { require.NoError(t, channel.Delete()) }
+		defer func() { onDispatch = nil }()
+		created := call(t, "POST", "/v1/videos", token.Key, payload, 200)
+		id := created["id"].(string)
+		saved, exists, err := model.GetByTaskId(user.Id, id)
+		require.NoError(t, err)
+		require.True(t, exists)
+		require.Equal(t, upstreamID, saved.PrivateData.UpstreamTaskID)
+		require.NoError(t, token.Delete())
+		replacement := model.Token{UserId: user.Id, Key: "replacement", Status: common.TokenStatusEnabled, ExpiredTime: -1, UnlimitedQuota: true}
+		require.NoError(t, db.Create(&replacement).Error)
+		common.MemoryCacheEnabled = true
+		for range 2 {
+			service.RunTaskPollingOnce(t.Context(), nil)
+		}
+		common.MemoryCacheEnabled = false
+		call(t, "GET", "/v1/video/generations/"+id, token.Key, "", 401)
+		data := call(t, "GET", "/v1/video/generations/"+id, replacement.Key, "", 200)["data"].(map[string]any)
+		assert.Equal(t, id, data["task_id"])
+		assert.Equal(t, "FAILURE", data["status"])
+		assert.Equal(t, float64(0), data["settled_quota"])
+		assert.NotContains(t, data, "settlement_pending")
+		require.NoError(t, db.First(&user, user.Id).Error)
+		require.NoError(t, db.Unscoped().First(&token, token.Id).Error)
+		assert.True(t, token.DeletedAt.Valid)
+		assert.Equal(t, balance-total, token.RemainQuota)
+		assert.Equal(t, balance-total, user.Quota)
+		assert.Equal(t, total, token.UsedQuota)
+		assert.Equal(t, total, user.UsedQuota)
+	})
 }
