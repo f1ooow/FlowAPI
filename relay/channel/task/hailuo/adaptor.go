@@ -592,6 +592,7 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	if isH3Model(info.UpstreamModelName) {
 		if isH3ContextIRModel(info.OriginModelName) || isH3ContextIRModel(info.UpstreamModelName) {
 			c.Set("task_billing_unit", "request")
+			info.H3Billing = true
 			return nil
 		}
 		payload, err := buildH3Request(&taskReq, info.UpstreamModelName)
@@ -621,6 +622,7 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 			}
 		}
 		c.Set("task_billing_unit", H3MediaBillingUnit)
+		info.H3Billing = true
 		c.Set(relaycommon.TaskInputVideoSecondsKey, inputSeconds)
 		return map[string]float64{
 			"hailuo-h3-duration":   float64(payload.Duration) + inputSeconds,

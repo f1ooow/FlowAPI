@@ -33,7 +33,7 @@ reference video is present. Successful tasks settle against bounded upstream
 Missing/invalid usage keeps the reservation. Prices, image quantities, and all
 effective route ratios are frozen in `TaskBillingContext`; settlement never reads
 new settings. New snapshots use `h3_media_v2`; historical snapshots retain their
-existing billing rules. Failure refunds use the existing task accounting path.
+existing billing rules.
 
 A successful response with a known lower `task.resolution` refunds the resolution
 premium using the frozen base price and route ratio. All six downward combinations
@@ -42,8 +42,44 @@ equal the reservation, and combines with unused-second refunds without reducing
 the frozen image charge. Missing/unknown resolution keeps the original resolution
 factor; unknown historical factors are not assigned a new tier. Bounded usage
 is still required, and usage above the reservation is not adjusted. Settlement
-only lowers the current task quota. The existing successful-status CAS and
-persisted quota prevent repeated/stale polls from issuing the same refund again.
+only lowers the current task quota.
+
+## Public final-quota receipt
+
+Use an active API token for the task owner and call
+`GET /v1/video/generations/{public_task_id}`. The existing success envelope has
+`code: "success"`. Match `data.task_id` to the **public ID returned by submit**.
+`data.properties.origin_model_name` is available when recorded. Terminal
+`data.status` is `SUCCESS` or `FAILURE`. `data.finish_time` is the Unix time in
+seconds when FlowAPI recorded the terminal result. It stays fixed during billing
+retries. The OpenAI-compatible `GET /v1/videos/{id}` serves a different DTO.
+
+| Evidence on a terminal H3 task | Meaning and consumer action |
+| --- | --- |
+| `data.settled_quota` is an integer | Final net charge in gateway quota units. Accept numeric `0`, including a completed full refund. |
+| `data.settlement_pending` is `true` | FlowAPI has saved a billing decision and will retry it. Continue polling under the existing job lease and cancellation policy, even after the normal evidence timeout. |
+| Both fields absent | Final billing is unconfirmed. Use the configured usage-evidence lookup window measured from `finish_time`, then send unresolved cases to `needs_review`. |
+
+Both fields are absent while generation is in progress. The pending amount stays
+private. `data.quota` can still contain the reservation after a terminal result,
+so consumers must not use it to fill a missing receipt. Existing historical
+rows retain their original data and receive no receipt backfill.
+
+New H3 video and Context IR submissions record whether their reservation was
+confirmed. The task's terminal transition saves the intended net amount. The
+poller then commits the task receipt, wallet or subscription adjustment, token
+adjustment and usage counters in one main-database transaction. A failed write
+leaves the decision pending and all balances unchanged. A subsequent polling
+pass can finish it using the database alone. Stale or overlapping workers can
+apply each decision once. The existing refund activity log is emitted after
+the commit and may live in a separate log database.
+
+The task migration adds nullable integer columns `pending_quota` (indexed) and
+`settled_quota`. Upgrade the main database and polling workers together before
+enabling receipt consumers. The router regression submits, polls and reads the
+receipt through authenticated HTTP using isolated SQLite and a fixture provider.
+It exercises unchanged success, a resolution downgrade, full refund, and a failed
+accounting write followed by recovery.
 
 The adapter reads the actual resolution from `task`, `result.task` or a flat
 `result` query response and exposes it as `metadata.resolution` in

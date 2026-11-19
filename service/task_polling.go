@@ -23,6 +23,7 @@ import (
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/samber/lo"
+	"gorm.io/gorm"
 )
 
 // TaskPollingAdaptor 定义轮询所需的最小适配器接口，避免 service -> relay 的循环依赖
@@ -108,6 +109,12 @@ func sweepTimedOutTasks(ctx context.Context) {
 		} else {
 			task.FailReason = reason
 		}
+		if task.PrivateData.H3ReservationConfirmed != nil && !isLegacy {
+			if err := recordH3Terminal(task, oldStatus, 0); err != nil {
+				logger.LogError(ctx, fmt.Sprintf("H3 timeout %s: %v", task.TaskID, err))
+			}
+			continue
+		}
 
 		won, err := task.UpdateWithStatus(oldStatus)
 		if err != nil {
@@ -152,6 +159,7 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 	}
 
 	common.SysLog("任务进度轮询开始")
+	retryH3Settlements(ctx)
 	sweepTimedOutTasks(ctx)
 	allTasks := model.GetAllUnFinishSyncTasks(constant.TaskQueryLimit)
 	summary.UnfinishedTasks = len(allTasks)
@@ -180,6 +188,10 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 		for _, task := range tasks {
 			upstreamID := task.GetUpstreamTaskID()
 			if upstreamID == "" {
+				if task.PrivateData.H3ReservationConfirmed != nil {
+					failH3PollingTask(ctx, task, "missing task id")
+					continue
+				}
 				// 统计失败的未完成任务
 				nullTaskIds = append(nullTaskIds, task.ID)
 				continue
@@ -430,6 +442,12 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 		var failedIDs []int64
 		for _, upstreamID := range taskIds {
 			if t, ok := taskM[upstreamID]; ok {
+				if t.PrivateData.H3ReservationConfirmed != nil {
+					if errors.Is(err, gorm.ErrRecordNotFound) {
+						failH3PollingTask(ctx, t, fmt.Sprintf("channel %d missing", channelId))
+					}
+					continue
+				}
 				failedIDs = append(failedIDs, t.ID)
 			}
 		}
@@ -483,6 +501,9 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	if task == nil {
 		logger.LogError(ctx, fmt.Sprintf("Task %s not found in taskM", taskId))
 		return fmt.Errorf("task %s not found", taskId)
+	}
+	if task.PrivateData.H3ReservationConfirmed != nil && (task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure) {
+		return nil
 	}
 	key := ch.Key
 
@@ -646,6 +667,20 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	}
 
 	isDone := task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure
+	if isDone && task.PrivateData.H3ReservationConfirmed != nil {
+		final := 0
+		if shouldSettle {
+			checked, ok := adaptor.(TaskBillingCheckedAdaptor)
+			if !ok {
+				return errors.New("missing H3 billing adaptor")
+			}
+			final = task.Quota
+			if actual, _, handled := checked.AdjustBillingOnCompleteChecked(task, taskResult); handled {
+				final = actual
+			}
+		}
+		return recordH3Terminal(task, snap.Status, final)
+	}
 	if isDone && snap.Status != task.Status {
 		won, err := task.UpdateWithStatus(snap.Status)
 		if err != nil {

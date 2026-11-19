@@ -83,6 +83,7 @@ type TokenCountMeta struct {
 }
 
 type RelayInfo struct {
+	H3Billing         bool
 	TokenId           int
 	TokenKey          string
 	TokenGroup        string

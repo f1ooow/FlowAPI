@@ -386,6 +386,10 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 }
 
 func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {
+	return preConsumeTokenQuota(relayInfo, quota, relayInfo.H3Billing)
+}
+
+func preConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int, durable bool) error {
 	if quota < 0 {
 		return errors.New("quota 不能为负数！")
 	}
@@ -393,7 +397,7 @@ func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {
 		return nil
 	}
 	// 原子预扣：检查与扣减在同一操作中完成，并发请求不可能同时通过检查后超扣。
-	reserved, err := model.TryReserveTokenQuota(relayInfo.TokenId, relayInfo.TokenKey, quota, relayInfo.TokenUnlimited)
+	reserved, err := model.ReserveTokenQuota(relayInfo.TokenId, relayInfo.TokenKey, quota, relayInfo.TokenUnlimited, durable)
 	if err != nil {
 		return err
 	}

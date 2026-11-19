@@ -67,8 +67,21 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		Group:     info.UsingGroup,
 		Other:     other,
 	})
-	model.UpdateUserUsedQuotaAndRequestCount(info.UserId, info.PriceData.Quota)
-	model.UpdateChannelUsedQuota(info.ChannelId, info.PriceData.Quota)
+	if !info.H3Billing {
+		model.UpdateUserUsedQuotaAndRequestCount(info.UserId, info.PriceData.Quota)
+		model.UpdateChannelUsedQuota(info.ChannelId, info.PriceData.Quota)
+	}
+}
+
+func H3ReservationConfirmed(info *relaycommon.RelayInfo, settleErr error) bool {
+	if settleErr != nil {
+		return false
+	}
+	if info.Billing == nil {
+		return info.PriceData.FreeModel && info.PriceData.Quota == 0
+	}
+	session, ok := info.Billing.(*BillingSession)
+	return ok && session.durableReservation
 }
 
 // ---------------------------------------------------------------------------

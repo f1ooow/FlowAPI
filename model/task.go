@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	commonRelay "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"gorm.io/gorm"
 )
 
 type TaskStatus string
@@ -46,24 +47,26 @@ const (
 const TaskRefundLegacyCutoff int64 = 1771718400 // 2026-02-22 00:00:00 UTC
 
 type Task struct {
-	ID         int64                 `json:"id" gorm:"primary_key;AUTO_INCREMENT"`
-	CreatedAt  int64                 `json:"created_at" gorm:"index"`
-	UpdatedAt  int64                 `json:"updated_at"`
-	TaskID     string                `json:"task_id" gorm:"type:varchar(191);index"` // 第三方id，不一定有/ song id\ Task id
-	Platform   constant.TaskPlatform `json:"platform" gorm:"type:varchar(30);index"` // 平台
-	UserId     int                   `json:"user_id" gorm:"index"`
-	Group      string                `json:"group" gorm:"type:varchar(50)"` // 修正计费用
-	ChannelId  int                   `json:"channel_id" gorm:"index"`
-	Quota      int                   `json:"quota"`
-	Action     string                `json:"action" gorm:"type:varchar(40);index"` // 任务类型, song, lyrics, description-mode
-	Status     TaskStatus            `json:"status" gorm:"type:varchar(20);index"` // 任务状态
-	FailReason string                `json:"fail_reason"`
-	SubmitTime int64                 `json:"submit_time" gorm:"index"`
-	StartTime  int64                 `json:"start_time" gorm:"index"`
-	FinishTime int64                 `json:"finish_time" gorm:"index"`
-	Progress   string                `json:"progress" gorm:"type:varchar(20);index"`
-	Properties Properties            `json:"properties" gorm:"type:json"`
-	Username   string                `json:"username,omitempty" gorm:"-"`
+	ID           int64                 `json:"id" gorm:"primary_key;AUTO_INCREMENT"`
+	CreatedAt    int64                 `json:"created_at" gorm:"index"`
+	UpdatedAt    int64                 `json:"updated_at"`
+	TaskID       string                `json:"task_id" gorm:"type:varchar(191);index"` // 第三方id，不一定有/ song id\ Task id
+	Platform     constant.TaskPlatform `json:"platform" gorm:"type:varchar(30);index"` // 平台
+	UserId       int                   `json:"user_id" gorm:"index"`
+	Group        string                `json:"group" gorm:"type:varchar(50)"` // 修正计费用
+	ChannelId    int                   `json:"channel_id" gorm:"index"`
+	Quota        int                   `json:"quota"`
+	PendingQuota *int                  `json:"-" gorm:"index"`
+	SettledQuota *int                  `json:"-"`
+	Action       string                `json:"action" gorm:"type:varchar(40);index"` // 任务类型, song, lyrics, description-mode
+	Status       TaskStatus            `json:"status" gorm:"type:varchar(20);index"` // 任务状态
+	FailReason   string                `json:"fail_reason"`
+	SubmitTime   int64                 `json:"submit_time" gorm:"index"`
+	StartTime    int64                 `json:"start_time" gorm:"index"`
+	FinishTime   int64                 `json:"finish_time" gorm:"index"`
+	Progress     string                `json:"progress" gorm:"type:varchar(20);index"`
+	Properties   Properties            `json:"properties" gorm:"type:json"`
+	Username     string                `json:"username,omitempty" gorm:"-"`
 	// 禁止返回给用户，内部可能包含key等隐私信息
 	PrivateData TaskPrivateData `json:"-" gorm:"column:private_data;type:json"`
 	Data        json.RawMessage `json:"data" gorm:"type:json"`
@@ -101,12 +104,13 @@ func (m Properties) Value() (driver.Value, error) {
 }
 
 type TaskPrivateData struct {
-	ChannelOtherInfo *string                   `json:"channel_other_info,omitempty"`
-	ChannelBaseURL   string                    `json:"channel_base_url,omitempty"`
-	ChannelSettings  *dto.ChannelOtherSettings `json:"channel_settings,omitempty"`
-	Key              string                    `json:"key,omitempty"`
-	UpstreamTaskID   string                    `json:"upstream_task_id,omitempty"` // 上游真实 task ID
-	ResultURL        string                    `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
+	H3ReservationConfirmed *bool                     `json:"h3_reservation_confirmed,omitempty"`
+	ChannelOtherInfo       *string                   `json:"channel_other_info,omitempty"`
+	ChannelBaseURL         string                    `json:"channel_base_url,omitempty"`
+	ChannelSettings        *dto.ChannelOtherSettings `json:"channel_settings,omitempty"`
+	Key                    string                    `json:"key,omitempty"`
+	UpstreamTaskID         string                    `json:"upstream_task_id,omitempty"` // 上游真实 task ID
+	ResultURL              string                    `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
 	BillingSource  string              `json:"billing_source,omitempty"`  // "wallet"、"subscription" 或 "unlimited"
 	SubscriptionId int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
@@ -380,7 +384,10 @@ func HasUnfinishedSyncTasks() bool {
 		Where("status != ?", TaskStatusSuccess).
 		Limit(1).
 		Pluck("id", &id).Error
-	return err == nil && id != 0
+	if err != nil || id != 0 {
+		return err == nil
+	}
+	return DB.Model(&Task{}).Where("pending_quota IS NOT NULL").Limit(1).Pluck("id", &id).Error == nil && id != 0
 }
 
 func GetByTaskId(userId int, taskId string) (*Task, bool, error) {
@@ -429,10 +436,29 @@ func GetTaskForDashboardPreview(userID int, taskID string, isAdmin bool) (*Task,
 	return tasks[0], true, nil
 }
 
-func (Task *Task) Insert() error {
-	var err error
-	err = DB.Create(Task).Error
-	return err
+func (task *Task) Insert() error {
+	if task.PrivateData.H3ReservationConfirmed != nil {
+		return DB.Transaction(func(tx *gorm.DB) error { return task.insertWithUsage(tx) })
+	}
+	return DB.Create(task).Error
+}
+
+func (task *Task) insertWithUsage(tx *gorm.DB) error {
+	if err := tx.Create(task).Error; err != nil {
+		return err
+	}
+	if task.PrivateData.H3ReservationConfirmed == nil || !*task.PrivateData.H3ReservationConfirmed {
+		return nil
+	}
+	if err := requireAccountingRow(tx.Model(&User{}).Where("id = ?", task.UserId).Updates(map[string]any{
+		"used_quota": gorm.Expr("used_quota + ?", task.Quota), "request_count": gorm.Expr("request_count + 1"),
+	})); err != nil {
+		return err
+	}
+	if task.Quota == 0 {
+		return nil
+	}
+	return requireAccountingRow(tx.Model(&Channel{}).Where("id = ?", task.ChannelId).Update("used_quota", gorm.Expr("used_quota + ?", task.Quota)))
 }
 
 type taskSnapshot struct {
