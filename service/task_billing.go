@@ -73,17 +73,6 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	}
 }
 
-func H3ReservationConfirmed(info *relaycommon.RelayInfo, settleErr error) bool {
-	if settleErr != nil {
-		return false
-	}
-	if info.Billing == nil {
-		return info.PriceData.FreeModel && info.PriceData.Quota == 0
-	}
-	session, ok := info.Billing.(*BillingSession)
-	return ok && session.durableReservation
-}
-
 // ---------------------------------------------------------------------------
 // 异步任务计费辅助函数
 // ---------------------------------------------------------------------------

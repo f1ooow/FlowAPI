@@ -241,7 +241,10 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	}
 
 	// 7. 预扣费（仅首次 — 重试时 info.Billing 已存在，跳过）
-	if info.Billing == nil && !info.PriceData.FreeModel {
+	if info.H3Billing && info.Billing != nil {
+		return nil, service.TaskErrorWrapperLocal(errors.New("cannot reuse another reservation for H3"), "reservation_conflict", http.StatusConflict)
+	}
+	if !info.H3Billing && info.Billing == nil && !info.PriceData.FreeModel {
 		info.ForcePreConsume = true
 		if apiErr := service.PreConsumeBilling(c, info.PriceData.Quota, info); apiErr != nil {
 			return nil, service.TaskErrorFromAPIError(apiErr)
@@ -291,15 +294,28 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	if info.H3Billing {
 		task := model.InitTask(platform, info)
 		task.Status, task.Action, task.Quota = model.TaskStatusDispatching, info.Action, info.PriceData.Quota
-		confirmed := service.H3ReservationConfirmed(info, nil)
-		task.PrivateData.H3ReservationConfirmed = &confirmed
-		task.PrivateData.BillingSource, task.PrivateData.SubscriptionId = info.BillingSource, info.SubscriptionId
-		task.PrivateData.TokenId, task.PrivateData.NodeName = info.TokenId, common.NodeName
+		info.BillingSource = service.BillingSourceWallet
+		if info.UserUnlimitedQuota {
+			info.BillingSource = service.BillingSourceUnlimited
+		}
+		task.PrivateData.H3ReservationConfirmed = common.GetPointer(true)
+		task.PrivateData.BillingSource, task.PrivateData.NodeName = info.BillingSource, common.NodeName
+		if !info.IsPlayground {
+			task.PrivateData.TokenId = info.TokenId
+		}
 		task.PrivateData.BillingContext = model.NewTaskBillingContext(info)
 		task.PrivateData.BillingContext.InputVideoDuration = c.GetFloat64(relaycommon.TaskInputVideoSecondsKey)
-		if err := task.Insert(); err != nil {
-			return nil, service.TaskErrorWrapperLocal(err, "task_persistence_failed", http.StatusInternalServerError)
+		if err := task.ReserveH3Dispatch(info.TokenKey, info.TokenUnlimited); err != nil {
+			switch {
+			case errors.Is(err, model.ErrH3WalletQuota), errors.Is(err, model.ErrH3TokenQuota):
+				return nil, service.TaskErrorWrapperLocal(err, "h3_reservation_failed", http.StatusForbidden)
+			case errors.Is(err, model.ErrH3DispatchExists):
+				return nil, service.TaskErrorWrapperLocal(err, "h3_dispatch_exists", http.StatusConflict)
+			default:
+				return nil, service.TaskErrorWrapperLocal(err, "h3_reservation_failed", http.StatusServiceUnavailable)
+			}
 		}
+		info.FinalPreConsumedQuota = task.Quota
 		c.Set("h3_dispatch", task)
 	}
 	c.Set("task_paid_dispatched", true)

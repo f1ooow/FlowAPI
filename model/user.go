@@ -110,7 +110,8 @@ type User struct {
 	CreatedAt        int64                      `json:"created_at" gorm:"autoCreateTime;column:created_at"`
 	LastLoginAt      int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
 	AuthVersion      int64                      `json:"-" gorm:"type:bigint;not null;default:1;column:auth_version"`
-	H3RefundTotal    int64                      `json:"-" gorm:"type:bigint;not null;default:0;column:h3_refund_total"`
+	H3QuotaSeq       int64                      `json:"-" gorm:"type:bigint;not null;default:0;column:h3_quota_seq"`
+	H3QuotaNet       int64                      `json:"-" gorm:"type:bigint;not null;default:0;column:h3_quota_net"`
 	AdminPermissions map[string]map[string]bool `json:"admin_permissions,omitempty" gorm:"-:all"`
 }
 
@@ -119,7 +120,8 @@ func (user *User) ToBaseUser() *UserBase {
 		Id:             user.Id,
 		Group:          user.Group,
 		Quota:          user.Quota,
-		H3RefundTotal:  user.H3RefundTotal,
+		H3QuotaSeq:     user.H3QuotaSeq,
+		H3QuotaNet:     user.H3QuotaNet,
 		UnlimitedQuota: user.UnlimitedQuota,
 		Status:         user.Status,
 		Role:           user.Role,
@@ -799,6 +801,8 @@ func (user *User) UpdateWithTx(tx *gorm.DB, updatePassword bool) error {
 		"aff_quota",
 		"aff_history",
 		"auth_version",
+		"h3_quota_seq",
+		"h3_quota_net",
 	).Updates(newUser).Error; err != nil {
 		return err
 	}

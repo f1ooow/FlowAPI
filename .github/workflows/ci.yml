@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: ${{ github.event.pull_request.base.repo.full_name || github.repository }}
-          ref: ${{ github.event.action == 'closed' && github.event.pull_request.base.ref || github.ref }}
+          ref: ${{ github.sha }}
 
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
@@ -45,7 +45,7 @@ jobs:
         run: go vet ./...
 
       - name: H3 HTTP, recovery and quota regressions
-        run: go test -v -count=1 ./router ./model -run 'TestH3(FinalQuotaHTTP|RefundColdFillAndDelayedSnapshots|AdmissionRequiresBothDurableAndCachedBalance)$'
+        run: go test -v -count=1 ./router ./model ./service -run '^TestH3'
 
       - name: Vet relaykit independently
         working-directory: relaykit
@@ -75,7 +75,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: ${{ github.event.pull_request.base.repo.full_name || github.repository }}
-          ref: ${{ github.event.action == 'closed' && github.event.pull_request.base.ref || github.ref }}
+          ref: ${{ github.sha }}
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0

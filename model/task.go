@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql/driver"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -33,14 +34,15 @@ func (t TaskStatus) ToVideoStatus() string {
 }
 
 const (
-	TaskStatusDispatching TaskStatus = "DISPATCHING"
-	TaskStatusNotStart    TaskStatus = "NOT_START"
-	TaskStatusSubmitted              = "SUBMITTED"
-	TaskStatusQueued                 = "QUEUED"
-	TaskStatusInProgress             = "IN_PROGRESS"
-	TaskStatusFailure                = "FAILURE"
-	TaskStatusSuccess                = "SUCCESS"
-	TaskStatusUnknown                = "UNKNOWN"
+	TaskStatusDispatching     TaskStatus = "DISPATCHING"
+	TaskStatusDispatchUnknown TaskStatus = "DISPATCH_UNKNOWN"
+	TaskStatusNotStart        TaskStatus = "NOT_START"
+	TaskStatusSubmitted                  = "SUBMITTED"
+	TaskStatusQueued                     = "QUEUED"
+	TaskStatusInProgress                 = "IN_PROGRESS"
+	TaskStatusFailure                    = "FAILURE"
+	TaskStatusSuccess                    = "SUCCESS"
+	TaskStatusUnknown                    = "UNKNOWN"
 )
 
 // TaskRefundLegacyCutoff separates tasks created before timeout refunds were
@@ -52,6 +54,7 @@ type Task struct {
 	CreatedAt    int64                 `json:"created_at" gorm:"index"`
 	UpdatedAt    int64                 `json:"updated_at"`
 	TaskID       string                `json:"task_id" gorm:"type:varchar(191);index"` // 第三方id，不一定有/ song id\ Task id
+	H3UpstreamID *string               `json:"-" gorm:"column:h3_upstream_id;type:text"`
 	Platform     constant.TaskPlatform `json:"platform" gorm:"type:varchar(30);index"` // 平台
 	UserId       int                   `json:"user_id" gorm:"index"`
 	Group        string                `json:"group" gorm:"type:varchar(50)"` // 修正计费用
@@ -169,8 +172,14 @@ func NewTaskBillingContext(info *commonRelay.RelayInfo) *TaskBillingContext {
 // GetUpstreamTaskID 获取上游真实 task ID（用于与 provider 通信）
 // 旧数据没有 UpstreamTaskID 时，TaskID 本身就是上游 ID
 func (t *Task) GetUpstreamTaskID() string {
+	if t.H3UpstreamID != nil {
+		return *t.H3UpstreamID
+	}
 	if t.PrivateData.UpstreamTaskID != "" {
 		return t.PrivateData.UpstreamTaskID
+	}
+	if t.PrivateData.H3ReservationConfirmed != nil {
+		return ""
 	}
 	return t.TaskID
 }
@@ -351,7 +360,7 @@ func TaskGetAllTasks(startIdx int, num int, queryParams SyncTaskQueryParams) []*
 func GetTimedOutUnfinishedTasks(cutoffUnix int64, limit int) []*Task {
 	var tasks []*Task
 	err := DB.Where("progress != ?", "100%").
-		Where("status NOT IN ?", []string{TaskStatusFailure, TaskStatusSuccess}).
+		Where("status NOT IN ? AND h3_upstream_id IS NULL", []TaskStatus{TaskStatusFailure, TaskStatusSuccess, TaskStatusDispatchUnknown}).
 		Where("submit_time < ?", cutoffUnix).
 		Order("submit_time").
 		Limit(limit).
@@ -366,7 +375,9 @@ func GetAllUnFinishSyncTasks(limit int) []*Task {
 	var tasks []*Task
 	var err error
 	// get all tasks progress is not 100%
-	err = DB.Where("progress != ?", "100%").Where("status NOT IN ?", []TaskStatus{TaskStatusFailure, TaskStatusSuccess, TaskStatusDispatching}).Limit(limit).Order("id").Find(&tasks).Error
+	err = DB.Where("progress != ? AND status NOT IN ?", "100%", []TaskStatus{TaskStatusFailure, TaskStatusSuccess}).
+		Where("(status NOT IN ? OR h3_upstream_id IS NOT NULL)", []TaskStatus{TaskStatusDispatching, TaskStatusDispatchUnknown}).
+		Limit(limit).Order("id").Find(&tasks).Error
 	if err != nil {
 		return nil
 	}
@@ -379,12 +390,14 @@ func GetAllUnFinishSyncTasks(limit int) []*Task {
 // the scheduler skips creating a row entirely.
 func HasUnfinishedSyncTasks() bool {
 	var id int64
-	err := DB.Model(&Task{}).
+	query := DB.Model(&Task{}).
 		Where("progress != ?", "100%").
-		Where("status != ?", TaskStatusFailure).
-		Where("status != ?", TaskStatusSuccess).
-		Limit(1).
-		Pluck("id", &id).Error
+		Where("status NOT IN ?", []TaskStatus{TaskStatusFailure, TaskStatusSuccess}).
+		Where("(status != ? OR h3_upstream_id IS NOT NULL)", TaskStatusDispatchUnknown)
+	if constant.TaskTimeoutMinutes <= 0 {
+		query = query.Where("(status != ? OR h3_upstream_id IS NOT NULL)", TaskStatusDispatching)
+	}
+	err := query.Limit(1).Pluck("id", &id).Error
 	if err != nil || id != 0 {
 		return err == nil
 	}
@@ -504,6 +517,28 @@ func (t *Task) UpdateQuota() error {
 	return DB.Model(t).Update("quota", t.Quota).Error
 }
 
+func (t *Task) AcceptH3Dispatch(upstreamID string, data json.RawMessage) (acknowledged bool, err error) {
+	if upstreamID == "" {
+		return false, fmt.Errorf("empty H3 provider acknowledgement")
+	}
+	dispatch := DB.Model(&Task{}).Where("id = ? AND status IN ? AND (h3_upstream_id IS NULL OR h3_upstream_id = ?)",
+		t.ID, []TaskStatus{TaskStatusDispatching, TaskStatusDispatchUnknown}, upstreamID).Session(&gorm.Session{})
+	ack := dispatch.Update("h3_upstream_id", upstreamID)
+	promotion := dispatch.Updates(map[string]any{"status": TaskStatusNotStart, "h3_upstream_id": upstreamID, "data": data})
+	if promotion.Error == nil && promotion.RowsAffected == 1 {
+		return true, nil
+	}
+	return ack.Error == nil && ack.RowsAffected == 1, fmt.Errorf("ack rows=%d err=%v; promotion rows=%d err=%v", ack.RowsAffected, ack.Error, promotion.RowsAffected, promotion.Error)
+}
+
+func (t *Task) MarkH3DispatchUnknown() error {
+	if t.Status == TaskStatusSuccess || t.Status == TaskStatusFailure || t.GetUpstreamTaskID() != "" {
+		return fmt.Errorf("H3 dispatch %s already has a provider ID or terminal decision", t.TaskID)
+	}
+	return DB.Model(&Task{}).Where("id = ? AND status = ? AND h3_upstream_id IS NULL", t.ID, t.Status).
+		Update("status", TaskStatusDispatchUnknown).Error
+}
+
 // UpdateWithStatus performs a conditional UPDATE guarded by fromStatus (CAS).
 // Returns (true, nil) if this caller won the update, (false, nil) if
 // another process already moved the task out of fromStatus. MySQL commonly
@@ -514,7 +549,11 @@ func (t *Task) UpdateQuota() error {
 // falls back to INSERT ON CONFLICT when the WHERE-guarded UPDATE matches
 // zero rows, which silently bypasses the CAS guard.
 func (t *Task) UpdateWithStatus(fromStatus TaskStatus) (bool, error) {
-	result := DB.Model(t).Where("status = ?", fromStatus).Select("*").Updates(t)
+	query := DB.Model(t).Where("status = ?", fromStatus)
+	if (fromStatus == TaskStatusDispatching || fromStatus == TaskStatusDispatchUnknown) && t.H3UpstreamID == nil {
+		query = query.Where("h3_upstream_id IS NULL")
+	}
+	result := query.Select("*").Omit("H3UpstreamID").Updates(t)
 	if result.Error != nil {
 		return false, result.Error
 	}

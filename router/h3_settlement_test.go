@@ -55,8 +55,10 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 	require.NoError(t, channel.AddAbilities(db))
 
 	var upstreamID, status, resolution string
-	var queries int
+	var posts, queries int
 	var onDispatch func()
+	var postError error
+	var accountTiers map[string]string
 	service.InitHttpClient()
 	client := service.GetHttpClient()
 	oldTransport := client.Transport
@@ -65,13 +67,24 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 		body := ""
 		switch request.Method + " " + request.URL.String() {
 		case "POST " + baseURL + hailuo.H3CreateEndpoint:
+			posts++
 			if onDispatch != nil {
 				onDispatch()
+			}
+			if postError != nil {
+				return nil, postError
 			}
 			body = fmt.Sprintf(`{"task_id":%q}`, upstreamID)
 		case "GET " + baseURL + "/v2/query/video_generation/" + upstreamID:
 			queries++
-			body = fmt.Sprintf(`{"result":{"task":{"id":%q,"status":%q,"resolution":%q,"content":{"url":"https://cdn.example/video.mp4"},"usage":{"input_seconds":0,"output_seconds":5}}}}`, upstreamID, status, resolution)
+			tier := resolution
+			if accountTiers != nil {
+				tier = accountTiers[request.Header.Get("Authorization")]
+				if tier == "" {
+					return nil, fmt.Errorf("unrecognized provider account")
+				}
+			}
+			body = fmt.Sprintf(`{"result":{"task":{"id":%q,"status":%q,"resolution":%q,"content":{"url":"https://cdn.example/video.mp4"},"usage":{"input_seconds":0,"output_seconds":5}}}}`, upstreamID, status, tier)
 		default:
 			return nil, fmt.Errorf("unexpected fixture request %s %s", request.Method, request.URL)
 		}
@@ -100,7 +113,7 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 		assert.Equal(t, hailuo.ModelMiniMaxH3, data["properties"].(map[string]any)["origin_model_name"])
 		return data
 	}
-	var total, requests int
+	var total, requests, otherTotal int
 	var refunds int64
 	ledger := func(t *testing.T) {
 		t.Helper()
@@ -111,7 +124,7 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 		assert.Equal(t, balance-total, token.RemainQuota)
 		assert.Equal(t, total, user.UsedQuota)
 		assert.Equal(t, total, token.UsedQuota)
-		assert.Equal(t, int64(total), channel.UsedQuota)
+		assert.Equal(t, int64(total+otherTotal), channel.UsedQuota)
 		assert.Equal(t, requests, user.RequestCount)
 		var count int64
 		require.NoError(t, db.Model(&model.Log{}).Where("type = ?", model.LogTypeRefund).Count(&count).Error)
@@ -199,15 +212,16 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 		assert.NotContains(t, legacy, "settlement_pending")
 	}
 	call(t, "GET", "/v1/video/generations/old-success", "invalid", "", 401)
-	other := model.User{Username: "other-owner", AffCode: "other", Status: common.UserStatusEnabled, Group: "default"}
+	other := model.User{Username: "other-owner", AffCode: "other", Status: common.UserStatusEnabled, Group: "default", Quota: balance}
 	require.NoError(t, db.Create(&other).Error)
-	otherToken := model.Token{UserId: other.Id, Key: "otherkey", Status: common.TokenStatusEnabled, ExpiredTime: -1, UnlimitedQuota: true}
+	otherToken := model.Token{UserId: other.Id, Key: "otherkey", Status: common.TokenStatusEnabled, ExpiredTime: -1, UnlimitedQuota: true, RemainQuota: balance}
 	require.NoError(t, db.Create(&otherToken).Error)
 	denied := call(t, "GET", "/v1/video/generations/old-success", otherToken.Key, "", 400)
 	assert.Equal(t, "task_not_exist", denied["code"])
 	const payload = `{"model":"MiniMax-H3","prompt":"fixture","size":"1080P","seconds":"5","metadata":{"ratio":"16:9"}}`
-	t.Run("interrupted acceptance keeps queryable reservation", func(t *testing.T) {
-		upstreamID = "provider-interrupted"
+	t.Run("acknowledged dispatch recovers delivered resolution", func(t *testing.T) {
+		upstreamID, status, resolution = "provider-interrupted", "succeeded", "768P"
+		beforePosts, beforeQueries := posts, queries
 		var intent model.Task
 		onDispatch = func() {
 			require.NoError(t, db.Where("status = ?", "DISPATCHING").First(&intent).Error)
@@ -216,20 +230,128 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 		defer func() { onDispatch = nil }()
 		result := call(t, "POST", "/v1/videos", token.Key, payload, 202)
 		require.Equal(t, intent.TaskID, result["id"])
+		require.Equal(t, "acceptance_recovery_pending", result["code"])
+		require.NoError(t, intent.MarkH3DispatchUnknown())
 		assert.Equal(t, "DISPATCHING", fetch(t, intent.TaskID)["status"])
-		require.NoError(t, db.Exec(`DROP TRIGGER reject_accept`).Error)
 		oldTimeout := constant.TaskTimeoutMinutes
-		constant.TaskTimeoutMinutes = 1
+		constant.TaskTimeoutMinutes = 0
 		t.Cleanup(func() { constant.TaskTimeoutMinutes = oldTimeout })
 		require.NoError(t, db.Model(&intent).Update("submit_time", time.Now().Add(-2*time.Minute).Unix()).Error)
+		require.True(t, model.HasUnfinishedSyncTasks())
 		service.RunTaskPollingOnce(t.Context(), nil)
-		assert.Equal(t, float64(0), fetch(t, intent.TaskID)["settled_quota"])
+		data := fetch(t, intent.TaskID)
+		assert.Equal(t, "SUCCESS", data["status"])
+		assert.Equal(t, float64(281250), data["settled_quota"])
+		denied := call(t, "GET", "/v1/video/generations/"+intent.TaskID, otherToken.Key, "", 400)
+		assert.Equal(t, "task_not_exist", denied["code"])
+		require.NoError(t, db.Exec(`DROP TRIGGER reject_accept`).Error)
+		assert.Equal(t, beforePosts+1, posts)
+		assert.Equal(t, beforeQueries+1, queries)
+		total += 281250
 		requests++
 		refunds++
 		ledger(t)
 	})
-	t.Run("retired channel and revoked token", func(t *testing.T) {
-		upstreamID = "provider-retired"
+	t.Run("provider acknowledges after dispatch timeout", func(t *testing.T) {
+		upstreamID, status, resolution = "provider-late", "succeeded", "768P"
+		beforePosts, beforeQueries := posts, queries
+		oldTimeout := constant.TaskTimeoutMinutes
+		constant.TaskTimeoutMinutes = 1
+		t.Cleanup(func() { constant.TaskTimeoutMinutes, onDispatch = oldTimeout, nil })
+		var intent model.Task
+		onDispatch = func() {
+			require.NoError(t, db.Where("status = ?", model.TaskStatusDispatching).First(&intent).Error)
+			require.NoError(t, db.Model(&intent).Update("submit_time", time.Now().Add(-time.Hour).Unix()).Error)
+			service.RunTaskPollingOnce(t.Context(), nil)
+			data := fetch(t, intent.TaskID)
+			assert.Equal(t, "DISPATCH_UNKNOWN", data["status"])
+			assert.NotContains(t, data, "settled_quota")
+		}
+		result := call(t, "POST", "/v1/videos", token.Key, payload, 200)
+		require.Equal(t, intent.TaskID, result["id"])
+		service.RunTaskPollingOnce(t.Context(), nil)
+		assert.Equal(t, float64(281250), fetch(t, intent.TaskID)["settled_quota"])
+		assert.Equal(t, beforePosts+1, posts)
+		assert.Equal(t, beforeQueries+1, queries)
+		total += 281250
+		requests++
+		refunds++
+		ledger(t)
+	})
+	for _, scenario := range []struct{ name, code string }{
+		{"ack and promotion unavailable", "provider_acknowledgement_unrecorded"},
+		{"connection lost after dispatch", "provider_acceptance_unknown"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			upstreamID = "provider-unresolved"
+			beforePosts, beforeQueries := posts, queries
+			if scenario.code == "provider_acknowledgement_unrecorded" {
+				require.NoError(t, db.Exec(`CREATE TRIGGER reject_ack BEFORE UPDATE OF h3_upstream_id ON tasks BEGIN SELECT RAISE(ABORT, 'cannot save provider id'); END`).Error)
+				t.Cleanup(func() { require.NoError(t, db.Exec(`DROP TRIGGER reject_ack`).Error) })
+			} else {
+				oldRetries := common.RetryTimes
+				common.RetryTimes = 2
+				postError = io.ErrUnexpectedEOF
+				t.Cleanup(func() { common.RetryTimes, postError = oldRetries, nil })
+			}
+			result := call(t, "POST", "/v1/videos", token.Key, payload, 202)
+			require.Equal(t, scenario.code, result["code"])
+			id := result["id"].(string)
+			require.NotEqual(t, upstreamID, id)
+			require.Equal(t, id, result["task_id"])
+			oldTimeout := constant.TaskTimeoutMinutes
+			constant.TaskTimeoutMinutes = 1
+			t.Cleanup(func() { constant.TaskTimeoutMinutes = oldTimeout })
+			require.NoError(t, db.Model(&model.Task{}).Where("task_id = ?", id).Update("submit_time", time.Now().Add(-time.Hour).Unix()).Error)
+			service.RunTaskPollingOnce(t.Context(), nil)
+			data := fetch(t, id)
+			assert.Equal(t, "DISPATCH_UNKNOWN", data["status"])
+			assert.NotContains(t, data, "settled_quota")
+			assert.Equal(t, float64(0), data["finish_time"])
+			assert.Equal(t, beforePosts+1, posts)
+			assert.Equal(t, beforeQueries, queries)
+			total += 437500
+			requests++
+			ledger(t)
+		})
+	}
+	checkOther := func(t *testing.T) {
+		t.Helper()
+		require.NoError(t, db.First(&other, other.Id).Error)
+		require.NoError(t, db.First(&otherToken, otherToken.Id).Error)
+		assert.Equal(t, balance-otherTotal, other.Quota)
+		assert.Equal(t, balance-otherTotal, otherToken.RemainQuota)
+		assert.Equal(t, otherTotal, other.UsedQuota)
+		assert.Equal(t, otherTotal, otherToken.UsedQuota)
+	}
+	t.Run("two keys on one channel share a provider id", func(t *testing.T) {
+		upstreamID, status = "account-local-id", "succeeded"
+		beforePosts, beforeQueries := posts, queries
+		accountTiers = map[string]string{"Bearer fixture-key": "1080P", "Bearer other-account": "768P"}
+		t.Cleanup(func() { accountTiers = nil })
+		first := call(t, "POST", "/v1/videos", token.Key, payload, 200)["id"].(string)
+		require.NoError(t, db.Model(&channel).Update("key", "other-account").Error)
+		second := call(t, "POST", "/v1/videos", otherToken.Key, payload, 200)["id"].(string)
+		require.NotEqual(t, first, second)
+		require.NoError(t, db.Model(&channel).Update("key", "fixture-key").Error)
+		service.RunTaskPollingOnce(t.Context(), nil)
+		assert.Equal(t, beforePosts+2, posts)
+		assert.Equal(t, beforeQueries+2, queries)
+		assert.Equal(t, float64(437500), fetch(t, first)["settled_quota"])
+		secondData := call(t, "GET", "/v1/video/generations/"+second, otherToken.Key, "", 200)["data"].(map[string]any)
+		assert.Equal(t, second, secondData["task_id"])
+		assert.Equal(t, float64(281250), secondData["settled_quota"])
+		assert.Equal(t, "task_not_exist", call(t, "GET", "/v1/video/generations/"+second, token.Key, "", 400)["code"])
+		total += 437500
+		otherTotal += 281250
+		requests++
+		refunds++
+		checkOther(t)
+		ledger(t)
+	})
+	t.Run("retired channel and active channel share a provider id", func(t *testing.T) {
+		upstreamID, status, resolution = "provider-retired", "succeeded", "768P"
+		beforePosts, beforeQueries := posts, queries
 		onDispatch = func() { require.NoError(t, channel.Delete()) }
 		defer func() { onDispatch = nil }()
 		created := call(t, "POST", "/v1/videos", token.Key, payload, 200)
@@ -237,7 +359,14 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 		saved, exists, err := model.GetByTaskId(user.Id, id)
 		require.NoError(t, err)
 		require.True(t, exists)
-		require.Equal(t, upstreamID, saved.PrivateData.UpstreamTaskID)
+		require.Equal(t, upstreamID, saved.GetUpstreamTaskID())
+		onDispatch = nil
+		active := model.Channel{Type: constant.ChannelTypeMiniMax, BaseURL: &baseURL, Key: "active-account", Status: common.ChannelStatusEnabled, Models: hailuo.ModelMiniMaxH3, Group: "default"}
+		require.NoError(t, db.Create(&active).Error)
+		require.NoError(t, active.AddAbilities(db))
+		activeID := call(t, "POST", "/v1/videos", otherToken.Key, payload, 200)["id"].(string)
+		accountTiers = map[string]string{"Bearer active-account": "768P"}
+		t.Cleanup(func() { accountTiers = nil })
 		require.NoError(t, token.Delete())
 		replacement := model.Token{UserId: user.Id, Key: "replacement", Status: common.TokenStatusEnabled, ExpiredTime: -1, UnlimitedQuota: true}
 		require.NoError(t, db.Create(&replacement).Error)
@@ -246,6 +375,15 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 			service.RunTaskPollingOnce(t.Context(), nil)
 		}
 		common.MemoryCacheEnabled = false
+		assert.Equal(t, beforePosts+2, posts)
+		assert.Equal(t, beforeQueries+1, queries)
+		activeData := call(t, "GET", "/v1/video/generations/"+activeID, otherToken.Key, "", 200)["data"].(map[string]any)
+		assert.Equal(t, "SUCCESS", activeData["status"])
+		assert.Equal(t, float64(281250), activeData["settled_quota"])
+		otherTotal += 281250
+		checkOther(t)
+		require.NoError(t, db.First(&active, active.Id).Error)
+		assert.Equal(t, int64(281250), active.UsedQuota)
 		call(t, "GET", "/v1/video/generations/"+id, token.Key, "", 401)
 		data := call(t, "GET", "/v1/video/generations/"+id, replacement.Key, "", 200)["data"].(map[string]any)
 		assert.Equal(t, id, data["task_id"])

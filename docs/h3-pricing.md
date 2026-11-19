@@ -66,10 +66,16 @@ so consumers must not use it to fill a missing receipt. Existing historical
 rows retain their original data and receive no receipt backfill.
 
 New H3 video and Context IR submissions record whether their reservation was
-confirmed. Before a paid POST, FlowAPI saves the public ID, the reservation and
-the selected route under `DISPATCHING`. If saving the provider acknowledgement
-fails, HTTP 202 returns the same `id` and `task_id`. Poll that ID. The worker
-uses the configured task timeout for an unresolved dispatch and refunds it.
+confirmed. Before a paid POST, FlowAPI commits the public ID, selected route,
+wallet and token debits, and initial usage counters in one transaction. The
+task starts as `DISPATCHING`. FlowAPI saves the provider task ID separately
+from the status transition. If the transition fails, HTTP 202 returns the
+original `id` and `task_id` with `acceptance_recovery_pending`. Poll that ID.
+The worker can query the acknowledged provider task on its original route.
+`provider_acceptance_unknown` and `provider_acknowledgement_unrecorded` signal
+an ambiguous dispatch. Preserve its public ID for reconciliation and avoid
+resubmitting the paid POST. A dispatch with no durable provider ID requires
+operator investigation and carries no final receipt.
 Deleting the channel or revoking the submitting token does not remove this
 record. An active token of the same user can still read the receipt.
 The task's terminal transition saves the intended net amount. The
@@ -81,9 +87,11 @@ apply each decision once. The existing refund activity log is emitted after
 the commit and may live in a separate log database.
 
 The task migration adds nullable integer columns `pending_quota` (indexed) and
-`settled_quota`. Users and tokens also carry the cumulative H3 refund in
-`h3_refund_total`. Redis fills carry the same total so publishing a committed
-refund can credit only the difference and can reject older cold fills.
+`settled_quota`, and a private provider acknowledgement in `h3_upstream_id`.
+Users and tokens carry `h3_quota_seq` and `h3_quota_net` for committed H3
+debits and refunds. Cache fills carry the same sequence and net amount, so a
+delayed notification can preserve concurrent reservations and account for each
+committed change once.
 Upgrade the main database and polling workers together before
 enabling receipt consumers. The router regression submits, polls and reads the
 receipt through authenticated HTTP using isolated SQLite and a fixture provider.

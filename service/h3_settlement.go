@@ -27,6 +27,9 @@ func recordH3Terminal(task *model.Task, previous model.TaskStatus, final int) er
 		task.PendingQuota = &final
 	}
 	won, err := task.UpdateWithStatus(previous)
+	if err == nil && !won && previous == model.TaskStatusDispatching && task.H3UpstreamID == nil && task.Status == model.TaskStatusFailure {
+		won, err = task.UpdateWithStatus(model.TaskStatusDispatchUnknown)
+	}
 	if err != nil || !won || task.PendingQuota == nil {
 		return err
 	}

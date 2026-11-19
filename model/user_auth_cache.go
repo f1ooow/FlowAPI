@@ -58,7 +58,7 @@ func writeUserCache(user *UserBase, includeQuota bool) error {
 		includeQuotaArg = "1"
 	}
 	ttl := userCacheTTLSeconds()
-	const script = `
+	const script = h3CacheFloorLua + `
 local incoming = tonumber(ARGV[1])
 local pending = tonumber(redis.call('GET', KEYS[2]) or '0')
 local committed = tonumber(redis.call('GET', KEYS[3]) or '0')
@@ -67,7 +67,7 @@ if pending > incoming or committed > incoming or current > incoming then
   return 0
 end
 if ARGV[11] == '1' and redis.call('HEXISTS', KEYS[1], 'Quota') == 0 and
-  tonumber(ARGV[14]) < tonumber(redis.call('GET', KEYS[4]) or '0') then
+  not allowH3Fill(KEYS[4], KEYS[5], ARGV[14]) then
   return 1
 end
 if committed < incoming then
@@ -85,14 +85,14 @@ redis.call('HSET', KEYS[1],
   'Setting', ARGV[8], 'AuthVersion', ARGV[1], 'CacheSchema', ARGV[9],
   'UnlimitedQuota', ARGV[10])
 if ARGV[11] == '1' and redis.call('HEXISTS', KEYS[1], 'Quota') == 0 then
-  redis.call('HSET', KEYS[1], 'Quota', ARGV[12], 'H3RefundTotal', ARGV[14])
+  redis.call('HSET', KEYS[1], 'Quota', ARGV[12], 'H3QuotaSeq', ARGV[14], 'H3QuotaNet', ARGV[15])
 end
 redis.call('EXPIRE', KEYS[1], ARGV[13])
 return 1`
 	result, err := common.RDB.Eval(context.Background(), script,
-		[]string{getUserCacheKey(user.Id), getUserAuthFenceKey(user.Id), getUserAuthVersionKey(user.Id), getUserCacheKey(user.Id) + ":h3-refunded"},
+		[]string{getUserCacheKey(user.Id), getUserAuthFenceKey(user.Id), getUserAuthVersionKey(user.Id), getUserCacheKey(user.Id) + ":h3-seq", getUserCacheKey(user.Id) + ":h3-pending"},
 		user.AuthVersion, user.Id, user.Group, user.Email, user.Status, user.Role,
-		user.Username, user.Setting, user.CacheSchema, user.UnlimitedQuota, includeQuotaArg, user.Quota, ttl, user.H3RefundTotal,
+		user.Username, user.Setting, user.CacheSchema, user.UnlimitedQuota, includeQuotaArg, user.Quota, ttl, user.H3QuotaSeq, user.H3QuotaNet,
 	).Int()
 	if err != nil {
 		return err

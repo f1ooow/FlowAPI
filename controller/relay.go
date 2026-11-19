@@ -685,6 +685,8 @@ func RelayTask(c *gin.Context) {
 
 	var result *relay.TaskSubmitResult
 	var taskErr *taskdto.TaskError
+	var h3Acknowledged bool
+	var h3AcceptanceErr error
 	defer func() {
 		_, h3Dispatched := c.Get("h3_dispatch")
 		if taskErr != nil && relayInfo.Billing != nil && !h3Dispatched && !c.GetBool("task_submission_uncertain") {
@@ -742,8 +744,12 @@ func RelayTask(c *gin.Context) {
 		c.Request.Body = io.NopCloser(bodyStorage)
 
 		respBuffer.reset()
+		c.Set("task_submission_definite_failure", false)
 		attemptStart := time.Now()
 		result, taskErr = relay.RelayTaskSubmit(c, relayInfo)
+		if value, ok := c.Get("h3_dispatch"); ok && taskErr == nil {
+			h3Acknowledged, h3AcceptanceErr = value.(*model.Task).AcceptH3Dispatch(result.UpstreamTaskID, result.TaskData)
+		}
 		// 与同步 relay 同口径：这里记的是一次渠道尝试，重试循环每转一圈都记一次。
 		perfmetrics.RecordChannelAttempt(relayInfo, channel.Id, attemptStart, taskErr == nil)
 		if taskErr == nil {
@@ -772,24 +778,27 @@ func RelayTask(c *gin.Context) {
 
 	// ── 成功：结算 + 日志 + 插入任务 ──
 	if taskErr == nil {
-		settleErr := service.SettleBilling(c, relayInfo, result.Quota)
-		if settleErr != nil {
-			common.SysError("settle task billing error: " + settleErr.Error())
-		}
-		service.LogTaskConsumption(c, relayInfo)
 		if value, ok := c.Get("h3_dispatch"); ok {
+			service.LogTaskConsumption(c, relayInfo)
 			task := value.(*model.Task)
-			task.Status, task.Quota, task.Data = model.TaskStatusNotStart, result.Quota, result.TaskData
-			task.PrivateData.UpstreamTaskID = result.UpstreamTaskID
-			confirmed := service.H3ReservationConfirmed(relayInfo, settleErr)
-			task.PrivateData.H3ReservationConfirmed = &confirmed
-			if won, err := task.UpdateWithStatus(model.TaskStatusDispatching); err != nil || !won {
-				common.SysError(fmt.Sprintf("H3 acceptance persistence public=%s upstream=%s: won=%t err=%v", task.TaskID, result.UpstreamTaskID, won, err))
+			if h3AcceptanceErr != nil {
+				common.SysError(fmt.Sprintf("H3 acceptance public=%s channel=%d upstream=%s acknowledged=%t: %v", task.TaskID, task.ChannelId, result.UpstreamTaskID, h3Acknowledged, h3AcceptanceErr))
+				code := "acceptance_recovery_pending"
+				if !h3Acknowledged {
+					code = "provider_acknowledgement_unrecorded"
+					if err := task.MarkH3DispatchUnknown(); err != nil {
+						logger.LogError(c, fmt.Sprintf("H3 dispatch %s: %v", task.TaskID, err))
+					}
+				}
 				respBuffer.reset()
-				c.JSON(http.StatusAccepted, gin.H{"id": task.TaskID, "task_id": task.TaskID, "code": "acceptance_recovery_pending"})
+				c.JSON(http.StatusAccepted, gin.H{"id": task.TaskID, "task_id": task.TaskID, "code": code})
 			}
 			return
 		}
+		if err := service.SettleBilling(c, relayInfo, result.Quota); err != nil {
+			common.SysError("settle task billing error: " + err.Error())
+		}
+		service.LogTaskConsumption(c, relayInfo)
 
 		task := model.InitTask(result.Platform, relayInfo)
 		task.PrivateData.UpstreamTaskID = result.UpstreamTaskID
@@ -835,6 +844,14 @@ func RelayTask(c *gin.Context) {
 		respBuffer.reset()
 		if value, ok := c.Get("h3_dispatch"); ok {
 			task := value.(*model.Task)
+			service.LogTaskConsumption(c, relayInfo)
+			if !c.GetBool("task_submission_definite_failure") {
+				if err := task.MarkH3DispatchUnknown(); err != nil {
+					logger.LogError(c, fmt.Sprintf("H3 dispatch %s: %v", task.TaskID, err))
+				}
+				c.JSON(http.StatusAccepted, gin.H{"id": task.TaskID, "task_id": task.TaskID, "code": "provider_acceptance_unknown"})
+				return
+			}
 			service.FailH3Task(c, task, taskErr.Code)
 			taskErr.Data = gin.H{"task_id": task.TaskID}
 		}
