@@ -103,7 +103,7 @@ func TestTryReserveQuotaWithoutRedis(t *testing.T) {
 	assert.Equal(t, 55, getTokenFromDB(t, token.Id).RemainQuota)
 }
 
-func TestRedisBatchReserveNeverFallsBackToStaleDatabaseBalance(t *testing.T) {
+func TestH3AdmissionAfterEvictionHonorsGenericReservationsInBatchMode(t *testing.T) {
 	truncateTables(t)
 	resetBatchUpdateTestState(t)
 	useUserCacheMiniRedis(t)
@@ -113,7 +113,10 @@ func TestRedisBatchReserveNeverFallsBackToStaleDatabaseBalance(t *testing.T) {
 	reserved, err := TryReserveUserQuota(user.Id, 8)
 	require.NoError(t, err)
 	assert.True(t, reserved)
-	assert.Equal(t, 10, getUserQuotaFromDB(t, user.Id), "batch delta is not flushed yet")
+	assert.Equal(t, 2, getUserQuotaFromDB(t, user.Id))
+	require.NoError(t, common.RDB.Del(t.Context(), getUserCacheKey(user.Id)).Err())
+	h3 := newH3AdmissionTask(user.Id, 0, 3)
+	require.ErrorIs(t, h3.ReserveH3Dispatch("", false), ErrH3WalletQuota)
 
 	reserved, err = TryReserveUserQuota(user.Id, 3)
 	require.NoError(t, err)
@@ -123,13 +126,19 @@ func TestRedisBatchReserveNeverFallsBackToStaleDatabaseBalance(t *testing.T) {
 	assert.Equal(t, 2, cachedUser.Quota)
 
 	token := createReserveTestToken(t, 9)
+	token.UserId = user.Id
+	require.NoError(t, DB.Save(&token).Error)
 	reserved, err = TryReserveTokenQuota(token.Id, token.Key, 7, false)
 	require.NoError(t, err)
 	assert.True(t, reserved)
+	require.NoError(t, common.RDB.Del(t.Context(), getTokenCacheKey(token.Key)).Err())
+	require.NoError(t, DB.Model(&user).Update("unlimited_quota", true).Error)
+	h3.PrivateData.TokenId, h3.PrivateData.BillingSource = token.Id, "unlimited"
+	require.ErrorIs(t, h3.ReserveH3Dispatch(token.Key, false), ErrH3TokenQuota)
 	reserved, err = TryReserveTokenQuota(token.Id, token.Key, 3, false)
 	require.NoError(t, err)
 	assert.False(t, reserved)
-	assert.Equal(t, 9, getTokenFromDB(t, token.Id).RemainQuota)
+	assert.Equal(t, 2, getTokenFromDB(t, token.Id).RemainQuota)
 
 	batchUpdate()
 	assert.Equal(t, 2, getUserQuotaFromDB(t, user.Id))
@@ -344,10 +353,10 @@ func pendingH3Refund(t *testing.T) (User, Token, Task) {
 	require.NoError(t, err)
 	task := newH3AdmissionTask(user.Id, token.Id, 30)
 	require.NoError(t, task.ReserveH3Dispatch(token.Key, false))
-	previous := task.Status
+	require.NoError(t, task.BeginH3Dispatch())
 	final := 5
 	task.Status, task.FinishTime, task.Progress, task.PendingQuota = TaskStatusSuccess, 1, "100%", &final
-	won, err := task.UpdateWithStatus(previous)
+	won, err := task.UpdateWithStatus(TaskStatusDispatching)
 	require.NoError(t, err)
 	require.True(t, won)
 	return user, token, task
@@ -412,9 +421,13 @@ func TestH3RefundRetryAfterPartialPublication(t *testing.T) {
 			require.Equal(t, 70, cached.RemainQuota)
 			require.NoError(t, common.RDB.Set(t.Context(), floor, "1", 0).Err())
 			if scenario == "revoked token" {
-				require.NoError(t, token.Delete())
+				require.NoError(t, DB.Delete(&token).Error)
 				require.NoError(t, task.PublishH3Refund())
-				_, err := GetTokenByKey(token.Key, false)
+				require.NoError(t, common.RDB.Del(t.Context(), getTokenCacheFenceKey(token.Key)).Err())
+				filled, err := cacheInitToken(*cached)
+				require.NoError(t, err)
+				require.Zero(t, filled)
+				_, err = GetTokenByKey(token.Key, false)
 				require.ErrorIs(t, err, gorm.ErrRecordNotFound)
 				require.False(t, HasUnfinishedSyncTasks())
 				return

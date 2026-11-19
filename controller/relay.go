@@ -763,7 +763,7 @@ func RelayTask(c *gin.Context) {
 				types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode))
 		}
 
-		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
+		if relayInfo.H3Billing || !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
 			break
 		}
 	}
@@ -845,7 +845,15 @@ func RelayTask(c *gin.Context) {
 		if value, ok := c.Get("h3_dispatch"); ok {
 			task := value.(*model.Task)
 			if !c.GetBool("h3_send_started") {
-				if task.ID != 0 && task.Status == model.TaskStatusAdmitted {
+				if task.ID == 0 {
+					if errors.Is(taskErr.Error, model.ErrH3AdmissionRolledBack) {
+						c.JSON(taskErr.StatusCode, gin.H{"code": "h3_admission_rolled_back"})
+					} else {
+						c.JSON(taskErr.StatusCode, gin.H{"id": task.TaskID, "task_id": task.TaskID, "code": taskErr.Code, "message": "Admission could not be verified. Keep this ID for reconciliation after database recovery."})
+					}
+					return
+				}
+				if task.Status == model.TaskStatusAdmitted {
 					service.LogTaskConsumption(c, relayInfo)
 					service.FailH3Task(c, task, "h3_dispatch_unsent")
 				}
@@ -860,9 +868,20 @@ func RelayTask(c *gin.Context) {
 				c.JSON(http.StatusAccepted, gin.H{"id": task.TaskID, "task_id": task.TaskID, "code": "provider_acceptance_unknown"})
 				return
 			}
-			service.FailH3Task(c, task, taskErr.Code)
-			c.JSON(http.StatusAccepted, gin.H{"id": task.TaskID, "task_id": task.TaskID, "code": taskErr.Code})
+			ackErr := task.AcknowledgeH3Rejection(taskErr.Code)
+			code := taskErr.Code
+			if !service.FailH3Task(c, task, taskErr.Code) {
+				code = "rejection_recovery_pending"
+				if ackErr != nil {
+					code = "rejection_reconciliation_required"
+					logger.LogError(c, fmt.Sprintf("H3 rejection requires reconciliation: task=%s channel=%d provider_code=%s acknowledgement=%v", task.TaskID, task.ChannelId, taskErr.Code, ackErr))
+				}
+			}
+			c.JSON(http.StatusAccepted, gin.H{"id": task.TaskID, "task_id": task.TaskID, "code": code})
 			return
+		}
+		if relayInfo.H3Billing {
+			taskErr.Data = gin.H{"task_id": relayInfo.PublicTaskID}
 		}
 		respondTaskError(c, taskErr)
 	}

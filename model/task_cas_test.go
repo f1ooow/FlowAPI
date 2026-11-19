@@ -100,6 +100,20 @@ func insertTask(t *testing.T, task *Task) {
 	require.NoError(t, DB.Create(task).Error)
 }
 
+func TestH3PollingSharesLimitedBatchWithOlderLegacyTask(t *testing.T) {
+	truncateTables(t)
+	legacy := Task{TaskID: "older-legacy", Status: TaskStatusNotStart, Progress: "0%", CreatedAt: 1}
+	acknowledged := Task{TaskID: "acknowledged-h3", Status: TaskStatusNotStart, Progress: "0%", CreatedAt: 2, H3UpstreamID: common.GetPointer("provider-id")}
+	require.NoError(t, DB.Create(&legacy).Error)
+	require.NoError(t, DB.Create(&acknowledged).Error)
+	first := GetAllUnFinishSyncTasks(1)
+	require.Len(t, first, 1)
+	require.Equal(t, legacy.TaskID, first[0].TaskID)
+	second := GetAllUnFinishSyncTasks(1)
+	require.Len(t, second, 1)
+	require.Equal(t, acknowledged.TaskID, second[0].TaskID)
+}
+
 // ---------------------------------------------------------------------------
 // Snapshot / Equal — pure logic tests (no DB)
 // ---------------------------------------------------------------------------

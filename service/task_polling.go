@@ -172,6 +172,9 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 	}
 
 	common.SysLog("任务进度轮询开始")
+	if err := model.RecoverUnsentH3Admissions(ctx, time.Now().Add(-systemTaskRunnerIdleInterval).Unix()); err != nil {
+		logger.LogError(ctx, fmt.Sprintf("recover unsent H3 reservations: %v", err))
+	}
 	retryH3Settlements(ctx)
 	sweepTimedOutTasks(ctx)
 	allTasks := model.GetAllUnFinishSyncTasks(constant.TaskQueryLimit)

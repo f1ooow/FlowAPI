@@ -13,10 +13,11 @@ import (
 )
 
 var (
-	ErrH3WalletQuota    = errors.New("H3 wallet funding unavailable")
-	ErrH3TokenQuota     = errors.New("H3 token funding unavailable")
-	ErrH3DispatchExists = errors.New("H3 dispatch already exists")
+	ErrH3WalletQuota          = errors.New("H3 wallet funding unavailable")
+	ErrH3TokenQuota           = errors.New("H3 token funding unavailable")
+	ErrH3DispatchExists       = errors.New("H3 dispatch already exists")
 	ErrH3AdmissionUnconfirmed = errors.New("H3 admission commit unconfirmed")
+	ErrH3AdmissionRolledBack  = fmt.Errorf("%w: readback confirmed rollback", ErrH3AdmissionUnconfirmed)
 )
 
 type h3QuotaAccount struct {
@@ -242,7 +243,10 @@ func (task *Task) ReserveH3Dispatch(tokenKey string, tokenUnlimited bool) error 
 		if readErr == nil {
 			*task = stored
 		}
-		return fmt.Errorf("%w: %w", ErrH3AdmissionUnconfirmed, errors.Join(err, readErr))
+		if !errors.Is(readErr, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("%w: %w", ErrH3AdmissionUnconfirmed, errors.Join(err, readErr))
+		}
+		err = fmt.Errorf("%w: %w", ErrH3AdmissionRolledBack, err)
 	}
 	for _, account := range accounts {
 		if err == nil {

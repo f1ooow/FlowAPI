@@ -9,8 +9,9 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-func (task *Task) BeforeUpdate(tx *gorm.DB) error {
-	if _, snapshot := tx.Statement.Dest.(*Task); !snapshot || task.PrivateData.H3ReservationConfirmed == nil || !*task.PrivateData.H3ReservationConfirmed {
+func (*Task) BeforeUpdate(tx *gorm.DB) error {
+	snapshot, ok := tx.Statement.Dest.(*Task)
+	if !ok || snapshot.PrivateData.H3ReservationConfirmed == nil || !*snapshot.PrivateData.H3ReservationConfirmed {
 		return nil
 	}
 	// Save can upsert a stale snapshot after a zero-row update. H3 status

@@ -1,6 +1,9 @@
 package router
 
 import (
+	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,12 +23,57 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 type h3Transport func(*http.Request) (*http.Response, error)
 
 func (transport h3Transport) RoundTrip(request *http.Request) (*http.Response, error) {
 	return transport(request)
+}
+
+type h3AdmissionHTTPFault struct {
+	*sql.DB
+	rollback, readOutage bool
+	publicID             string
+}
+
+func (fault *h3AdmissionHTTPFault) BeginTx(ctx context.Context, opts *sql.TxOptions) (gorm.ConnPool, error) {
+	tx, err := fault.DB.BeginTx(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	return &h3AdmissionHTTPTransaction{Tx: tx, fault: fault}, nil
+}
+
+func (fault *h3AdmissionHTTPFault) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if fault.readOutage && fault.publicID != "" {
+		return nil, errors.New("fixture database unavailable after commit")
+	}
+	return fault.DB.QueryContext(ctx, query, args...)
+}
+
+type h3AdmissionHTTPTransaction struct {
+	*sql.Tx
+	fault    *h3AdmissionHTTPFault
+	publicID string
+}
+
+func (tx *h3AdmissionHTTPTransaction) Commit() error {
+	if tx.publicID == "" {
+		return tx.Tx.Commit()
+	}
+	var err error
+	if tx.fault.rollback {
+		err = tx.Tx.Rollback()
+	} else {
+		err = tx.Tx.Commit()
+	}
+	if err != nil {
+		return err
+	}
+	tx.fault.publicID = tx.publicID
+	return errors.New("fixture lost admission COMMIT reply")
 }
 
 func TestH3FinalQuotaHTTP(t *testing.T) {
@@ -228,6 +276,32 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 	denied := call(t, "GET", "/v1/video/generations/old-success", otherToken.Key, "", 400)
 	assert.Equal(t, "task_not_exist", denied["code"])
 	const payload = `{"model":"MiniMax-H3","prompt":"fixture","size":"1080P","seconds":"5","metadata":{"ratio":"16:9"}}`
+	t.Run("restart refunds admission before any paid post", func(t *testing.T) {
+		beforePosts, beforeQueries := posts, queries
+		task := model.Task{
+			TaskID: model.GenerateTaskID(), UserId: user.Id, ChannelId: channel.Id, Quota: 437500,
+			Status: model.TaskStatusAdmitted, CreatedAt: time.Now().Add(-time.Hour).Unix(),
+			Properties:  model.Properties{OriginModelName: hailuo.ModelMiniMaxH3},
+			PrivateData: model.TaskPrivateData{H3ReservationConfirmed: common.GetPointer(true), BillingSource: "wallet", TokenId: token.Id, ChannelGeneration: channel.Generation},
+		}
+		require.NoError(t, task.ReserveH3Dispatch(token.Key, true))
+		total += task.Quota
+		requests++
+		ledger(t)
+		require.True(t, model.HasUnfinishedSyncTasks())
+		service.RunTaskPollingOnce(t.Context(), nil)
+		service.RunTaskPollingOnce(t.Context(), nil)
+		data := fetch(t, task.TaskID)
+		require.Equal(t, "FAILURE", data["status"])
+		require.Equal(t, float64(0), data["settled_quota"])
+		require.NoError(t, db.First(&task, task.ID).Error)
+		require.Error(t, task.BeginH3Dispatch())
+		require.Equal(t, beforePosts, posts)
+		require.Equal(t, beforeQueries, queries)
+		total -= 437500
+		refunds++
+		ledger(t)
+	})
 	for _, httpCode := range []int{http.StatusUnprocessableEntity, http.StatusOK} {
 		t.Run(fmt.Sprintf("parameter rejection in HTTP %d", httpCode), func(t *testing.T) {
 			rejectionHTTP = httpCode
@@ -244,6 +318,108 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 			require.Equal(t, beforeQueries, queries)
 			requests++
 			refunds++
+			ledger(t)
+		})
+	}
+	for _, scenario := range []struct {
+		name                 string
+		rollback, readOutage bool
+	}{
+		{"confirmed rollback", true, false},
+		{"unreadable commit", false, true},
+		{"unreadable rollback", true, true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			beforePosts, beforeQueries := posts, queries
+			fault := &h3AdmissionHTTPFault{DB: sqlDB, rollback: scenario.rollback, readOutage: scenario.readOutage}
+			model.DB = db.WithContext(t.Context())
+			model.DB.Statement.ConnPool = fault
+			t.Cleanup(func() { model.DB = db })
+			const hook = "fixture:identify_admission_commit"
+			require.NoError(t, db.Callback().Create().After("gorm:create").Register(hook, func(write *gorm.DB) {
+				if task, ok := write.Statement.Dest.(*model.Task); ok && task.Status == model.TaskStatusAdmitted {
+					write.Statement.ConnPool.(*h3AdmissionHTTPTransaction).publicID = task.TaskID
+				}
+			}))
+			t.Cleanup(func() { require.NoError(t, db.Callback().Create().Remove(hook)) })
+			result := call(t, "POST", "/v1/videos", token.Key, payload, http.StatusServiceUnavailable)
+			require.NotEmpty(t, fault.publicID)
+			if scenario.readOutage {
+				require.Equal(t, "h3_admission_unconfirmed", result["code"])
+				require.Equal(t, fault.publicID, result["id"])
+				require.Equal(t, fault.publicID, result["task_id"])
+			} else {
+				require.Equal(t, "h3_admission_rolled_back", result["code"])
+				require.NotContains(t, result, "id")
+				require.NotContains(t, result, "task_id")
+				require.NotContains(t, fmt.Sprint(result), fault.publicID)
+			}
+			model.DB = db
+			if !scenario.rollback {
+				require.Equal(t, "ADMITTED", fetch(t, fault.publicID)["status"])
+				require.NoError(t, db.Model(&model.Task{}).Where("task_id = ?", fault.publicID).UpdateColumn("created_at", time.Now().Add(-time.Hour).Unix()).Error)
+				requests++
+				refunds++
+			}
+			service.RunTaskPollingOnce(t.Context(), nil)
+			if scenario.rollback {
+				missing := call(t, "GET", "/v1/video/generations/"+fault.publicID, token.Key, "", http.StatusBadRequest)
+				require.Equal(t, "task_not_exist", missing["code"])
+			} else {
+				data := fetch(t, fault.publicID)
+				require.Equal(t, "FAILURE", data["status"])
+				require.Equal(t, float64(0), data["settled_quota"])
+			}
+			require.Equal(t, beforePosts, posts)
+			require.Equal(t, beforeQueries, queries)
+			ledger(t)
+		})
+	}
+	for _, loseDecision := range []bool{false, true} {
+		t.Run(fmt.Sprintf("HTTP 422 with interrupted terminal write and lost rejection marker %t", loseDecision), func(t *testing.T) {
+			beforePosts, beforeQueries := posts, queries
+			oldTimeout := constant.TaskTimeoutMinutes
+			constant.TaskTimeoutMinutes, rejectionHTTP = 0, http.StatusUnprocessableEntity
+			t.Cleanup(func() { constant.TaskTimeoutMinutes, rejectionHTTP = oldTimeout, 0 })
+			require.NoError(t, db.Exec(`CREATE TRIGGER fail_terminal BEFORE UPDATE OF status ON tasks WHEN NEW.status = 'FAILURE' BEGIN SELECT RAISE(ABORT, 'fixture terminal unavailable'); END`).Error)
+			t.Cleanup(func() { require.NoError(t, db.Exec(`DROP TRIGGER IF EXISTS fail_terminal`).Error) })
+			if loseDecision {
+				require.NoError(t, db.Exec(`CREATE TRIGGER fail_rejection BEFORE UPDATE OF h3_rejection_code ON tasks BEGIN SELECT RAISE(ABORT, 'fixture rejection unavailable'); END`).Error)
+				t.Cleanup(func() { require.NoError(t, db.Exec(`DROP TRIGGER fail_rejection`).Error) })
+			}
+			result := call(t, "POST", "/v1/videos", token.Key, payload, http.StatusAccepted)
+			id := result["id"].(string)
+			require.Equal(t, id, result["task_id"])
+			pending := fetch(t, id)
+			require.NotContains(t, pending, "settled_quota")
+			total += 437500
+			requests++
+			ledger(t)
+			if loseDecision {
+				require.Equal(t, "rejection_reconciliation_required", result["code"])
+				constant.TaskTimeoutMinutes = 1
+				require.NoError(t, db.Model(&model.Task{}).Where("task_id = ?", id).UpdateColumn("submit_time", time.Now().Add(-time.Hour).Unix()).Error)
+			} else {
+				require.Equal(t, "rejection_recovery_pending", result["code"])
+				require.True(t, model.HasUnfinishedSyncTasks())
+			}
+			require.NoError(t, db.Exec(`DROP TRIGGER fail_terminal`).Error)
+			for range 2 {
+				service.RunTaskPollingOnce(t.Context(), nil)
+			}
+			data := fetch(t, id)
+			if loseDecision {
+				require.Equal(t, "DISPATCH_UNKNOWN", data["status"])
+				require.NotContains(t, data, "settled_quota")
+			} else {
+				require.Equal(t, "FAILURE", data["status"])
+				require.Equal(t, "invalid_request_error", data["fail_reason"])
+				require.Equal(t, float64(0), data["settled_quota"])
+				total -= 437500
+				refunds++
+			}
+			require.Equal(t, beforePosts+1, posts)
+			require.Equal(t, beforeQueries, queries)
 			ledger(t)
 		})
 	}
@@ -311,7 +487,9 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 		oldTimeout := constant.TaskTimeoutMinutes
 		previousLimit := constant.TaskQueryLimit
 		constant.TaskTimeoutMinutes, constant.TaskQueryLimit = 1, 1
-		t.Cleanup(func() { constant.TaskTimeoutMinutes, constant.TaskQueryLimit, missingID = oldTimeout, previousLimit, "" })
+		t.Cleanup(func() {
+			constant.TaskTimeoutMinutes, constant.TaskQueryLimit, missingID = oldTimeout, previousLimit, ""
+		})
 		beforePosts, beforeQueries := posts, queries
 		id := call(t, "POST", "/v1/videos", token.Key, payload, 200)["id"].(string)
 		upstreamID, status, resolution = "provider-available", "succeeded", "1080P"
@@ -323,7 +501,7 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 		service.RunTaskPollingOnce(t.Context(), nil)
 		require.Equal(t, float64(437500), fetch(t, next)["settled_quota"])
 		expired := time.Now().Add(-2 * time.Minute).Unix()
-		require.NoError(t, db.Model(&model.Task{}).Where("task_id = ?", id).UpdateColumns(map[string]any{"submit_time": expired, "updated_at": expired}).Error)
+		require.NoError(t, db.Model(&model.Task{}).Where("task_id = ?", id).Updates(map[string]any{"submit_time": expired, "h3_acknowledged_at": expired, "data": []byte(`{"request_id":"new-on-every-poll"}`)}).Error)
 		service.RunTaskPollingOnce(t.Context(), nil)
 		service.RunTaskPollingOnce(t.Context(), nil)
 		data = fetch(t, id)

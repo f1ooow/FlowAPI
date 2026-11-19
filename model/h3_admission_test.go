@@ -34,8 +34,7 @@ func finishH3AdmissionTask(t *testing.T, task *Task, final int) {
 
 type h3CommitFaultPool struct {
 	*sql.DB
-	rollback bool
-	unavailable bool
+	rollback, outageOnCommit, injected, unavailable bool
 }
 
 func (pool *h3CommitFaultPool) BeginTx(ctx context.Context, opts *sql.TxOptions) (gorm.ConnPool, error) {
@@ -45,6 +44,9 @@ func (pool *h3CommitFaultPool) BeginTx(ctx context.Context, opts *sql.TxOptions)
 	tx, err := pool.DB.BeginTx(ctx, opts)
 	if err != nil {
 		return nil, err
+	}
+	if pool.injected {
+		return tx, nil
 	}
 	return &h3CommitFaultTx{Tx: tx, pool: pool}, nil
 }
@@ -71,15 +73,20 @@ func (tx *h3CommitFaultTx) Commit() error {
 	if err != nil {
 		return err
 	}
-	tx.pool.unavailable = true
+	tx.pool.injected, tx.pool.unavailable = true, tx.pool.outageOnCommit
 	return errors.New("injected lost COMMIT response")
 }
 
 func TestH3LostAdmissionCommitRecoversAfterDatabaseRestoration(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		rollback bool
-	}{{"committed", false}, {"rolled back", true}} {
+		name             string
+		rollback, outage bool
+	}{
+		{"committed and readable", false, false},
+		{"rolled back and readable", true, false},
+		{"committed then unavailable", false, true},
+		{"rolled back then unavailable", true, true},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			truncateTables(t)
 			user := createReserveTestUser(t, 100)
@@ -92,15 +99,17 @@ func TestH3LostAdmissionCommitRecoversAfterDatabaseRestoration(t *testing.T) {
 			sqlDB, err := original.DB()
 			require.NoError(t, err)
 			DB = original.WithContext(t.Context())
-			DB.Statement.ConnPool = &h3CommitFaultPool{DB: sqlDB, rollback: tc.rollback}
+			DB.Statement.ConnPool = &h3CommitFaultPool{DB: sqlDB, rollback: tc.rollback, outageOnCommit: tc.outage}
 			t.Cleanup(func() { DB = original })
 			err = task.ReserveH3Dispatch(token.Key, false)
 			require.ErrorIs(t, err, ErrH3AdmissionUnconfirmed)
 			require.ErrorContains(t, err, "lost COMMIT response")
 			assert.Equal(t, publicID, task.TaskID)
-			assert.Zero(t, task.ID)
-			_, _, err = GetByTaskId(user.Id, publicID)
-			require.ErrorContains(t, err, "injected database outage")
+			assert.Equal(t, !tc.rollback && !tc.outage, task.ID != 0)
+			if tc.outage {
+				_, _, err = GetByTaskId(user.Id, publicID)
+				require.ErrorContains(t, err, "injected database outage")
+			}
 			DB = original
 			stored, exists, err := GetByTaskId(user.Id, publicID)
 			require.NoError(t, err)
@@ -108,6 +117,9 @@ func TestH3LostAdmissionCommitRecoversAfterDatabaseRestoration(t *testing.T) {
 			if exists {
 				require.Equal(t, TaskStatusAdmitted, stored.Status)
 				require.NoError(t, RecoverUnsentH3Admissions(t.Context(), stored.CreatedAt-1))
+				fresh, _, err := GetByTaskId(user.Id, publicID)
+				require.NoError(t, err)
+				assert.Equal(t, TaskStatusAdmitted, fresh.Status)
 				require.Equal(t, 70, getUserQuotaFromDB(t, user.Id))
 				require.NoError(t, RecoverUnsentH3Admissions(t.Context(), stored.CreatedAt))
 				require.Error(t, stored.BeginH3Dispatch())
@@ -124,6 +136,64 @@ func TestH3LostAdmissionCommitRecoversAfterDatabaseRestoration(t *testing.T) {
 			assert.Equal(t, 80, getTokenFromDB(t, token.Id).RemainQuota)
 		})
 	}
+}
+
+func TestH3SendIntentFailureRefundsOnlyUnsentAdmission(t *testing.T) {
+	truncateTables(t)
+	user := createReserveTestUser(t, 100)
+	sent := newH3AdmissionTask(user.Id, 0, 20)
+	require.NoError(t, sent.ReserveH3Dispatch("", false))
+	stale := sent
+	require.NoError(t, sent.BeginH3Dispatch())
+	require.Error(t, stale.BeginH3Dispatch())
+	unsent := newH3AdmissionTask(user.Id, 0, 30)
+	require.NoError(t, unsent.ReserveH3Dispatch("", false))
+	require.NoError(t, DB.Exec(`CREATE TRIGGER fail_h3_send BEFORE UPDATE OF status ON tasks
+WHEN NEW.status = 'DISPATCHING' BEGIN SELECT RAISE(ABORT, 'injected send intent failure'); END`).Error)
+	t.Cleanup(func() { require.NoError(t, DB.Exec("DROP TRIGGER IF EXISTS fail_h3_send").Error) })
+	require.ErrorContains(t, unsent.BeginH3Dispatch(), "injected send intent failure")
+	require.Error(t, unsent.MarkH3DispatchUnknown())
+	acknowledged, err := unsent.AcceptH3Dispatch("invalid-ack-before-send", nil)
+	require.Error(t, err)
+	require.False(t, acknowledged)
+	require.NoError(t, RecoverUnsentH3Admissions(t.Context(), unsent.CreatedAt))
+	stored, exists, err := GetByTaskId(user.Id, unsent.TaskID)
+	require.NoError(t, err)
+	require.True(t, exists)
+	require.Equal(t, TaskStatus(TaskStatusFailure), stored.Status)
+	won, err := stored.FinalizeH3Quota()
+	require.NoError(t, err)
+	require.True(t, won)
+	assert.Equal(t, 80, getUserQuotaFromDB(t, user.Id))
+	stored, exists, err = GetByTaskId(user.Id, sent.TaskID)
+	require.NoError(t, err)
+	require.True(t, exists)
+	assert.Equal(t, TaskStatusDispatching, stored.Status)
+	assert.Nil(t, stored.PendingQuota)
+	assert.Nil(t, stored.SettledQuota)
+}
+
+func TestH3LostSendIntentCommitCancelsUnusedClaim(t *testing.T) {
+	truncateTables(t)
+	user := createReserveTestUser(t, 100)
+	task := newH3AdmissionTask(user.Id, 0, 30)
+	require.NoError(t, task.ReserveH3Dispatch("", false))
+	original := DB
+	sqlDB, err := original.DB()
+	require.NoError(t, err)
+	DB = original.WithContext(t.Context())
+	DB.Statement.ConnPool = &h3CommitFaultPool{DB: sqlDB}
+	t.Cleanup(func() { DB = original })
+	require.ErrorContains(t, task.BeginH3Dispatch(), "lost COMMIT response")
+	stored, exists, err := GetByTaskId(user.Id, task.TaskID)
+	require.NoError(t, err)
+	require.True(t, exists)
+	require.Equal(t, TaskStatus(TaskStatusFailure), stored.Status)
+	require.Equal(t, common.GetPointer(0), stored.PendingQuota)
+	won, err := stored.FinalizeH3Quota()
+	require.NoError(t, err)
+	require.True(t, won)
+	assert.Equal(t, 100, getUserQuotaFromDB(t, user.Id))
 }
 
 func TestH3AdmissionRollsBackTaskFundsAndUsageOnSQLFailure(t *testing.T) {
@@ -203,7 +273,7 @@ func (*h3PublicationBarrier) BeforeProcessPipeline(ctx context.Context, _ []redi
 }
 func (*h3PublicationBarrier) AfterProcessPipeline(context.Context, []redis.Cmder) error { return nil }
 
-func TestH3OverlappingReservationsKeepOutstandingBatchDebits(t *testing.T) {
+func TestH3OverlappingReservationsKeepCommittedGenericDebits(t *testing.T) {
 	truncateTables(t)
 	resetBatchUpdateTestState(t)
 	useUserCacheMiniRedis(t)
@@ -246,8 +316,8 @@ func TestH3OverlappingReservationsKeepOutstandingBatchDebits(t *testing.T) {
 	reservedUser, err := GetUserById(user.Id, true)
 	require.NoError(t, err)
 	reservedToken := getTokenFromDB(t, token.Id)
-	require.Equal(t, 50, reservedUser.Quota)
-	require.Equal(t, 50, reservedToken.RemainQuota)
+	require.Equal(t, 30, reservedUser.Quota)
+	require.Equal(t, 30, reservedToken.RemainQuota)
 	finishH3AdmissionTask(t, &task, 30)
 	refundedUser, err := GetUserById(user.Id, true)
 	require.NoError(t, err)

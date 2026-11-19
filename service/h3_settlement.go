@@ -10,19 +10,26 @@ import (
 	"github.com/QuantumNous/new-api/model"
 )
 
-func FailH3Task(ctx context.Context, task *model.Task, reason string) {
+func FailH3Task(ctx context.Context, task *model.Task, reason string) bool {
 	previous := task.Status
 	if previous == model.TaskStatusSuccess || previous == model.TaskStatusFailure {
-		return
+		return previous == model.TaskStatusFailure
 	}
 	task.Status, task.FailReason, task.Progress = model.TaskStatusFailure, reason, "100%"
 	task.FinishTime = time.Now().Unix()
-	if err := recordH3Terminal(task, previous, 0); err != nil {
+	recorded, err := persistAndSettleH3Terminal(task, previous, 0)
+	if err != nil {
 		logger.LogError(ctx, fmt.Sprintf("H3 task %s: %v", task.TaskID, err))
 	}
+	return recorded
 }
 
 func recordH3Terminal(task *model.Task, previous model.TaskStatus, final int) error {
+	_, err := persistAndSettleH3Terminal(task, previous, final)
+	return err
+}
+
+func persistAndSettleH3Terminal(task *model.Task, previous model.TaskStatus, final int) (bool, error) {
 	if *task.PrivateData.H3ReservationConfirmed {
 		task.PendingQuota = &final
 	}
@@ -31,9 +38,9 @@ func recordH3Terminal(task *model.Task, previous model.TaskStatus, final int) er
 		won, err = task.UpdateWithStatus(model.TaskStatusDispatchUnknown)
 	}
 	if err != nil || !won || task.PendingQuota == nil {
-		return err
+		return won, err
 	}
-	return settleH3Quota(task)
+	return true, settleH3Quota(task)
 }
 
 func settleH3Quota(task *model.Task) error {
@@ -60,7 +67,7 @@ func retryH3Settlements(ctx context.Context) {
 	var after int64
 	for ctx.Err() == nil {
 		var tasks []model.Task
-		err := model.DB.WithContext(ctx).Where("pending_quota IS NOT NULL AND id > ?", after).Order("id").Limit(constant.TaskQueryLimit).Find(&tasks).Error
+		err := model.PendingH3Settlements().WithContext(ctx).Where("id > ?", after).Order("id").Limit(constant.TaskQueryLimit).Find(&tasks).Error
 		if err != nil {
 			logger.LogError(ctx, fmt.Sprintf("load pending H3 settlements: %v", err))
 			return
@@ -70,7 +77,9 @@ func retryH3Settlements(ctx context.Context) {
 		}
 		for index := range tasks {
 			task := &tasks[index]
-			if err := settleH3Quota(task); err != nil {
+			if task.H3RejectionCode != nil && (task.Status == model.TaskStatusDispatching || task.Status == model.TaskStatusDispatchUnknown) {
+				FailH3Task(ctx, task, *task.H3RejectionCode)
+			} else if err := settleH3Quota(task); err != nil {
 				logger.LogError(ctx, fmt.Sprintf("H3 settlement %s: %v", task.TaskID, err))
 			}
 			after = task.ID

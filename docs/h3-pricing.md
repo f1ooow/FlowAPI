@@ -69,7 +69,11 @@ New H3 video and Context IR submissions record whether their reservation was
 confirmed. Before a paid POST, FlowAPI commits the public ID, selected route,
 wallet and token debits, and initial usage counters in one transaction. The
 task starts as `ADMITTED`. A separate transition to `DISPATCHING` grants the
-right to send once. A stranded unsent reservation can therefore be refunded.
+right to send once. After one polling-worker idle interval, the worker can claim
+an unsent `ADMITTED` row for a full refund, even with provider timeouts disabled.
+A lost admission commit reply returns HTTP 503 if readback confirms rollback
+(`h3_admission_rolled_back`), or if the database is unreadable
+(`h3_admission_unconfirmed`, with the public ID for reconciliation).
 FlowAPI saves the provider task ID separately
 from the status transition. If the transition fails, HTTP 202 returns the
 original `id` and `task_id` with `acceptance_recovery_pending`. Poll that ID.
@@ -81,12 +85,15 @@ operator investigation and carries no final receipt.
 An explicit parameter rejection, including a structured 422 inside HTTP 200,
 returns HTTP 202 with `id` and `task_id`. Read that public ID to observe the
 failed task and its refund. Transport failures alone cannot confirm a rejection.
+If the terminal write is interrupted, `rejection_recovery_pending` means the
+worker can replay the saved rejection. `rejection_reconciliation_required`
+means both writes failed. Preserve the public ID for operator reconciliation.
 Deleting the channel or revoking the submitting token does not remove this
 record. An active token of the same user can still read the receipt.
 Polling and channel usage adjustments match the saved channel generation. A
 replacement that reuses the numeric channel ID has its own billing counters.
 Acknowledged tasks share polling turns when the query batch is full. An
-acknowledged task without progress for `TASK_TIMEOUT_MINUTES` enters
+acknowledged task still outstanding `TASK_TIMEOUT_MINUTES` after acceptance enters
 `POLL_REVIEW` internally. The public task reports `FAILURE` and a finish time
 with both evidence fields absent. The reservation and upstream identity remain
 available for reconciliation. Setting the timeout to zero disables this sweep.
@@ -104,6 +111,13 @@ Users and tokens carry `h3_quota_seq` and `h3_quota_net` for committed H3
 debits and refunds. Cache fills carry the same sequence and net amount, so a
 delayed notification can preserve concurrent reservations and account for each
 committed change once.
+Ordinary wallet and token debits also reach SQL before returning, including in
+batch mode. A Redis eviction cannot hide an outstanding debit from a later H3
+admission. Credits and usage counters can still use the existing batch updater.
+Before enabling H3 on an upgrade, drain outstanding quota batches on every old
+writer and switch all writers to the new debit path.
+When Redis publication is interrupted, the poller replays the committed sequence
+until the caches catch up. The public receipt is available from the SQL commit.
 Upgrade the main database and polling workers together before
 enabling receipt consumers. The router regression submits, polls and reads the
 receipt through authenticated HTTP using isolated SQLite and a fixture provider.
