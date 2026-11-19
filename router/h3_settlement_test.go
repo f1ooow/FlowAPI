@@ -58,6 +58,8 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 	var posts, queries int
 	var onDispatch func()
 	var postError error
+	var rejectionHTTP int
+	var missingID string
 	var accountTiers map[string]string
 	service.InitHttpClient()
 	client := service.GetHttpClient()
@@ -65,6 +67,7 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 	t.Cleanup(func() { client.Transport = oldTransport })
 	client.Transport = h3Transport(func(request *http.Request) (*http.Response, error) {
 		body := ""
+		code := http.StatusOK
 		switch request.Method + " " + request.URL.String() {
 		case "POST " + baseURL + hailuo.H3CreateEndpoint:
 			posts++
@@ -75,6 +78,12 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 				return nil, postError
 			}
 			body = fmt.Sprintf(`{"task_id":%q}`, upstreamID)
+			if rejectionHTTP != 0 {
+				code, body = rejectionHTTP, `{"error":{"type":"invalid_request_error","http_code":422,"message":"invalid parameter"}}`
+			}
+		case "GET " + baseURL + "/v2/query/video_generation/" + missingID:
+			queries++
+			code, body = http.StatusNotFound, `{"error":"unknown job"}`
 		case "GET " + baseURL + "/v2/query/video_generation/" + upstreamID:
 			queries++
 			tier := resolution
@@ -88,7 +97,7 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 		default:
 			return nil, fmt.Errorf("unexpected fixture request %s %s", request.Method, request.URL)
 		}
-		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
+		return &http.Response{StatusCode: code, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
 	})
 	engine := gin.New()
 	SetVideoRouter(engine)
@@ -219,6 +228,25 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 	denied := call(t, "GET", "/v1/video/generations/old-success", otherToken.Key, "", 400)
 	assert.Equal(t, "task_not_exist", denied["code"])
 	const payload = `{"model":"MiniMax-H3","prompt":"fixture","size":"1080P","seconds":"5","metadata":{"ratio":"16:9"}}`
+	for _, httpCode := range []int{http.StatusUnprocessableEntity, http.StatusOK} {
+		t.Run(fmt.Sprintf("parameter rejection in HTTP %d", httpCode), func(t *testing.T) {
+			rejectionHTTP = httpCode
+			t.Cleanup(func() { rejectionHTTP = 0 })
+			beforePosts, beforeQueries := posts, queries
+			result := call(t, "POST", "/v1/videos", token.Key, payload, http.StatusAccepted)
+			id := result["id"].(string)
+			require.Equal(t, id, result["task_id"])
+			service.RunTaskPollingOnce(t.Context(), nil)
+			data := fetch(t, id)
+			require.Equal(t, "FAILURE", data["status"])
+			require.Equal(t, float64(0), data["settled_quota"])
+			require.Equal(t, beforePosts+1, posts)
+			require.Equal(t, beforeQueries, queries)
+			requests++
+			refunds++
+			ledger(t)
+		})
+	}
 	t.Run("acknowledged dispatch recovers delivered resolution", func(t *testing.T) {
 		upstreamID, status, resolution = "provider-interrupted", "succeeded", "768P"
 		beforePosts, beforeQueries := posts, queries
@@ -279,30 +307,39 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 		ledger(t)
 	})
 	t.Run("acknowledged provider outage reaches configured timeout", func(t *testing.T) {
-		upstreamID = "provider-query-unavailable"
+		upstreamID, missingID = "provider-query-unavailable", "provider-query-unavailable"
 		oldTimeout := constant.TaskTimeoutMinutes
-		constant.TaskTimeoutMinutes = 1
-		accountTiers = map[string]string{}
-		t.Cleanup(func() { constant.TaskTimeoutMinutes, accountTiers = oldTimeout, nil })
+		previousLimit := constant.TaskQueryLimit
+		constant.TaskTimeoutMinutes, constant.TaskQueryLimit = 1, 1
+		t.Cleanup(func() { constant.TaskTimeoutMinutes, constant.TaskQueryLimit, missingID = oldTimeout, previousLimit, "" })
 		beforePosts, beforeQueries := posts, queries
 		id := call(t, "POST", "/v1/videos", token.Key, payload, 200)["id"].(string)
+		upstreamID, status, resolution = "provider-available", "succeeded", "1080P"
+		next := call(t, "POST", "/v1/videos", token.Key, payload, 200)["id"].(string)
 		service.RunTaskPollingOnce(t.Context(), nil)
 		data := fetch(t, id)
 		require.NotContains(t, data, "settled_quota")
 		require.Equal(t, beforeQueries+1, queries)
+		service.RunTaskPollingOnce(t.Context(), nil)
+		require.Equal(t, float64(437500), fetch(t, next)["settled_quota"])
 		expired := time.Now().Add(-2 * time.Minute).Unix()
 		require.NoError(t, db.Model(&model.Task{}).Where("task_id = ?", id).UpdateColumns(map[string]any{"submit_time": expired, "updated_at": expired}).Error)
 		service.RunTaskPollingOnce(t.Context(), nil)
 		service.RunTaskPollingOnce(t.Context(), nil)
 		data = fetch(t, id)
 		require.Equal(t, "FAILURE", data["status"])
-		require.Equal(t, float64(0), data["settled_quota"])
+		require.Positive(t, data["finish_time"])
+		var review model.Task
+		require.NoError(t, db.Where("task_id = ?", id).First(&review).Error)
+		require.Equal(t, model.TaskStatusPollReview, review.Status)
+		require.Equal(t, missingID, review.GetUpstreamTaskID())
+		require.NotContains(t, data, "settled_quota")
 		require.NotContains(t, data, "settlement_pending")
-		require.Equal(t, beforePosts+1, posts)
-		require.Equal(t, beforeQueries+1, queries)
+		require.Equal(t, beforePosts+2, posts)
+		require.Equal(t, beforeQueries+2, queries)
 		require.False(t, model.HasUnfinishedSyncTasks())
-		requests++
-		refunds++
+		requests += 2
+		total += 2 * 437500
 		ledger(t)
 	})
 	for _, scenario := range []struct{ name, code string }{
@@ -379,6 +416,9 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 	t.Run("retired channel and active channel share a provider id", func(t *testing.T) {
 		upstreamID, status, resolution = "provider-retired", "succeeded", "768P"
 		beforePosts, beforeQueries := posts, queries
+		common.MemoryCacheEnabled = true
+		model.InitChannelCache()
+		common.MemoryCacheEnabled = false
 		onDispatch = func() { require.NoError(t, channel.Delete()) }
 		defer func() { onDispatch = nil }()
 		created := call(t, "POST", "/v1/videos", token.Key, payload, 200)
@@ -387,10 +427,24 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, exists)
 		require.Equal(t, upstreamID, saved.GetUpstreamTaskID())
+		require.NotEmpty(t, saved.PrivateData.ChannelGeneration)
+		require.Equal(t, channel.Generation, saved.PrivateData.ChannelGeneration)
 		onDispatch = nil
-		active := model.Channel{Type: constant.ChannelTypeMiniMax, BaseURL: &baseURL, Key: "active-account", Status: common.ChannelStatusEnabled, Models: hailuo.ModelMiniMaxH3, Group: "default"}
+		active := model.Channel{Id: channel.Id, Type: constant.ChannelTypeMiniMax, BaseURL: &baseURL, Key: "active-account", Status: common.ChannelStatusEnabled, Models: hailuo.ModelMiniMaxH3, Group: "default"}
 		require.NoError(t, db.Create(&active).Error)
 		require.NoError(t, active.AddAbilities(db))
+		common.MemoryCacheEnabled = true
+		cached, err := model.CacheGetChannel(active.Id)
+		require.NoError(t, err)
+		require.Equal(t, channel.Generation, cached.Generation)
+		require.NotEqual(t, active.Generation, cached.Generation)
+		oldRetries := common.RetryTimes
+		common.RetryTimes = 0
+		t.Cleanup(func() { common.RetryTimes = oldRetries })
+		denied := call(t, "POST", "/v1/videos", token.Key, payload, http.StatusServiceUnavailable)
+		require.Equal(t, "h3_reservation_failed", denied["code"])
+		require.Equal(t, beforePosts+1, posts)
+		common.MemoryCacheEnabled = false
 		activeID := call(t, "POST", "/v1/videos", otherToken.Key, payload, 200)["id"].(string)
 		accountTiers = map[string]string{"Bearer active-account": "768P"}
 		t.Cleanup(func() { accountTiers = nil })

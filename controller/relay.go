@@ -844,6 +844,14 @@ func RelayTask(c *gin.Context) {
 		respBuffer.reset()
 		if value, ok := c.Get("h3_dispatch"); ok {
 			task := value.(*model.Task)
+			if !c.GetBool("h3_send_started") {
+				if task.ID != 0 && task.Status == model.TaskStatusAdmitted {
+					service.LogTaskConsumption(c, relayInfo)
+					service.FailH3Task(c, task, "h3_dispatch_unsent")
+				}
+				c.JSON(http.StatusAccepted, gin.H{"id": task.TaskID, "task_id": task.TaskID, "code": taskErr.Code})
+				return
+			}
 			service.LogTaskConsumption(c, relayInfo)
 			if !c.GetBool("task_submission_definite_failure") {
 				if err := task.MarkH3DispatchUnknown(); err != nil {
@@ -853,7 +861,8 @@ func RelayTask(c *gin.Context) {
 				return
 			}
 			service.FailH3Task(c, task, taskErr.Code)
-			taskErr.Data = gin.H{"task_id": task.TaskID}
+			c.JSON(http.StatusAccepted, gin.H{"id": task.TaskID, "task_id": task.TaskID, "code": taskErr.Code})
+			return
 		}
 		respondTaskError(c, taskErr)
 	}

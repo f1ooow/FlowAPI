@@ -2,6 +2,8 @@ package model
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"sync/atomic"
 	"testing"
 
@@ -9,16 +11,18 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func newH3AdmissionTask(userID, tokenID, quota int) Task {
 	confirmed := true
-	return Task{TaskID: GenerateTaskID(), UserId: userID, Quota: quota, Status: TaskStatusDispatching,
+	return Task{TaskID: GenerateTaskID(), UserId: userID, Quota: quota, Status: TaskStatusAdmitted,
 		PrivateData: TaskPrivateData{TokenId: tokenID, BillingSource: "wallet", H3ReservationConfirmed: &confirmed}}
 }
 
 func finishH3AdmissionTask(t *testing.T, task *Task, final int) {
 	t.Helper()
+	require.NoError(t, task.BeginH3Dispatch())
 	task.Status, task.FinishTime, task.PendingQuota = TaskStatusSuccess, 1, &final
 	won, err := task.UpdateWithStatus(TaskStatusDispatching)
 	require.NoError(t, err)
@@ -26,6 +30,100 @@ func finishH3AdmissionTask(t *testing.T, task *Task, final int) {
 	won, err = task.FinalizeH3Quota()
 	require.NoError(t, err)
 	require.True(t, won)
+}
+
+type h3CommitFaultPool struct {
+	*sql.DB
+	rollback bool
+	unavailable bool
+}
+
+func (pool *h3CommitFaultPool) BeginTx(ctx context.Context, opts *sql.TxOptions) (gorm.ConnPool, error) {
+	if pool.unavailable {
+		return nil, errors.New("injected database outage")
+	}
+	tx, err := pool.DB.BeginTx(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	return &h3CommitFaultTx{Tx: tx, pool: pool}, nil
+}
+
+func (pool *h3CommitFaultPool) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if pool.unavailable {
+		return nil, errors.New("injected database outage")
+	}
+	return pool.DB.QueryContext(ctx, query, args...)
+}
+
+type h3CommitFaultTx struct {
+	*sql.Tx
+	pool *h3CommitFaultPool
+}
+
+func (tx *h3CommitFaultTx) Commit() error {
+	var err error
+	if tx.pool.rollback {
+		err = tx.Tx.Rollback()
+	} else {
+		err = tx.Tx.Commit()
+	}
+	if err != nil {
+		return err
+	}
+	tx.pool.unavailable = true
+	return errors.New("injected lost COMMIT response")
+}
+
+func TestH3LostAdmissionCommitRecoversAfterDatabaseRestoration(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		rollback bool
+	}{{"committed", false}, {"rolled back", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			truncateTables(t)
+			user := createReserveTestUser(t, 100)
+			token := createReserveTestToken(t, 80)
+			token.UserId = user.Id
+			require.NoError(t, DB.Save(&token).Error)
+			task := newH3AdmissionTask(user.Id, token.Id, 30)
+			publicID := task.TaskID
+			original := DB
+			sqlDB, err := original.DB()
+			require.NoError(t, err)
+			DB = original.WithContext(t.Context())
+			DB.Statement.ConnPool = &h3CommitFaultPool{DB: sqlDB, rollback: tc.rollback}
+			t.Cleanup(func() { DB = original })
+			err = task.ReserveH3Dispatch(token.Key, false)
+			require.ErrorIs(t, err, ErrH3AdmissionUnconfirmed)
+			require.ErrorContains(t, err, "lost COMMIT response")
+			assert.Equal(t, publicID, task.TaskID)
+			assert.Zero(t, task.ID)
+			_, _, err = GetByTaskId(user.Id, publicID)
+			require.ErrorContains(t, err, "injected database outage")
+			DB = original
+			stored, exists, err := GetByTaskId(user.Id, publicID)
+			require.NoError(t, err)
+			require.Equal(t, !tc.rollback, exists)
+			if exists {
+				require.Equal(t, TaskStatusAdmitted, stored.Status)
+				require.NoError(t, RecoverUnsentH3Admissions(t.Context(), stored.CreatedAt-1))
+				require.Equal(t, 70, getUserQuotaFromDB(t, user.Id))
+				require.NoError(t, RecoverUnsentH3Admissions(t.Context(), stored.CreatedAt))
+				require.Error(t, stored.BeginH3Dispatch())
+				stored, _, err = GetByTaskId(user.Id, publicID)
+				require.NoError(t, err)
+				require.Equal(t, TaskStatus(TaskStatusFailure), stored.Status)
+				require.Equal(t, common.GetPointer(0), stored.PendingQuota)
+				won, err := stored.FinalizeH3Quota()
+				require.NoError(t, err)
+				require.True(t, won)
+			}
+			require.NoError(t, RecoverUnsentH3Admissions(t.Context(), common.GetTimestamp()))
+			assert.Equal(t, 100, getUserQuotaFromDB(t, user.Id))
+			assert.Equal(t, 80, getTokenFromDB(t, token.Id).RemainQuota)
+		})
+	}
 }
 
 func TestH3AdmissionRollsBackTaskFundsAndUsageOnSQLFailure(t *testing.T) {
@@ -42,6 +140,7 @@ func TestH3AdmissionRollsBackTaskFundsAndUsageOnSQLFailure(t *testing.T) {
 	require.NoError(t, DB.Create(&channel).Error)
 	task := newH3AdmissionTask(user.Id, token.Id, 30)
 	task.ChannelId = channel.Id
+	task.PrivateData.ChannelGeneration = channel.Generation
 	require.NoError(t, DB.Exec(`CREATE TRIGGER fail_h3_usage BEFORE UPDATE OF used_quota ON channels
 BEGIN SELECT RAISE(ABORT, 'injected channel usage failure'); END`).Error)
 	t.Cleanup(func() { require.NoError(t, DB.Exec("DROP TRIGGER IF EXISTS fail_h3_usage").Error) })

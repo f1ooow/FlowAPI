@@ -13,6 +13,7 @@ import (
 
 	common2 "github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -23,6 +24,7 @@ import (
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"golang.org/x/net/http/httpguts"
 )
 
 // ApplyUpstreamBodyMetadata restores metadata that net/http cannot infer from
@@ -539,6 +541,27 @@ func keepUpstreamRedirectResponse(_ *http.Request, _ []*http.Request) error {
 	return http.ErrUseLastResponse
 }
 
+func beginH3Request(c *gin.Context, req *http.Request) error {
+	if err := req.Context().Err(); err != nil {
+		return err
+	}
+	for name, values := range req.Header {
+		if !httpguts.ValidHeaderFieldName(name) {
+			return errors.New("invalid H3 request header name")
+		}
+		for _, value := range values {
+			if !httpguts.ValidHeaderFieldValue(value) {
+				return errors.New("invalid H3 request header value")
+			}
+		}
+	}
+	task, ok := c.Value("h3_dispatch").(*model.Task)
+	if !ok {
+		return errors.New("missing H3 admission")
+	}
+	return task.BeginH3Dispatch()
+}
+
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
 	// Preserve the caller's cancellation and deadline. Requests are assembled
 	// with http.NewRequest so they can be replayed across route attempts; attach
@@ -602,6 +625,15 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		}
 	}
 
+	if info.H3Billing {
+		if err := beginH3Request(c, req); err != nil {
+			if cancel != nil {
+				cancel()
+			}
+			return nil, err
+		}
+		c.Set("h3_send_started", true)
+	}
 	resp, err := relayClient.Do(req)
 	if err != nil {
 		if cancel != nil {

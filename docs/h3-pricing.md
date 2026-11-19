@@ -68,7 +68,9 @@ rows retain their original data and receive no receipt backfill.
 New H3 video and Context IR submissions record whether their reservation was
 confirmed. Before a paid POST, FlowAPI commits the public ID, selected route,
 wallet and token debits, and initial usage counters in one transaction. The
-task starts as `DISPATCHING`. FlowAPI saves the provider task ID separately
+task starts as `ADMITTED`. A separate transition to `DISPATCHING` grants the
+right to send once. A stranded unsent reservation can therefore be refunded.
+FlowAPI saves the provider task ID separately
 from the status transition. If the transition fails, HTTP 202 returns the
 original `id` and `task_id` with `acceptance_recovery_pending`. Poll that ID.
 The worker can query the acknowledged provider task on its original route.
@@ -76,8 +78,18 @@ The worker can query the acknowledged provider task on its original route.
 an ambiguous dispatch. Preserve its public ID for reconciliation and avoid
 resubmitting the paid POST. A dispatch with no durable provider ID requires
 operator investigation and carries no final receipt.
+An explicit parameter rejection, including a structured 422 inside HTTP 200,
+returns HTTP 202 with `id` and `task_id`. Read that public ID to observe the
+failed task and its refund. Transport failures alone cannot confirm a rejection.
 Deleting the channel or revoking the submitting token does not remove this
 record. An active token of the same user can still read the receipt.
+Polling and channel usage adjustments match the saved channel generation. A
+replacement that reuses the numeric channel ID has its own billing counters.
+Acknowledged tasks share polling turns when the query batch is full. An
+acknowledged task without progress for `TASK_TIMEOUT_MINUTES` enters
+`POLL_REVIEW` internally. The public task reports `FAILURE` and a finish time
+with both evidence fields absent. The reservation and upstream identity remain
+available for reconciliation. Setting the timeout to zero disables this sweep.
 The task's terminal transition saves the intended net amount. The
 poller then commits the task receipt, wallet or subscription adjustment, token
 adjustment and usage counters in one main-database transaction. A failed write

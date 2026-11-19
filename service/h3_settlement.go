@@ -37,9 +37,12 @@ func recordH3Terminal(task *model.Task, previous model.TaskStatus, final int) er
 }
 
 func settleH3Quota(task *model.Task) error {
+	if task.SettledQuota != nil {
+		return task.PublishH3Refund()
+	}
 	reserved := task.Quota
 	won, err := task.FinalizeH3Quota()
-	if err != nil || !won || reserved == task.Quota {
+	if !won || reserved == task.Quota {
 		return err
 	}
 	other := taskBillingOther(task)
@@ -50,7 +53,7 @@ func settleH3Quota(task *model.Task) error {
 		ModelName: taskModelName(task), Quota: reserved - task.Quota, TokenId: task.PrivateData.TokenId,
 		Group: task.Group, Other: other, NodeName: task.PrivateData.NodeName,
 	})
-	return nil
+	return err
 }
 
 func retryH3Settlements(ctx context.Context) {

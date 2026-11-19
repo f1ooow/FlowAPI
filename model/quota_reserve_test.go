@@ -330,3 +330,120 @@ func TestH3AdmissionRequiresBothDurableAndCachedBalance(t *testing.T) {
 	require.Equal(t, 100, getUserQuotaFromDB(t, user.Id))
 	require.Equal(t, 100, getTokenFromDB(t, token.Id).RemainQuota)
 }
+
+func pendingH3Refund(t *testing.T) (User, Token, Task) {
+	t.Helper()
+	truncateTables(t)
+	useUserCacheMiniRedis(t)
+	user := createReserveTestUser(t, 100)
+	token := createReserveTestToken(t, 100)
+	token.UserId = user.Id
+	require.NoError(t, DB.Save(&token).Error)
+	require.NoError(t, populateUserCache(user))
+	_, err := cacheInitToken(token)
+	require.NoError(t, err)
+	task := newH3AdmissionTask(user.Id, token.Id, 30)
+	require.NoError(t, task.ReserveH3Dispatch(token.Key, false))
+	previous := task.Status
+	final := 5
+	task.Status, task.FinishTime, task.Progress, task.PendingQuota = TaskStatusSuccess, 1, "100%", &final
+	won, err := task.UpdateWithStatus(previous)
+	require.NoError(t, err)
+	require.True(t, won)
+	return user, token, task
+}
+
+func TestH3RefundLostCommitAckRetainsPublication(t *testing.T) {
+	user, token, task := pendingH3Refund(t)
+	original := DB
+	sqlDB, err := original.DB()
+	require.NoError(t, err)
+	DB = original.WithContext(t.Context())
+	DB.Statement.ConnPool = &h3CommitFaultPool{DB: sqlDB}
+	t.Cleanup(func() { DB = original })
+	won, err := task.FinalizeH3Quota()
+	DB = original
+	require.ErrorContains(t, err, "lost COMMIT response")
+	require.False(t, won)
+	require.Equal(t, 95, getUserQuotaFromDB(t, user.Id))
+	wallet, err := cacheGetUserBase(user.Id)
+	require.NoError(t, err)
+	require.Equal(t, 70, wallet.Quota)
+	won, err = task.UpdateWithStatus(TaskStatusSuccess)
+	require.NoError(t, err)
+	require.False(t, won)
+	require.Error(t, task.Update())
+	require.True(t, HasUnfinishedSyncTasks())
+	var retry Task
+	require.NoError(t, DB.First(&retry, task.ID).Error)
+	require.Equal(t, common.GetPointer(5), retry.SettledQuota)
+	won, err = task.FinalizeH3Quota()
+	require.NoError(t, err)
+	require.False(t, won)
+	require.NoError(t, retry.PublishH3Refund())
+	require.NoError(t, task.PublishH3Refund())
+	require.False(t, HasUnfinishedSyncTasks())
+	wallet, err = cacheGetUserBase(user.Id)
+	require.NoError(t, err)
+	assert.Equal(t, 95, wallet.Quota)
+	cached, err := cacheGetTokenByKey(token.Key)
+	require.NoError(t, err)
+	assert.Equal(t, 95, cached.RemainQuota)
+	assert.Equal(t, 5, cached.UsedQuota)
+	assert.Equal(t, 5, getTokenFromDB(t, token.Id).UsedQuota)
+}
+
+func TestH3RefundRetryAfterPartialPublication(t *testing.T) {
+	for _, scenario := range []string{"newer reservation", "revoked token"} {
+		t.Run(scenario, func(t *testing.T) {
+			user, token, task := pendingH3Refund(t)
+			floor := getTokenCacheKey(token.Key) + ":h3-seq"
+			require.NoError(t, common.RDB.Del(t.Context(), floor).Err())
+			require.NoError(t, common.RDB.LPush(t.Context(), floor, "wrong type").Err())
+			won, err := task.FinalizeH3Quota()
+			require.Error(t, err)
+			require.True(t, won)
+			require.True(t, HasUnfinishedSyncTasks())
+			wallet, err := cacheGetUserBase(user.Id)
+			require.NoError(t, err)
+			require.Equal(t, 95, wallet.Quota)
+			cached, err := cacheGetTokenByKey(token.Key)
+			require.NoError(t, err)
+			require.Equal(t, 70, cached.RemainQuota)
+			require.NoError(t, common.RDB.Set(t.Context(), floor, "1", 0).Err())
+			if scenario == "revoked token" {
+				require.NoError(t, token.Delete())
+				require.NoError(t, task.PublishH3Refund())
+				_, err := GetTokenByKey(token.Key, false)
+				require.ErrorIs(t, err, gorm.ErrRecordNotFound)
+				require.False(t, HasUnfinishedSyncTasks())
+				return
+			}
+
+			barrier := &h3PublicationBarrier{key: getUserCacheKey(user.Id), entered: make(chan struct{}), resume: make(chan struct{})}
+			common.RDB.AddHook(barrier)
+			done := make(chan error, 1)
+			go func() { done <- task.PublishH3Refund() }()
+			select {
+			case err := <-done:
+				t.Fatalf("refund replay returned before publication: %v", err)
+			case <-barrier.entered:
+			}
+			later := newH3AdmissionTask(user.Id, token.Id, 7)
+			err = later.ReserveH3Dispatch(token.Key, false)
+			close(barrier.resume)
+			require.NoError(t, <-done)
+			require.NoError(t, err)
+			require.NoError(t, task.PublishH3Refund())
+			wallet, err = cacheGetUserBase(user.Id)
+			require.NoError(t, err)
+			assert.Equal(t, 88, wallet.Quota)
+			cached, err = cacheGetTokenByKey(token.Key)
+			require.NoError(t, err)
+			assert.Equal(t, 88, cached.RemainQuota)
+			assert.Equal(t, 12, cached.UsedQuota)
+			assert.Equal(t, 88, getUserQuotaFromDB(t, user.Id))
+			assert.Equal(t, 12, getTokenFromDB(t, token.Id).UsedQuota)
+		})
+	}
+}

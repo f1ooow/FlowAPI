@@ -163,7 +163,12 @@ func (a *TaskAdaptor) doH3Response(c *gin.Context, statusCode int, responseBody 
 		return
 	}
 	if hResp.Error != nil || statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices {
-		return "", nil, taskErrorFromH3Response(statusCode, hResp)
+		rejection := taskErrorFromH3Response(statusCode, hResp)
+		if hResp.GetTaskID() == "" && hResp.Error != nil && rejection.StatusCode >= 400 && rejection.StatusCode < 500 && rejection.StatusCode != http.StatusRequestTimeout {
+			c.Set("task_submission_uncertain", false)
+			c.Set("task_submission_definite_failure", true)
+		}
+		return "", nil, rejection
 	}
 	taskID = hResp.GetTaskID()
 	if taskID == "" {

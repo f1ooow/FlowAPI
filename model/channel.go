@@ -24,6 +24,7 @@ import (
 
 type Channel struct {
 	Id                 int      `json:"id"`
+	Generation         string   `json:"-" gorm:"type:varchar(40);<-:create"`
 	Type               int      `json:"type" gorm:"default:0"`
 	Key                string   `json:"key" gorm:"not null"`
 	OpenAIOrganization *string  `json:"openai_organization"`
@@ -64,6 +65,28 @@ type Channel struct {
 
 	// cache info
 	Keys []string `json:"-" gorm:"-"`
+}
+
+const legacyChannelGenerationPrefix = "legacy-"
+
+func (channel *Channel) BeforeCreate(_ *gorm.DB) error {
+	channel.Generation = common.GetUUID()
+	return nil
+}
+
+func initializeChannelGenerations() error {
+	const missing = "(generation IS NULL OR generation = '')"
+	var ids []int
+	if err := DB.Model(&Channel{}).Where(missing).Pluck("id", &ids).Error; err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := DB.Table("channels").Where("id = ?", id).Where(missing).
+			UpdateColumn("generation", legacyChannelGenerationPrefix+common.GetUUID()).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (channel *Channel) GetCostRatio() float64 {
@@ -593,7 +616,10 @@ func MaybeRestoreAutoBannedChannel(channel *Channel) bool {
 }
 
 func (channel *Channel) Save() error {
-	return DB.Save(channel).Error
+	if channel.Id == 0 {
+		return DB.Create(channel).Error
+	}
+	return DB.Model(channel).Where("generation = ?", channel.Generation).Select("*").Updates(channel).Error
 }
 
 // saveStatusState persists only the fields owned by the channel status flow.

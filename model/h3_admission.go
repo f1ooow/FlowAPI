@@ -16,6 +16,7 @@ var (
 	ErrH3WalletQuota    = errors.New("H3 wallet funding unavailable")
 	ErrH3TokenQuota     = errors.New("H3 token funding unavailable")
 	ErrH3DispatchExists = errors.New("H3 dispatch already exists")
+	ErrH3AdmissionUnconfirmed = errors.New("H3 admission commit unconfirmed")
 )
 
 type h3QuotaAccount struct {
@@ -148,7 +149,7 @@ func repairH3QuotaCache(key string, id int, wallet bool) error {
 }
 
 func (task *Task) ReserveH3Dispatch(tokenKey string, tokenUnlimited bool) error {
-	if task == nil || task.Status != TaskStatusDispatching || task.PrivateData.H3ReservationConfirmed == nil || !*task.PrivateData.H3ReservationConfirmed || task.TaskID == "" || task.Quota < 0 || task.Quota > common.MaxQuota || task.PrivateData.TokenId < 0 || task.PendingQuota != nil || task.SettledQuota != nil {
+	if task == nil || task.Status != TaskStatusAdmitted || task.PrivateData.H3ReservationConfirmed == nil || !*task.PrivateData.H3ReservationConfirmed || task.TaskID == "" || task.Quota < 0 || task.Quota > common.MaxQuota || task.PrivateData.TokenId < 0 || task.PendingQuota != nil || task.SettledQuota != nil {
 		return errors.New("invalid H3 dispatch reservation")
 	}
 	if task.ID != 0 {
@@ -236,7 +237,12 @@ func (task *Task) ReserveH3Dispatch(tokenKey string, tokenUnlimited bool) error 
 		return nil
 	})
 	if err != nil && readyToCommit {
-		return err
+		var stored Task
+		readErr := DB.Where("id = ? AND user_id = ? AND task_id = ?", dispatch.ID, task.UserId, task.TaskID).Take(&stored).Error
+		if readErr == nil {
+			*task = stored
+		}
+		return fmt.Errorf("%w: %w", ErrH3AdmissionUnconfirmed, errors.Join(err, readErr))
 	}
 	for _, account := range accounts {
 		if err == nil {
@@ -249,4 +255,16 @@ func (task *Task) ReserveH3Dispatch(tokenKey string, tokenUnlimited bool) error 
 		*task = dispatch
 	}
 	return err
+}
+
+func RecoverUnsentH3Admissions(ctx context.Context, cutoffUnix int64) error {
+	return failUnsentH3Admissions(DB.WithContext(ctx).Model(&Task{}).
+		Where("status = ? AND created_at <= ? AND h3_upstream_id IS NULL", TaskStatusAdmitted, cutoffUnix))
+}
+
+func failUnsentH3Admissions(query *gorm.DB) error {
+	return query.Updates(map[string]any{
+		"status": TaskStatusFailure, "fail_reason": "h3_dispatch_unsent", "progress": "100%",
+		"finish_time": common.GetTimestamp(), "pending_quota": 0,
+	}).Error
 }

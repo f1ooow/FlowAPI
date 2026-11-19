@@ -102,6 +102,7 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 		common.SetContextKey(c, constant.ContextKeyChannelType, ch.Type)
 		common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, ch.GetBaseURL())
 		common.SetContextKey(c, constant.ContextKeyChannelId, originTask.ChannelId)
+		common.SetContextKey(c, constant.ContextKeyChannelGeneration, ch.Generation)
 		common.SetContextKey(c, constant.ContextKeyChannelCostRatio, ch.GetCostRatio())
 
 		info.ChannelBaseUrl = ch.GetBaseURL()
@@ -293,7 +294,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	}
 	if info.H3Billing {
 		task := model.InitTask(platform, info)
-		task.Status, task.Action, task.Quota = model.TaskStatusDispatching, info.Action, info.PriceData.Quota
+		task.Status, task.Action, task.Quota = model.TaskStatusAdmitted, info.Action, info.PriceData.Quota
 		info.BillingSource = service.BillingSourceWallet
 		if info.UserUnlimitedQuota {
 			info.BillingSource = service.BillingSourceUnlimited
@@ -307,6 +308,9 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		task.PrivateData.BillingContext.InputVideoDuration = c.GetFloat64(relaycommon.TaskInputVideoSecondsKey)
 		if err := task.ReserveH3Dispatch(info.TokenKey, info.TokenUnlimited); err != nil {
 			switch {
+			case errors.Is(err, model.ErrH3AdmissionUnconfirmed):
+				c.Set("h3_dispatch", task)
+				return nil, service.TaskErrorWrapperLocal(err, "h3_admission_unconfirmed", http.StatusServiceUnavailable)
 			case errors.Is(err, model.ErrH3WalletQuota), errors.Is(err, model.ErrH3TokenQuota):
 				return nil, service.TaskErrorWrapperLocal(err, "h3_reservation_failed", http.StatusForbidden)
 			case errors.Is(err, model.ErrH3DispatchExists):
@@ -321,6 +325,9 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	c.Set("task_paid_dispatched", true)
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
+		if info.H3Billing && !c.GetBool("h3_send_started") {
+			return nil, service.TaskErrorWrapperLocal(err, "h3_dispatch_unsent", http.StatusServiceUnavailable)
+		}
 		return nil, service.TaskErrorWrapper(err, "do_request_failed", http.StatusInternalServerError)
 	}
 	if resp != nil && (resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices) {
@@ -590,6 +597,9 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 
 	// 通用 TaskDto 格式
 	data := TaskModel2Dto(originTask)
+	if originTask.Status == model.TaskStatusPollReview {
+		data.Status = model.TaskStatusFailure
+	}
 	data.SettledQuota = originTask.SettledQuota
 	confirmed := originTask.PrivateData.H3ReservationConfirmed
 	terminal := originTask.Status == model.TaskStatusSuccess || originTask.Status == model.TaskStatusFailure
