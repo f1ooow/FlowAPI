@@ -33,7 +33,7 @@ reference video is present. Successful tasks settle against bounded upstream
 Missing/invalid usage keeps the reservation. Prices, image quantities, and all
 effective route ratios are frozen in `TaskBillingContext`; settlement never reads
 new settings. New snapshots use `h3_media_v2`; historical snapshots retain their
-existing billing rules. Failure refunds use the existing task accounting path.
+existing billing rules.
 
 A successful response with a known lower `task.resolution` refunds the resolution
 premium using the frozen base price and route ratio. All six downward combinations
@@ -42,8 +42,90 @@ equal the reservation, and combines with unused-second refunds without reducing
 the frozen image charge. Missing/unknown resolution keeps the original resolution
 factor; unknown historical factors are not assigned a new tier. Bounded usage
 is still required, and usage above the reservation is not adjusted. Settlement
-only lowers the current task quota. The existing successful-status CAS and
-persisted quota prevent repeated/stale polls from issuing the same refund again.
+only lowers the current task quota.
+
+## Public final-quota receipt
+
+Use an active API token for the task owner and call
+`GET /v1/video/generations/{public_task_id}`. The existing success envelope has
+`code: "success"`. Match `data.task_id` to the **public ID returned by submit**.
+`data.properties.origin_model_name` is available when recorded. Terminal
+`data.status` is `SUCCESS` or `FAILURE`. `data.finish_time` is the Unix time in
+seconds when FlowAPI recorded the terminal result. It stays fixed during billing
+retries. The OpenAI-compatible `GET /v1/videos/{id}` serves a different DTO.
+
+| Evidence on a terminal H3 task | Meaning and consumer action |
+| --- | --- |
+| `data.settled_quota` is an integer | Final net charge in gateway quota units. Accept numeric `0`, including a completed full refund. |
+| `data.settlement_pending` is `true` | FlowAPI has saved a billing decision and will retry it. Continue polling under the existing job lease and cancellation policy, even after the normal evidence timeout. |
+| Both fields absent | Final billing is unconfirmed. Use the configured usage-evidence lookup window measured from `finish_time`, then send unresolved cases to `needs_review`. |
+
+Both fields are absent while generation is in progress. The pending amount stays
+private. `data.quota` can still contain the reservation after a terminal result,
+so consumers must not use it to fill a missing receipt. Existing historical
+rows retain their original data and receive no receipt backfill.
+
+New H3 video and Context IR submissions record whether their reservation was
+confirmed. Before a paid POST, FlowAPI commits the public ID, selected route,
+wallet and token debits, and initial usage counters in one transaction. The
+task starts as `ADMITTED`. A separate transition to `DISPATCHING` grants the
+right to send once. After one polling-worker idle interval, the worker can claim
+an unsent `ADMITTED` row for a full refund, even with provider timeouts disabled.
+A lost admission commit reply returns HTTP 503 if readback confirms rollback
+(`h3_admission_rolled_back`), or if the database is unreadable
+(`h3_admission_unconfirmed`, with the public ID for reconciliation).
+FlowAPI saves the provider task ID separately
+from the status transition. If the transition fails, HTTP 202 returns the
+original `id` and `task_id` with `acceptance_recovery_pending`. Poll that ID.
+The worker can query the acknowledged provider task on its original route.
+`provider_acceptance_unknown` and `provider_acknowledgement_unrecorded` signal
+an ambiguous dispatch. Preserve its public ID for reconciliation and avoid
+resubmitting the paid POST. A dispatch with no durable provider ID requires
+operator investigation and carries no final receipt.
+An explicit parameter rejection, including a structured 422 inside HTTP 200,
+returns HTTP 202 with `id` and `task_id`. Read that public ID to observe the
+failed task and its refund. Transport failures alone cannot confirm a rejection.
+If the terminal write is interrupted, `rejection_recovery_pending` means the
+worker can replay the saved rejection. `rejection_reconciliation_required`
+means both writes failed. Preserve the public ID for operator reconciliation.
+Deleting the channel or revoking the submitting token does not remove this
+record. An active token of the same user can still read the receipt.
+Polling and channel usage adjustments match the saved channel generation. A
+replacement that reuses the numeric channel ID has its own billing counters.
+Acknowledged tasks share polling turns when the query batch is full. An
+acknowledged task still outstanding `TASK_TIMEOUT_MINUTES` after acceptance enters
+`POLL_REVIEW` internally. The public task reports `FAILURE` and a finish time
+with both evidence fields absent. The reservation and upstream identity remain
+available for reconciliation. Setting the timeout to zero disables this sweep.
+The task's terminal transition saves the intended net amount. The
+poller then commits the task receipt, wallet or subscription adjustment, token
+adjustment and usage counters in one main-database transaction. A failed write
+leaves the decision pending and all balances unchanged. A subsequent polling
+pass can finish it using the database alone. Stale or overlapping workers can
+apply each decision once. The existing refund activity log is emitted after
+the commit and may live in a separate log database.
+
+The task migration adds nullable integer columns `pending_quota` (indexed) and
+`settled_quota`, and a private provider acknowledgement in `h3_upstream_id`.
+Users and tokens carry `h3_quota_seq` and `h3_quota_net` for committed H3
+debits and refunds. Cache fills carry the same sequence and net amount, so a
+delayed notification can preserve concurrent reservations and account for each
+committed change once.
+Ordinary wallet and token debits also reach SQL before returning, including in
+batch mode. A Redis eviction cannot hide an outstanding debit from a later H3
+admission. Credits and usage counters can still use the existing batch updater.
+Ordinary settlement debits advance the same SQL sequence as H3 changes. A
+wallet or token cache filled after the debit already contains that sequence,
+so later publication leaves its balance intact.
+Before enabling H3 on an upgrade, drain outstanding quota batches on every old
+writer and switch all writers to the new debit path.
+When Redis publication is interrupted, the poller replays the committed sequence
+until the caches catch up. The public receipt is available from the SQL commit.
+Upgrade the main database and polling workers together before
+enabling receipt consumers. The router regression submits, polls and reads the
+receipt through authenticated HTTP using isolated SQLite and a fixture provider.
+It exercises unchanged success, a resolution downgrade, full refund, and a failed
+accounting write followed by recovery.
 
 The adapter reads the actual resolution from `task`, `result.task` or a flat
 `result` query response and exposes it as `metadata.resolution` in

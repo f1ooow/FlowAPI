@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/samber/lo"
+	"gorm.io/gorm"
 )
 
 // TaskPollingAdaptor 定义轮询所需的最小适配器接口，避免 service -> relay 的循环依赖
@@ -94,6 +96,18 @@ func sweepTimedOutTasks(ctx context.Context) {
 	timedOutCount := 0
 
 	for _, task := range tasks {
+		if task.H3UpstreamID != nil {
+			if err := task.MarkH3PollingForReview(cutoff, reason); err != nil {
+				logger.LogError(ctx, fmt.Sprintf("H3 polling reconciliation %s: %v", task.TaskID, err))
+			}
+			continue
+		}
+		if task.PrivateData.H3ReservationConfirmed != nil && task.GetUpstreamTaskID() == "" {
+			if err := task.MarkH3DispatchUnknown(); err != nil {
+				logger.LogError(ctx, fmt.Sprintf("H3 dispatch timeout %s: %v", task.TaskID, err))
+			}
+			continue
+		}
 		isLegacy := task.SubmitTime > 0 && task.SubmitTime < model.TaskRefundLegacyCutoff
 
 		oldStatus := task.Status
@@ -107,6 +121,12 @@ func sweepTimedOutTasks(ctx context.Context) {
 			task.Quota = 0
 		} else {
 			task.FailReason = reason
+		}
+		if task.PrivateData.H3ReservationConfirmed != nil && !isLegacy {
+			if err := recordH3Terminal(task, oldStatus, 0); err != nil {
+				logger.LogError(ctx, fmt.Sprintf("H3 timeout %s: %v", task.TaskID, err))
+			}
+			continue
 		}
 
 		won, err := task.UpdateWithStatus(oldStatus)
@@ -152,6 +172,10 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 	}
 
 	common.SysLog("任务进度轮询开始")
+	if err := model.RecoverUnsentH3Admissions(ctx, time.Now().Add(-systemTaskRunnerIdleInterval).Unix()); err != nil {
+		logger.LogError(ctx, fmt.Sprintf("recover unsent H3 reservations: %v", err))
+	}
+	retryH3Settlements(ctx)
 	sweepTimedOutTasks(ctx)
 	allTasks := model.GetAllUnFinishSyncTasks(constant.TaskQueryLimit)
 	summary.UnfinishedTasks = len(allTasks)
@@ -180,12 +204,19 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 		for _, task := range tasks {
 			upstreamID := task.GetUpstreamTaskID()
 			if upstreamID == "" {
+				if task.PrivateData.H3ReservationConfirmed != nil {
+					if err := task.MarkH3DispatchUnknown(); err != nil {
+						logger.LogError(ctx, fmt.Sprintf("H3 missing provider ID %s: %v", task.TaskID, err))
+					}
+					continue
+				}
 				// 统计失败的未完成任务
 				nullTaskIds = append(nullTaskIds, task.ID)
 				continue
 			}
-			taskM[upstreamID] = task
-			taskChannelM[task.ChannelId] = append(taskChannelM[task.ChannelId], upstreamID)
+			handle := strconv.FormatInt(task.ID, 10)
+			taskM[handle] = task
+			taskChannelM[task.ChannelId] = append(taskChannelM[task.ChannelId], handle)
 		}
 		if len(nullTaskIds) > 0 {
 			summary.NullTasksFailed += len(nullTaskIds)
@@ -231,11 +262,20 @@ func DispatchPlatformUpdate(ctx context.Context, platform constant.TaskPlatform,
 
 // UpdateSunoTasks 按渠道更新所有 Suno 任务
 func UpdateSunoTasks(ctx context.Context, taskChannelM map[int][]string, taskM map[string]*model.Task) error {
-	for channelId, taskIds := range taskChannelM {
+	for channelId, handles := range taskChannelM {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		err := updateSunoTasks(ctx, channelId, taskIds, taskM)
+		taskIDs := make([]string, 0, len(handles))
+		channelTasks := make(map[string]*model.Task, len(handles))
+		for _, handle := range handles {
+			if task := taskM[handle]; task != nil && task.ChannelId == channelId {
+				upstreamID := task.GetUpstreamTaskID()
+				taskIDs = append(taskIDs, upstreamID)
+				channelTasks[upstreamID] = task
+			}
+		}
+		err := updateSunoTasks(ctx, channelId, taskIDs, channelTasks)
 		if err != nil {
 			logger.LogError(ctx, fmt.Sprintf("渠道 #%d 更新异步任务失败: %s", channelId, err.Error()))
 		}
@@ -424,38 +464,50 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 	if len(taskIds) == 0 {
 		return nil
 	}
-	cacheGetChannel, err := model.CacheGetChannel(channelId)
-	if err != nil {
-		// Collect DB primary key IDs for bulk update (taskIds are upstream IDs, not task_id column values)
-		var failedIDs []int64
-		for _, upstreamID := range taskIds {
-			if t, ok := taskM[upstreamID]; ok {
-				failedIDs = append(failedIDs, t.ID)
-			}
-		}
-		errUpdate := model.TaskBulkUpdateByID(failedIDs, map[string]any{
-			"fail_reason": fmt.Sprintf("Failed to get channel info, channel ID: %d", channelId),
-			"status":      "FAILURE",
-			"progress":    "100%",
-		})
-		if errUpdate != nil {
-			common.SysLog(fmt.Sprintf("UpdateVideoTask error: %v", errUpdate))
-		}
-		return fmt.Errorf("CacheGetChannel failed: %w", err)
-	}
 	adaptor := GetTaskAdaptorFunc(platform)
 	if adaptor == nil {
 		return fmt.Errorf("video adaptor not found")
 	}
-	disablePollingSleep := cacheGetChannel.GetOtherSettings().DisableTaskPollingSleep
+	var cached *model.Channel
+	var cacheErr error
+	var failedIDs []int64
 	for i, taskId := range taskIds {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if err := updateVideoSingleTask(ctx, adaptor, cacheGetChannel, taskId, taskM); err != nil {
+		task := taskM[taskId]
+		if task == nil || task.ChannelId != channelId {
+			continue
+		}
+		var channel *model.Channel
+		if task.PrivateData.H3ReservationConfirmed != nil {
+			var err error
+			channel, err = task.GetH3PollingChannel()
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				FailH3Task(ctx, task, fmt.Sprintf("channel %d missing or replaced", channelId))
+				continue
+			}
+			if err != nil {
+				logger.LogError(ctx, fmt.Sprintf("Failed to load channel for H3 task %s: %v", task.TaskID, err))
+				continue
+			}
+		} else {
+			if cached == nil && cacheErr == nil {
+				cached, cacheErr = model.CacheGetChannel(channelId)
+				if cacheErr != nil && common.MemoryCacheEnabled {
+					cached, cacheErr = model.GetChannelById(channelId, true)
+				}
+			}
+			if cacheErr != nil {
+				failedIDs = append(failedIDs, task.ID)
+				continue
+			}
+			channel = cached
+		}
+		if err := updateVideoSingleTask(ctx, adaptor, channel, taskId, taskM); err != nil {
 			logger.LogError(ctx, fmt.Sprintf("Failed to update video task %s: %s", taskId, err.Error()))
 		}
-		if disablePollingSleep || i == len(taskIds)-1 {
+		if channel.GetOtherSettings().DisableTaskPollingSleep || i == len(taskIds)-1 {
 			continue
 		}
 
@@ -466,10 +518,20 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 		case <-time.After(1 * time.Second):
 		}
 	}
+	if len(failedIDs) > 0 {
+		if err := model.TaskBulkUpdateByID(failedIDs, map[string]any{
+			"fail_reason": fmt.Sprintf("Failed to get channel info, channel ID: %d", channelId),
+			"status":      "FAILURE",
+			"progress":    "100%",
+		}); err != nil {
+			return err
+		}
+		return fmt.Errorf("CacheGetChannel failed: %w", cacheErr)
+	}
 	return nil
 }
 
-func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *model.Channel, taskId string, taskM map[string]*model.Task) error {
+func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *model.Channel, handle string, taskM map[string]*model.Task) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -479,10 +541,13 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	}
 	proxy := ch.GetSetting().Proxy
 
-	task := taskM[taskId]
-	if task == nil {
-		logger.LogError(ctx, fmt.Sprintf("Task %s not found in taskM", taskId))
-		return fmt.Errorf("task %s not found", taskId)
+	task := taskM[handle]
+	if task == nil || task.ChannelId != ch.Id {
+		return fmt.Errorf("task %s not found on channel %d", handle, ch.Id)
+	}
+	taskId := task.TaskID
+	if task.PrivateData.H3ReservationConfirmed != nil && (task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure) {
+		return nil
 	}
 	key := ch.Key
 
@@ -517,6 +582,9 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		return fmt.Errorf("fetchTask failed for task %s: %w", taskId, err)
 	}
 	defer resp.Body.Close()
+	if task.PrivateData.H3ReservationConfirmed != nil && resp.StatusCode/100 != 2 {
+		return fmt.Errorf("H3 query for %s returned HTTP %d", task.TaskID, resp.StatusCode)
+	}
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("readAll failed for task %s: %w", taskId, err)
@@ -540,6 +608,9 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		task.Data = t.Data
 	} else if taskResult, err = adaptor.ParseTaskResult(responseBody); err != nil {
 		return fmt.Errorf("parseTaskResult failed for task %s: %w", taskId, err)
+	}
+	if task.PrivateData.H3ReservationConfirmed != nil && (taskResult.Status == "" || taskResult.TaskID != "" && taskResult.TaskID != task.GetUpstreamTaskID()) {
+		return fmt.Errorf("H3 query for %s returned an unrecognized task result", task.TaskID)
 	}
 
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.BillingUnit == "output_seconds" && taskResult.Status == model.TaskStatusSuccess {
@@ -646,6 +717,20 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 	}
 
 	isDone := task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure
+	if isDone && task.PrivateData.H3ReservationConfirmed != nil {
+		final := 0
+		if shouldSettle {
+			checked, ok := adaptor.(TaskBillingCheckedAdaptor)
+			if !ok {
+				return errors.New("missing H3 billing adaptor")
+			}
+			final = task.Quota
+			if actual, _, handled := checked.AdjustBillingOnCompleteChecked(task, taskResult); handled {
+				final = actual
+			}
+		}
+		return recordH3Terminal(task, snap.Status, final)
+	}
 	if isDone && snap.Status != task.Status {
 		won, err := task.UpdateWithStatus(snap.Status)
 		if err != nil {

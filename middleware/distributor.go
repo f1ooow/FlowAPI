@@ -514,6 +514,7 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 		return types.NewError(errors.New("channel is nil"), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 	common.SetContextKey(c, constant.ContextKeyChannelId, channel.Id)
+	common.SetContextKey(c, constant.ContextKeyChannelGeneration, channel.Generation)
 	common.SetContextKey(c, constant.ContextKeyChannelName, channel.Name)
 	common.SetContextKey(c, constant.ContextKeyChannelType, channel.Type)
 	common.SetContextKey(c, constant.ContextKeyChannelCreateTime, channel.CreatedTime)

@@ -163,7 +163,12 @@ func (a *TaskAdaptor) doH3Response(c *gin.Context, statusCode int, responseBody 
 		return
 	}
 	if hResp.Error != nil || statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices {
-		return "", nil, taskErrorFromH3Response(statusCode, hResp)
+		rejection := taskErrorFromH3Response(statusCode, hResp)
+		if hResp.GetTaskID() == "" && hResp.Error != nil && rejection.StatusCode >= 400 && rejection.StatusCode < 500 && rejection.StatusCode != http.StatusRequestTimeout {
+			c.Set("task_submission_uncertain", false)
+			c.Set("task_submission_definite_failure", true)
+		}
+		return "", nil, rejection
 	}
 	taskID = hResp.GetTaskID()
 	if taskID == "" {
@@ -592,6 +597,7 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	if isH3Model(info.UpstreamModelName) {
 		if isH3ContextIRModel(info.OriginModelName) || isH3ContextIRModel(info.UpstreamModelName) {
 			c.Set("task_billing_unit", "request")
+			info.H3Billing = true
 			return nil
 		}
 		payload, err := buildH3Request(&taskReq, info.UpstreamModelName)
@@ -621,6 +627,7 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 			}
 		}
 		c.Set("task_billing_unit", H3MediaBillingUnit)
+		info.H3Billing = true
 		c.Set(relaycommon.TaskInputVideoSecondsKey, inputSeconds)
 		return map[string]float64{
 			"hailuo-h3-duration":   float64(payload.Duration) + inputSeconds,

@@ -129,7 +129,7 @@ func InsertTaskForSubmission(task *Task, submissionID int) error {
 				return errors.New("submission route mismatch")
 			}
 		}
-		if err := tx.Create(task).Error; err != nil {
+		if err := task.insertWithUsage(tx); err != nil {
 			return err
 		}
 		result := tx.Model(&TaskSubmission{}).Where("id = ? AND task_id = ? AND status IN ?", submissionID, task.TaskID, []string{"submitting", "unknown"}).Updates(map[string]any{"status": "accepted", "updated_at": time.Now().Unix()})

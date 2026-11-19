@@ -102,6 +102,7 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 		common.SetContextKey(c, constant.ContextKeyChannelType, ch.Type)
 		common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, ch.GetBaseURL())
 		common.SetContextKey(c, constant.ContextKeyChannelId, originTask.ChannelId)
+		common.SetContextKey(c, constant.ContextKeyChannelGeneration, ch.Generation)
 		common.SetContextKey(c, constant.ContextKeyChannelCostRatio, ch.GetCostRatio())
 
 		info.ChannelBaseUrl = ch.GetBaseURL()
@@ -216,6 +217,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	// 5. 计费估算：让适配器根据用户请求提供 OtherRatios（时长、分辨率等）
 	//    必须在 ModelPriceHelperPerCall 之后调用（它会重建 PriceData）。
 	//    ResolveOriginTask 可能已在 remix 路径中预设了 OtherRatios，此处合并。
+	info.H3Billing = false
 	if estimatedRatios := adaptor.EstimateBilling(c, info); len(estimatedRatios) > 0 {
 		for k, v := range estimatedRatios {
 			info.PriceData.AddOtherRatio(k, v)
@@ -240,7 +242,10 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	}
 
 	// 7. 预扣费（仅首次 — 重试时 info.Billing 已存在，跳过）
-	if info.Billing == nil && !info.PriceData.FreeModel {
+	if info.H3Billing && info.Billing != nil {
+		return nil, service.TaskErrorWrapperLocal(errors.New("cannot reuse another reservation for H3"), "reservation_conflict", http.StatusConflict)
+	}
+	if !info.H3Billing && info.Billing == nil && !info.PriceData.FreeModel {
 		info.ForcePreConsume = true
 		if apiErr := service.PreConsumeBilling(c, info.PriceData.Quota, info); apiErr != nil {
 			return nil, service.TaskErrorFromAPIError(apiErr)
@@ -287,9 +292,42 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		c.Set("task_submission_dispatched", true)
 		c.Set("task_submission_uncertain", true)
 	}
+	if info.H3Billing {
+		task := model.InitTask(platform, info)
+		task.Status, task.Action, task.Quota = model.TaskStatusAdmitted, info.Action, info.PriceData.Quota
+		info.BillingSource = service.BillingSourceWallet
+		if info.UserUnlimitedQuota {
+			info.BillingSource = service.BillingSourceUnlimited
+		}
+		task.PrivateData.H3ReservationConfirmed = common.GetPointer(true)
+		task.PrivateData.BillingSource, task.PrivateData.NodeName = info.BillingSource, common.NodeName
+		if !info.IsPlayground {
+			task.PrivateData.TokenId = info.TokenId
+		}
+		task.PrivateData.BillingContext = model.NewTaskBillingContext(info)
+		task.PrivateData.BillingContext.InputVideoDuration = c.GetFloat64(relaycommon.TaskInputVideoSecondsKey)
+		if err := task.ReserveH3Dispatch(info.TokenKey, info.TokenUnlimited); err != nil {
+			switch {
+			case errors.Is(err, model.ErrH3AdmissionUnconfirmed):
+				c.Set("h3_dispatch", task)
+				return nil, service.TaskErrorWrapperLocal(err, "h3_admission_unconfirmed", http.StatusServiceUnavailable)
+			case errors.Is(err, model.ErrH3WalletQuota), errors.Is(err, model.ErrH3TokenQuota):
+				return nil, service.TaskErrorWrapperLocal(err, "h3_reservation_failed", http.StatusForbidden)
+			case errors.Is(err, model.ErrH3DispatchExists):
+				return nil, service.TaskErrorWrapperLocal(err, "h3_dispatch_exists", http.StatusConflict)
+			default:
+				return nil, service.TaskErrorWrapperLocal(err, "h3_reservation_failed", http.StatusServiceUnavailable)
+			}
+		}
+		info.FinalPreConsumedQuota = task.Quota
+		c.Set("h3_dispatch", task)
+	}
 	c.Set("task_paid_dispatched", true)
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
+		if info.H3Billing && !c.GetBool("h3_send_started") {
+			return nil, service.TaskErrorWrapperLocal(err, "h3_dispatch_unsent", http.StatusServiceUnavailable)
+		}
 		return nil, service.TaskErrorWrapper(err, "do_request_failed", http.StatusInternalServerError)
 	}
 	if resp != nil && (resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices) {
@@ -558,9 +596,17 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 	}
 
 	// 通用 TaskDto 格式
+	data := TaskModel2Dto(originTask)
+	if originTask.Status == model.TaskStatusPollReview {
+		data.Status = model.TaskStatusFailure
+	}
+	data.SettledQuota = originTask.SettledQuota
+	confirmed := originTask.PrivateData.H3ReservationConfirmed
+	terminal := originTask.Status == model.TaskStatusSuccess || originTask.Status == model.TaskStatusFailure
+	data.SettlementPending = confirmed != nil && *confirmed && terminal && originTask.PendingQuota != nil && data.SettledQuota == nil
 	respBody, err = common.Marshal(dto.TaskResponse[any]{
 		Code: "success",
-		Data: TaskModel2Dto(originTask),
+		Data: data,
 	})
 	if err != nil {
 		taskResp = service.TaskErrorWrapper(err, "marshal_response_failed", http.StatusInternalServerError)
@@ -572,6 +618,9 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 // 仅当渠道类型为 Gemini 或 Vertex 时触发；其他渠道或出错时返回 nil。
 // 当非 OpenAI Video API 时，还会构建自定义格式的响应体。
 func tryRealtimeFetch(task *model.Task, isOpenAIVideoAPI bool) []byte {
+	if task.PrivateData.H3ReservationConfirmed != nil {
+		return nil
+	}
 	channelModel, err := model.GetChannelById(task.ChannelId, true)
 	if err != nil {
 		return nil

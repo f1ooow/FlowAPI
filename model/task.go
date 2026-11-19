@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"database/sql/driver"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	commonRelay "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"gorm.io/gorm"
 )
 
 type TaskStatus string
@@ -23,7 +25,7 @@ func (t TaskStatus) ToVideoStatus() string {
 		status = dto.VideoStatusInProgress
 	case TaskStatusSuccess:
 		status = dto.VideoStatusCompleted
-	case TaskStatusFailure:
+	case TaskStatusFailure, TaskStatusPollReview:
 		status = dto.VideoStatusFailed
 	default:
 		status = dto.VideoStatusUnknown // Default fallback
@@ -32,13 +34,17 @@ func (t TaskStatus) ToVideoStatus() string {
 }
 
 const (
-	TaskStatusNotStart   TaskStatus = "NOT_START"
-	TaskStatusSubmitted             = "SUBMITTED"
-	TaskStatusQueued                = "QUEUED"
-	TaskStatusInProgress            = "IN_PROGRESS"
-	TaskStatusFailure               = "FAILURE"
-	TaskStatusSuccess               = "SUCCESS"
-	TaskStatusUnknown               = "UNKNOWN"
+	TaskStatusAdmitted        TaskStatus = "ADMITTED"
+	TaskStatusDispatching     TaskStatus = "DISPATCHING"
+	TaskStatusDispatchUnknown TaskStatus = "DISPATCH_UNKNOWN"
+	TaskStatusPollReview      TaskStatus = "POLL_REVIEW"
+	TaskStatusNotStart        TaskStatus = "NOT_START"
+	TaskStatusSubmitted                  = "SUBMITTED"
+	TaskStatusQueued                     = "QUEUED"
+	TaskStatusInProgress                 = "IN_PROGRESS"
+	TaskStatusFailure                    = "FAILURE"
+	TaskStatusSuccess                    = "SUCCESS"
+	TaskStatusUnknown                    = "UNKNOWN"
 )
 
 // TaskRefundLegacyCutoff separates tasks created before timeout refunds were
@@ -46,24 +52,30 @@ const (
 const TaskRefundLegacyCutoff int64 = 1771718400 // 2026-02-22 00:00:00 UTC
 
 type Task struct {
-	ID         int64                 `json:"id" gorm:"primary_key;AUTO_INCREMENT"`
-	CreatedAt  int64                 `json:"created_at" gorm:"index"`
-	UpdatedAt  int64                 `json:"updated_at"`
-	TaskID     string                `json:"task_id" gorm:"type:varchar(191);index"` // 第三方id，不一定有/ song id\ Task id
-	Platform   constant.TaskPlatform `json:"platform" gorm:"type:varchar(30);index"` // 平台
-	UserId     int                   `json:"user_id" gorm:"index"`
-	Group      string                `json:"group" gorm:"type:varchar(50)"` // 修正计费用
-	ChannelId  int                   `json:"channel_id" gorm:"index"`
-	Quota      int                   `json:"quota"`
-	Action     string                `json:"action" gorm:"type:varchar(40);index"` // 任务类型, song, lyrics, description-mode
-	Status     TaskStatus            `json:"status" gorm:"type:varchar(20);index"` // 任务状态
-	FailReason string                `json:"fail_reason"`
-	SubmitTime int64                 `json:"submit_time" gorm:"index"`
-	StartTime  int64                 `json:"start_time" gorm:"index"`
-	FinishTime int64                 `json:"finish_time" gorm:"index"`
-	Progress   string                `json:"progress" gorm:"type:varchar(20);index"`
-	Properties Properties            `json:"properties" gorm:"type:json"`
-	Username   string                `json:"username,omitempty" gorm:"-"`
+	ID               int64                 `json:"id" gorm:"primary_key;AUTO_INCREMENT"`
+	CreatedAt        int64                 `json:"created_at" gorm:"index"`
+	UpdatedAt        int64                 `json:"updated_at"`
+	TaskID           string                `json:"task_id" gorm:"type:varchar(191);index"` // 第三方id，不一定有/ song id\ Task id
+	H3UpstreamID     *string               `json:"-" gorm:"column:h3_upstream_id;type:text"`
+	H3RejectionCode  *string               `json:"-" gorm:"column:h3_rejection_code;type:text"`
+	H3AcknowledgedAt *int64                `json:"-" gorm:"column:h3_acknowledged_at"`
+	LastPolledAt     *int64                `json:"-"`
+	Platform         constant.TaskPlatform `json:"platform" gorm:"type:varchar(30);index"` // 平台
+	UserId           int                   `json:"user_id" gorm:"index"`
+	Group            string                `json:"group" gorm:"type:varchar(50)"` // 修正计费用
+	ChannelId        int                   `json:"channel_id" gorm:"index"`
+	Quota            int                   `json:"quota"`
+	PendingQuota     *int                  `json:"-" gorm:"index"`
+	SettledQuota     *int                  `json:"-"`
+	Action           string                `json:"action" gorm:"type:varchar(40);index"` // 任务类型, song, lyrics, description-mode
+	Status           TaskStatus            `json:"status" gorm:"type:varchar(20);index"` // 任务状态
+	FailReason       string                `json:"fail_reason"`
+	SubmitTime       int64                 `json:"submit_time" gorm:"index"`
+	StartTime        int64                 `json:"start_time" gorm:"index"`
+	FinishTime       int64                 `json:"finish_time" gorm:"index"`
+	Progress         string                `json:"progress" gorm:"type:varchar(20);index"`
+	Properties       Properties            `json:"properties" gorm:"type:json"`
+	Username         string                `json:"username,omitempty" gorm:"-"`
 	// 禁止返回给用户，内部可能包含key等隐私信息
 	PrivateData TaskPrivateData `json:"-" gorm:"column:private_data;type:json"`
 	Data        json.RawMessage `json:"data" gorm:"type:json"`
@@ -101,12 +113,14 @@ func (m Properties) Value() (driver.Value, error) {
 }
 
 type TaskPrivateData struct {
-	ChannelOtherInfo *string                   `json:"channel_other_info,omitempty"`
-	ChannelBaseURL   string                    `json:"channel_base_url,omitempty"`
-	ChannelSettings  *dto.ChannelOtherSettings `json:"channel_settings,omitempty"`
-	Key              string                    `json:"key,omitempty"`
-	UpstreamTaskID   string                    `json:"upstream_task_id,omitempty"` // 上游真实 task ID
-	ResultURL        string                    `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
+	H3ReservationConfirmed *bool                     `json:"h3_reservation_confirmed,omitempty"`
+	ChannelGeneration      string                    `json:"channel_generation,omitempty"`
+	ChannelOtherInfo       *string                   `json:"channel_other_info,omitempty"`
+	ChannelBaseURL         string                    `json:"channel_base_url,omitempty"`
+	ChannelSettings        *dto.ChannelOtherSettings `json:"channel_settings,omitempty"`
+	Key                    string                    `json:"key,omitempty"`
+	UpstreamTaskID         string                    `json:"upstream_task_id,omitempty"` // 上游真实 task ID
+	ResultURL              string                    `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
 	BillingSource  string              `json:"billing_source,omitempty"`  // "wallet"、"subscription" 或 "unlimited"
 	SubscriptionId int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
@@ -164,8 +178,14 @@ func NewTaskBillingContext(info *commonRelay.RelayInfo) *TaskBillingContext {
 // GetUpstreamTaskID 获取上游真实 task ID（用于与 provider 通信）
 // 旧数据没有 UpstreamTaskID 时，TaskID 本身就是上游 ID
 func (t *Task) GetUpstreamTaskID() string {
+	if t.H3UpstreamID != nil {
+		return *t.H3UpstreamID
+	}
 	if t.PrivateData.UpstreamTaskID != "" {
 		return t.PrivateData.UpstreamTaskID
+	}
+	if t.PrivateData.H3ReservationConfirmed != nil {
+		return ""
 	}
 	return t.TaskID
 }
@@ -217,6 +237,9 @@ func InitTask(platform constant.TaskPlatform, relayInfo *commonRelay.RelayInfo) 
 	properties := Properties{}
 	privateData := TaskPrivateData{}
 	if relayInfo != nil && relayInfo.ChannelMeta != nil {
+		if relayInfo.H3Billing {
+			privateData.ChannelGeneration = relayInfo.ChannelGeneration
+		}
 		// Provider task IDs are scoped to the submitting account, including
 		// multi-key channels. Do not rotate credentials during polling.
 		privateData.Key = relayInfo.ChannelMeta.ApiKey
@@ -346,7 +369,9 @@ func TaskGetAllTasks(startIdx int, num int, queryParams SyncTaskQueryParams) []*
 func GetTimedOutUnfinishedTasks(cutoffUnix int64, limit int) []*Task {
 	var tasks []*Task
 	err := DB.Where("progress != ?", "100%").
-		Where("status NOT IN ?", []string{TaskStatusFailure, TaskStatusSuccess}).
+		Where("status NOT IN ?", []TaskStatus{TaskStatusFailure, TaskStatusSuccess, TaskStatusPollReview, TaskStatusAdmitted}).
+		Where("(status != ? OR h3_upstream_id IS NOT NULL)", TaskStatusDispatchUnknown).
+		Where("(h3_upstream_id IS NULL OR COALESCE(h3_acknowledged_at, submit_time) < ?)", cutoffUnix).
 		Where("submit_time < ?", cutoffUnix).
 		Order("submit_time").
 		Limit(limit).
@@ -361,9 +386,20 @@ func GetAllUnFinishSyncTasks(limit int) []*Task {
 	var tasks []*Task
 	var err error
 	// get all tasks progress is not 100%
-	err = DB.Where("progress != ?", "100%").Where("status != ?", TaskStatusFailure).Where("status != ?", TaskStatusSuccess).Limit(limit).Order("id").Find(&tasks).Error
+	err = DB.Where("progress != ? AND status NOT IN ?", "100%", []TaskStatus{TaskStatusFailure, TaskStatusSuccess, TaskStatusPollReview, TaskStatusAdmitted}).
+		Where("(status NOT IN ? OR h3_upstream_id IS NOT NULL)", []TaskStatus{TaskStatusDispatching, TaskStatusDispatchUnknown}).
+		Limit(limit).Order("COALESCE(last_polled_at, created_at * 1000000, 0), id").Find(&tasks).Error
 	if err != nil {
 		return nil
+	}
+	if limit > 0 && len(tasks) == limit {
+		ids := make([]int64, 0, len(tasks))
+		for _, task := range tasks {
+			ids = append(ids, task.ID)
+		}
+		if err := DB.Model(&Task{}).Where("id IN ?", ids).UpdateColumn("last_polled_at", time.Now().UnixMicro()).Error; err != nil {
+			common.SysError("record task polling batch: " + err.Error())
+		}
 	}
 	return tasks
 }
@@ -374,13 +410,23 @@ func GetAllUnFinishSyncTasks(limit int) []*Task {
 // the scheduler skips creating a row entirely.
 func HasUnfinishedSyncTasks() bool {
 	var id int64
-	err := DB.Model(&Task{}).
+	query := DB.Model(&Task{}).
 		Where("progress != ?", "100%").
-		Where("status != ?", TaskStatusFailure).
-		Where("status != ?", TaskStatusSuccess).
-		Limit(1).
-		Pluck("id", &id).Error
-	return err == nil && id != 0
+		Where("status NOT IN ?", []TaskStatus{TaskStatusFailure, TaskStatusSuccess, TaskStatusPollReview}).
+		Where("(status != ? OR h3_upstream_id IS NOT NULL)", TaskStatusDispatchUnknown)
+	if constant.TaskTimeoutMinutes <= 0 {
+		query = query.Where("(status != ? OR h3_upstream_id IS NOT NULL)", TaskStatusDispatching)
+	}
+	err := query.Limit(1).Pluck("id", &id).Error
+	if err != nil || id != 0 {
+		return err == nil
+	}
+	return PendingH3Settlements().Limit(1).Pluck("id", &id).Error == nil && id != 0
+}
+
+func PendingH3Settlements() *gorm.DB {
+	return DB.Model(&Task{}).Where("(pending_quota IS NOT NULL OR (status IN ? AND h3_rejection_code IS NOT NULL))",
+		[]TaskStatus{TaskStatusDispatching, TaskStatusDispatchUnknown})
 }
 
 func GetByTaskId(userId int, taskId string) (*Task, bool, error) {
@@ -429,10 +475,50 @@ func GetTaskForDashboardPreview(userID int, taskID string, isAdmin bool) (*Task,
 	return tasks[0], true, nil
 }
 
-func (Task *Task) Insert() error {
-	var err error
-	err = DB.Create(Task).Error
-	return err
+func (task *Task) Insert() error {
+	if task.PrivateData.H3ReservationConfirmed != nil {
+		return DB.Transaction(func(tx *gorm.DB) error { return task.insertWithUsage(tx) })
+	}
+	return DB.Create(task).Error
+}
+
+func (task *Task) h3Channel(tx *gorm.DB) *gorm.DB {
+	channel := tx.Model(&Channel{}).Where("id = ?", task.ChannelId)
+	if task.PrivateData.ChannelGeneration == "" {
+		return channel.Where("generation LIKE ? AND (created_time IS NULL OR created_time <= ?)", legacyChannelGenerationPrefix+"%", task.SubmitTime)
+	}
+	return channel.Where("generation = ?", task.PrivateData.ChannelGeneration)
+}
+
+func (task *Task) GetH3PollingChannel() (*Channel, error) {
+	var channel Channel
+	err := task.h3Channel(DB).Take(&channel).Error
+	return &channel, err
+}
+
+func (task *Task) insertWithUsage(tx *gorm.DB) error {
+	if err := tx.Create(task).Error; err != nil {
+		return err
+	}
+	if task.PrivateData.H3ReservationConfirmed == nil || !*task.PrivateData.H3ReservationConfirmed {
+		return nil
+	}
+	if err := requireAccountingRow(tx.Model(&User{}).Where("id = ?", task.UserId).Updates(map[string]any{
+		"used_quota": gorm.Expr("used_quota + ?", task.Quota), "request_count": gorm.Expr("request_count + 1"),
+	})); err != nil {
+		return err
+	}
+	if task.ChannelId == 0 {
+		return nil
+	}
+	if task.PrivateData.ChannelGeneration == "" {
+		return fmt.Errorf("missing selected channel generation for channel %d", task.ChannelId)
+	}
+	channel := task.h3Channel(tx)
+	if task.Quota == 0 {
+		return lockForUpdate(channel).Select("id").Take(&Channel{}).Error
+	}
+	return requireAccountingRow(channel.Update("used_quota", gorm.Expr("used_quota + ?", task.Quota)))
 }
 
 type taskSnapshot struct {
@@ -477,6 +563,87 @@ func (t *Task) UpdateQuota() error {
 	return DB.Model(t).Update("quota", t.Quota).Error
 }
 
+func (t *Task) BeginH3Dispatch() error {
+	if t.ID == 0 || t.Status != TaskStatusAdmitted {
+		return fmt.Errorf("H3 task %s is not admitted for dispatch", t.TaskID)
+	}
+	db := DB
+	var claimed bool
+	err := db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&Task{}).Where("id = ? AND user_id = ? AND task_id = ? AND status = ? AND h3_upstream_id IS NULL",
+			t.ID, t.UserId, t.TaskID, TaskStatusAdmitted).Update("status", TaskStatusDispatching)
+		if result.Error != nil {
+			return result.Error
+		}
+		claimed = result.RowsAffected == 1
+		if !claimed {
+			return fmt.Errorf("H3 task %s no longer owns the admission", t.TaskID)
+		}
+		return nil
+	})
+	if err != nil {
+		if claimed {
+			id, userID, publicID := t.ID, t.UserId, t.TaskID
+			unused := db.Model(&Task{}).Where("id = ? AND user_id = ? AND task_id = ? AND h3_upstream_id IS NULL AND status IN ?",
+				id, userID, publicID, []TaskStatus{TaskStatusAdmitted, TaskStatusDispatching, TaskStatusDispatchUnknown}).Session(&gorm.Session{})
+			if cancelErr := failUnsentH3Admissions(unused); cancelErr != nil {
+				common.SysError(fmt.Sprintf("H3 %s: retrying unused send intent after commit error: %v", publicID, cancelErr))
+				go func() {
+					for delay := time.Second; ; delay = min(delay*2, time.Minute) {
+						time.Sleep(delay)
+						if failUnsentH3Admissions(unused) == nil {
+							return
+						}
+					}
+				}()
+			}
+		}
+		return err
+	}
+	t.Status = TaskStatusDispatching
+	return nil
+}
+
+func (t *Task) AcceptH3Dispatch(upstreamID string, data json.RawMessage) (acknowledged bool, err error) {
+	if upstreamID == "" {
+		return false, fmt.Errorf("empty H3 provider acknowledgement")
+	}
+	dispatch := DB.Model(&Task{}).Where("id = ? AND status IN ? AND h3_rejection_code IS NULL AND (h3_upstream_id IS NULL OR h3_upstream_id = ?)",
+		t.ID, []TaskStatus{TaskStatusDispatching, TaskStatusDispatchUnknown}, upstreamID).Session(&gorm.Session{})
+	acceptedAt := gorm.Expr("COALESCE(h3_acknowledged_at, ?)", common.GetTimestamp())
+	ack := dispatch.Updates(map[string]any{"h3_upstream_id": upstreamID, "h3_acknowledged_at": acceptedAt})
+	promotion := dispatch.Updates(map[string]any{"status": TaskStatusNotStart, "h3_upstream_id": upstreamID, "h3_acknowledged_at": acceptedAt, "data": data})
+	if promotion.Error == nil && promotion.RowsAffected == 1 {
+		return true, nil
+	}
+	return ack.Error == nil && ack.RowsAffected == 1, fmt.Errorf("ack rows=%d err=%v; promotion rows=%d err=%v", ack.RowsAffected, ack.Error, promotion.RowsAffected, promotion.Error)
+}
+
+func (t *Task) AcknowledgeH3Rejection(code string) error {
+	result := DB.Model(&Task{}).Where("id = ? AND status IN ? AND h3_upstream_id IS NULL AND h3_rejection_code IS NULL",
+		t.ID, []TaskStatus{TaskStatusDispatching, TaskStatusDispatchUnknown}).UpdateColumn("h3_rejection_code", code)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return fmt.Errorf("H3 task %s no longer awaiting provider decision", t.TaskID)
+	}
+	return nil
+}
+
+func (t *Task) MarkH3DispatchUnknown() error {
+	if t.Status == TaskStatusAdmitted || t.Status == TaskStatusSuccess || t.Status == TaskStatusFailure || t.GetUpstreamTaskID() != "" {
+		return fmt.Errorf("H3 dispatch %s already has a provider ID or terminal decision", t.TaskID)
+	}
+	return DB.Model(&Task{}).Where("id = ? AND status = ? AND h3_upstream_id IS NULL", t.ID, t.Status).
+		Update("status", TaskStatusDispatchUnknown).Error
+}
+
+func (t *Task) MarkH3PollingForReview(cutoff int64, reason string) error {
+	return DB.Model(&Task{}).Where("id = ? AND status = ? AND COALESCE(h3_acknowledged_at, submit_time) < ? AND h3_upstream_id IS NOT NULL", t.ID, t.Status, cutoff).
+		Updates(map[string]any{"status": TaskStatusPollReview, "fail_reason": reason, "progress": "100%", "finish_time": common.GetTimestamp()}).Error
+}
+
 // UpdateWithStatus performs a conditional UPDATE guarded by fromStatus (CAS).
 // Returns (true, nil) if this caller won the update, (false, nil) if
 // another process already moved the task out of fromStatus. MySQL commonly
@@ -487,7 +654,11 @@ func (t *Task) UpdateQuota() error {
 // falls back to INSERT ON CONFLICT when the WHERE-guarded UPDATE matches
 // zero rows, which silently bypasses the CAS guard.
 func (t *Task) UpdateWithStatus(fromStatus TaskStatus) (bool, error) {
-	result := DB.Model(t).Where("status = ?", fromStatus).Select("*").Updates(t)
+	query := DB.Model(t).Where("status = ?", fromStatus)
+	if (fromStatus == TaskStatusDispatching || fromStatus == TaskStatusDispatchUnknown) && t.H3UpstreamID == nil {
+		query = query.Where("h3_upstream_id IS NULL")
+	}
+	result := query.Select("*").Omit("H3UpstreamID", "H3AcknowledgedAt", "LastPolledAt", "H3RejectionCode").Updates(t)
 	if result.Error != nil {
 		return false, result.Error
 	}

@@ -58,6 +58,7 @@ type ResponsesUsageInfo struct {
 type ChannelMeta struct {
 	ChannelType          int
 	ChannelId            int
+	ChannelGeneration    string `json:"-"`
 	ChannelIsMultiKey    bool
 	ChannelMultiKeyIndex int
 	ChannelBaseUrl       string
@@ -83,6 +84,7 @@ type TokenCountMeta struct {
 }
 
 type RelayInfo struct {
+	H3Billing         bool
 	TokenId           int
 	TokenKey          string
 	TokenGroup        string
@@ -196,6 +198,7 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 	channelMeta := &ChannelMeta{
 		ChannelType:          channelType,
 		ChannelId:            common.GetContextKeyInt(c, constant.ContextKeyChannelId),
+		ChannelGeneration:    common.GetContextKeyString(c, constant.ContextKeyChannelGeneration),
 		ChannelIsMultiKey:    common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey),
 		ChannelMultiKeyIndex: common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex),
 		ChannelBaseUrl:       common.GetContextKeyString(c, constant.ContextKeyChannelBaseUrl),

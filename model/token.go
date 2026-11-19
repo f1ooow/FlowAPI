@@ -21,6 +21,8 @@ type Token struct {
 	AccessedTime       int64          `json:"accessed_time" gorm:"bigint"`
 	ExpiredTime        int64          `json:"expired_time" gorm:"bigint;default:-1"` // -1 means never expired
 	RemainQuota        int            `json:"remain_quota" gorm:"default:0"`
+	H3QuotaSeq         int64          `json:"-" gorm:"type:bigint;not null;default:0;column:h3_quota_seq"`
+	H3QuotaNet         int64          `json:"-" gorm:"type:bigint;not null;default:0;column:h3_quota_net"`
 	UnlimitedQuota     bool           `json:"unlimited_quota"`
 	ModelLimitsEnabled bool           `json:"model_limits_enabled"`
 	ModelLimits        string         `json:"model_limits" gorm:"type:text"`
@@ -409,29 +411,12 @@ func DecreaseTokenQuota(id int, key string, quota int) (err error) {
 	if quota < 0 {
 		return errors.New("quota 不能为负数！")
 	}
-	if common.RedisEnabled {
-		gopool.Go(func() {
-			if _, err := cacheApplyTokenQuotaDelta(id, key, int64(-quota)); err != nil {
-				common.SysLog("failed to decrease token quota: " + err.Error())
-			}
-		})
-	}
-	if common.BatchUpdateEnabled {
-		addNewRecord(BatchUpdateTypeTokenQuota, id, -quota)
-		return nil
-	}
-	return decreaseTokenQuota(id, quota)
-}
-
-func decreaseTokenQuota(id int, quota int) (err error) {
-	err = DB.Model(&Token{}).Where("id = ?", id).Updates(
-		map[string]interface{}{
-			"remain_quota":  gorm.Expr("remain_quota - ?", quota),
-			"used_quota":    gorm.Expr("used_quota + ?", quota),
-			"accessed_time": common.GetTimestamp(),
-		},
-	).Error
-	return err
+	token := Token{Id: id, Key: key, AccessedTime: common.GetTimestamp()}
+	return token.h3Token().debit(&token, quota, map[string]any{
+		"remain_quota":  gorm.Expr("remain_quota - ?", quota),
+		"used_quota":    gorm.Expr("used_quota + ?", quota),
+		"accessed_time": token.AccessedTime,
+	})
 }
 
 // CountUserTokens returns total number of tokens for the given user, used for pagination

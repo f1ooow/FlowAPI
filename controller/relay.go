@@ -685,8 +685,11 @@ func RelayTask(c *gin.Context) {
 
 	var result *relay.TaskSubmitResult
 	var taskErr *taskdto.TaskError
+	var h3Acknowledged bool
+	var h3AcceptanceErr error
 	defer func() {
-		if taskErr != nil && relayInfo.Billing != nil && !c.GetBool("task_submission_uncertain") {
+		_, h3Dispatched := c.Get("h3_dispatch")
+		if taskErr != nil && relayInfo.Billing != nil && !h3Dispatched && !c.GetBool("task_submission_uncertain") {
 			relayInfo.Billing.Refund(c)
 		}
 	}()
@@ -741,8 +744,12 @@ func RelayTask(c *gin.Context) {
 		c.Request.Body = io.NopCloser(bodyStorage)
 
 		respBuffer.reset()
+		c.Set("task_submission_definite_failure", false)
 		attemptStart := time.Now()
 		result, taskErr = relay.RelayTaskSubmit(c, relayInfo)
+		if value, ok := c.Get("h3_dispatch"); ok && taskErr == nil {
+			h3Acknowledged, h3AcceptanceErr = value.(*model.Task).AcceptH3Dispatch(result.UpstreamTaskID, result.TaskData)
+		}
 		// 与同步 relay 同口径：这里记的是一次渠道尝试，重试循环每转一圈都记一次。
 		perfmetrics.RecordChannelAttempt(relayInfo, channel.Id, attemptStart, taskErr == nil)
 		if taskErr == nil {
@@ -756,7 +763,7 @@ func RelayTask(c *gin.Context) {
 				types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode))
 		}
 
-		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
+		if relayInfo.H3Billing || !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
 			break
 		}
 	}
@@ -771,8 +778,25 @@ func RelayTask(c *gin.Context) {
 
 	// ── 成功：结算 + 日志 + 插入任务 ──
 	if taskErr == nil {
-		if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
-			common.SysError("settle task billing error: " + settleErr.Error())
+		if value, ok := c.Get("h3_dispatch"); ok {
+			service.LogTaskConsumption(c, relayInfo)
+			task := value.(*model.Task)
+			if h3AcceptanceErr != nil {
+				common.SysError(fmt.Sprintf("H3 acceptance public=%s channel=%d upstream=%s acknowledged=%t: %v", task.TaskID, task.ChannelId, result.UpstreamTaskID, h3Acknowledged, h3AcceptanceErr))
+				code := "acceptance_recovery_pending"
+				if !h3Acknowledged {
+					code = "provider_acknowledgement_unrecorded"
+					if err := task.MarkH3DispatchUnknown(); err != nil {
+						logger.LogError(c, fmt.Sprintf("H3 dispatch %s: %v", task.TaskID, err))
+					}
+				}
+				respBuffer.reset()
+				c.JSON(http.StatusAccepted, gin.H{"id": task.TaskID, "task_id": task.TaskID, "code": code})
+			}
+			return
+		}
+		if err := service.SettleBilling(c, relayInfo, result.Quota); err != nil {
+			common.SysError("settle task billing error: " + err.Error())
 		}
 		service.LogTaskConsumption(c, relayInfo)
 
@@ -818,6 +842,47 @@ func RelayTask(c *gin.Context) {
 
 	if taskErr != nil {
 		respBuffer.reset()
+		if value, ok := c.Get("h3_dispatch"); ok {
+			task := value.(*model.Task)
+			if !c.GetBool("h3_send_started") {
+				if task.ID == 0 {
+					if errors.Is(taskErr.Error, model.ErrH3AdmissionRolledBack) {
+						c.JSON(taskErr.StatusCode, gin.H{"code": "h3_admission_rolled_back"})
+					} else {
+						c.JSON(taskErr.StatusCode, gin.H{"id": task.TaskID, "task_id": task.TaskID, "code": taskErr.Code, "message": "Admission could not be verified. Keep this ID for reconciliation after database recovery."})
+					}
+					return
+				}
+				if task.Status == model.TaskStatusAdmitted {
+					service.LogTaskConsumption(c, relayInfo)
+					service.FailH3Task(c, task, "h3_dispatch_unsent")
+				}
+				c.JSON(http.StatusAccepted, gin.H{"id": task.TaskID, "task_id": task.TaskID, "code": taskErr.Code})
+				return
+			}
+			service.LogTaskConsumption(c, relayInfo)
+			if !c.GetBool("task_submission_definite_failure") {
+				if err := task.MarkH3DispatchUnknown(); err != nil {
+					logger.LogError(c, fmt.Sprintf("H3 dispatch %s: %v", task.TaskID, err))
+				}
+				c.JSON(http.StatusAccepted, gin.H{"id": task.TaskID, "task_id": task.TaskID, "code": "provider_acceptance_unknown"})
+				return
+			}
+			ackErr := task.AcknowledgeH3Rejection(taskErr.Code)
+			code := taskErr.Code
+			if !service.FailH3Task(c, task, taskErr.Code) {
+				code = "rejection_recovery_pending"
+				if ackErr != nil {
+					code = "rejection_reconciliation_required"
+					logger.LogError(c, fmt.Sprintf("H3 rejection requires reconciliation: task=%s channel=%d provider_code=%s acknowledgement=%v", task.TaskID, task.ChannelId, taskErr.Code, ackErr))
+				}
+			}
+			c.JSON(http.StatusAccepted, gin.H{"id": task.TaskID, "task_id": task.TaskID, "code": code})
+			return
+		}
+		if relayInfo.H3Billing {
+			taskErr.Data = gin.H{"task_id": relayInfo.PublicTaskID}
+		}
 		respondTaskError(c, taskErr)
 	}
 }
@@ -831,6 +896,9 @@ func respondTaskError(c *gin.Context, taskErr *taskdto.TaskError) {
 }
 
 func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *taskdto.TaskError, retryTimes int) bool {
+	if _, dispatched := c.Get("h3_dispatch"); dispatched {
+		return false
+	}
 	if c.GetInt("minimax_resource_channel_id") != 0 || c.Request.URL.Path == taskdto.WanCreatePath || (c.GetBool("task_paid_dispatched") && !c.GetBool("task_submission_definite_failure")) {
 		return false
 	}

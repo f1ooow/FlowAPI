@@ -75,7 +75,7 @@ type H3ContextIRRequest struct {
 type H3ErrorDetail struct {
 	Type     string `json:"type,omitempty"`
 	Message  string `json:"message,omitempty"`
-	HTTPCode string `json:"http_code,omitempty"`
+	HTTPCode json.Number `json:"http_code,omitempty"`
 }
 
 type H3CreateResult struct {
@@ -179,7 +179,7 @@ func (e *H3ErrorDetail) StatusCode(fallback int) int {
 	if e == nil {
 		return fallback
 	}
-	if parsed, err := strconv.Atoi(strings.TrimSpace(e.HTTPCode)); err == nil && parsed >= 400 && parsed <= 599 {
+	if parsed, err := strconv.Atoi(e.HTTPCode.String()); err == nil && parsed >= 400 && parsed <= 599 {
 		return parsed
 	}
 	return fallback

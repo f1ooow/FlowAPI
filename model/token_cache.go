@@ -61,7 +61,7 @@ func cacheInitToken(token Token) (int, error) {
 	if token.AllowIps != nil {
 		allowIps = *token.AllowIps
 	}
-	const script = `
+	const script = h3CacheFloorLua + `
 if redis.call('EXISTS', KEYS[2]) == 1 then
   return 0
 end
@@ -69,24 +69,27 @@ if redis.call('EXISTS', KEYS[1]) == 1 then
   redis.call('EXPIRE', KEYS[1], ARGV[17])
   return 2
 end
+if not allowH3Fill(KEYS[3], KEYS[4], ARGV[18]) then
+  return 0
+end
 redis.call('HSET', KEYS[1],
   'Id', ARGV[1], 'UserId', ARGV[2], 'Status', ARGV[3], 'Name', ARGV[4],
   'CreatedTime', ARGV[5], 'AccessedTime', ARGV[6], 'ExpiredTime', ARGV[7],
   'UnlimitedQuota', ARGV[8], 'ModelLimitsEnabled', ARGV[9], 'ModelLimits', ARGV[10],
   'AllowIps', ARGV[11], 'Group', ARGV[12], 'CrossGroupRetry', ARGV[13],
-  'AutoGroups', ARGV[14], 'RemainQuota', ARGV[15], 'UsedQuota', ARGV[16])
+  'AutoGroups', ARGV[14], 'RemainQuota', ARGV[15], 'UsedQuota', ARGV[16], 'H3QuotaSeq', ARGV[18], 'H3QuotaNet', ARGV[19])
 redis.call('EXPIRE', KEYS[1], ARGV[17])
 return 1`
 
 	return common.RDB.Eval(context.Background(), script, []string{
-		getTokenCacheKey(token.Key), getTokenCacheFenceKey(token.Key),
+		getTokenCacheKey(token.Key), getTokenCacheFenceKey(token.Key), getTokenCacheKey(token.Key) + ":h3-seq", getTokenCacheKey(token.Key) + ":h3-pending",
 	},
 		token.Id, token.UserId, token.Status, token.Name,
 		token.CreatedTime, token.AccessedTime, token.ExpiredTime,
 		strconv.FormatBool(token.UnlimitedQuota), strconv.FormatBool(token.ModelLimitsEnabled),
 		token.ModelLimits, allowIps, token.Group, strconv.FormatBool(token.CrossGroupRetry),
 		token.AutoGroups, token.RemainQuota, token.UsedQuota,
-		tokenCacheTTLSeconds(),
+		tokenCacheTTLSeconds(), token.H3QuotaSeq, token.H3QuotaNet,
 	).Int()
 }
 

@@ -110,6 +110,8 @@ type User struct {
 	CreatedAt        int64                      `json:"created_at" gorm:"autoCreateTime;column:created_at"`
 	LastLoginAt      int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
 	AuthVersion      int64                      `json:"-" gorm:"type:bigint;not null;default:1;column:auth_version"`
+	H3QuotaSeq       int64                      `json:"-" gorm:"type:bigint;not null;default:0;column:h3_quota_seq"`
+	H3QuotaNet       int64                      `json:"-" gorm:"type:bigint;not null;default:0;column:h3_quota_net"`
 	AdminPermissions map[string]map[string]bool `json:"admin_permissions,omitempty" gorm:"-:all"`
 }
 
@@ -118,6 +120,8 @@ func (user *User) ToBaseUser() *UserBase {
 		Id:             user.Id,
 		Group:          user.Group,
 		Quota:          user.Quota,
+		H3QuotaSeq:     user.H3QuotaSeq,
+		H3QuotaNet:     user.H3QuotaNet,
 		UnlimitedQuota: user.UnlimitedQuota,
 		Status:         user.Status,
 		Role:           user.Role,
@@ -797,6 +801,8 @@ func (user *User) UpdateWithTx(tx *gorm.DB, updatePassword bool) error {
 		"aff_quota",
 		"aff_history",
 		"auth_version",
+		"h3_quota_seq",
+		"h3_quota_net",
 	).Updates(newUser).Error; err != nil {
 		return err
 	}
@@ -1321,29 +1327,12 @@ func increaseUserQuota(id int, quota int) (err error) {
 	return ErrWalletQuotaLimitExceeded
 }
 
-func DecreaseUserQuota(id int, quota int, db bool) (err error) {
+func DecreaseUserQuota(id int, quota int, _ bool) (err error) {
 	if quota < 0 {
 		return errors.New("quota 不能为负数！")
 	}
-	gopool.Go(func() {
-		err := cacheDecrUserQuota(id, int64(quota))
-		if err != nil {
-			common.SysLog("failed to decrease user quota: " + err.Error())
-		}
-	})
-	if !db && common.BatchUpdateEnabled {
-		addNewRecord(BatchUpdateTypeUserQuota, id, -quota)
-		return nil
-	}
-	return decreaseUserQuota(id, quota)
-}
-
-func decreaseUserQuota(id int, quota int) (err error) {
-	err = DB.Model(&User{}).Where("id = ?", id).Update("quota", gorm.Expr("quota - ?", quota)).Error
-	if err != nil {
-		return err
-	}
-	return err
+	user := User{Id: id}
+	return user.h3Wallet().debit(&user, quota, map[string]any{"quota": gorm.Expr("quota - ?", quota)})
 }
 
 func DeltaUpdateUserQuota(id int, delta int) (err error) {
