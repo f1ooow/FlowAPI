@@ -66,6 +66,10 @@ local current = tonumber(redis.call('HGET', KEYS[1], 'AuthVersion') or '0')
 if pending > incoming or committed > incoming or current > incoming then
   return 0
 end
+if ARGV[11] == '1' and redis.call('HEXISTS', KEYS[1], 'Quota') == 0 and
+  tonumber(ARGV[14]) < tonumber(redis.call('GET', KEYS[4]) or '0') then
+  return 1
+end
 if committed < incoming then
   redis.call('SET', KEYS[3], ARGV[1])
 end
@@ -81,14 +85,14 @@ redis.call('HSET', KEYS[1],
   'Setting', ARGV[8], 'AuthVersion', ARGV[1], 'CacheSchema', ARGV[9],
   'UnlimitedQuota', ARGV[10])
 if ARGV[11] == '1' and redis.call('HEXISTS', KEYS[1], 'Quota') == 0 then
-  redis.call('HSET', KEYS[1], 'Quota', ARGV[12])
+  redis.call('HSET', KEYS[1], 'Quota', ARGV[12], 'H3RefundTotal', ARGV[14])
 end
 redis.call('EXPIRE', KEYS[1], ARGV[13])
 return 1`
 	result, err := common.RDB.Eval(context.Background(), script,
-		[]string{getUserCacheKey(user.Id), getUserAuthFenceKey(user.Id), getUserAuthVersionKey(user.Id)},
+		[]string{getUserCacheKey(user.Id), getUserAuthFenceKey(user.Id), getUserAuthVersionKey(user.Id), getUserCacheKey(user.Id) + ":h3-refunded"},
 		user.AuthVersion, user.Id, user.Group, user.Email, user.Status, user.Role,
-		user.Username, user.Setting, user.CacheSchema, user.UnlimitedQuota, includeQuotaArg, user.Quota, ttl,
+		user.Username, user.Setting, user.CacheSchema, user.UnlimitedQuota, includeQuotaArg, user.Quota, ttl, user.H3RefundTotal,
 	).Int()
 	if err != nil {
 		return err

@@ -686,7 +686,8 @@ func RelayTask(c *gin.Context) {
 	var result *relay.TaskSubmitResult
 	var taskErr *taskdto.TaskError
 	defer func() {
-		if taskErr != nil && relayInfo.Billing != nil && !c.GetBool("task_submission_uncertain") {
+		_, h3Dispatched := c.Get("h3_dispatch")
+		if taskErr != nil && relayInfo.Billing != nil && !h3Dispatched && !c.GetBool("task_submission_uncertain") {
 			relayInfo.Billing.Refund(c)
 		}
 	}()
@@ -776,12 +777,21 @@ func RelayTask(c *gin.Context) {
 			common.SysError("settle task billing error: " + settleErr.Error())
 		}
 		service.LogTaskConsumption(c, relayInfo)
-
-		task := model.InitTask(result.Platform, relayInfo)
-		if relayInfo.H3Billing {
+		if value, ok := c.Get("h3_dispatch"); ok {
+			task := value.(*model.Task)
+			task.Status, task.Quota, task.Data = model.TaskStatusNotStart, result.Quota, result.TaskData
+			task.PrivateData.UpstreamTaskID = result.UpstreamTaskID
 			confirmed := service.H3ReservationConfirmed(relayInfo, settleErr)
 			task.PrivateData.H3ReservationConfirmed = &confirmed
+			if won, err := task.UpdateWithStatus(model.TaskStatusDispatching); err != nil || !won {
+				common.SysError(fmt.Sprintf("H3 acceptance persistence public=%s upstream=%s: won=%t err=%v", task.TaskID, result.UpstreamTaskID, won, err))
+				respBuffer.reset()
+				c.JSON(http.StatusAccepted, gin.H{"id": task.TaskID, "task_id": task.TaskID, "code": "acceptance_recovery_pending"})
+			}
+			return
 		}
+
+		task := model.InitTask(result.Platform, relayInfo)
 		task.PrivateData.UpstreamTaskID = result.UpstreamTaskID
 		task.PrivateData.BillingSource = relayInfo.BillingSource
 		task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
@@ -823,6 +833,11 @@ func RelayTask(c *gin.Context) {
 
 	if taskErr != nil {
 		respBuffer.reset()
+		if value, ok := c.Get("h3_dispatch"); ok {
+			task := value.(*model.Task)
+			service.FailH3Task(c, task, taskErr.Code)
+			taskErr.Data = gin.H{"task_id": task.TaskID}
+		}
 		respondTaskError(c, taskErr)
 	}
 }
@@ -836,6 +851,9 @@ func respondTaskError(c *gin.Context, taskErr *taskdto.TaskError) {
 }
 
 func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *taskdto.TaskError, retryTimes int) bool {
+	if _, dispatched := c.Get("h3_dispatch"); dispatched {
+		return false
+	}
 	if c.GetInt("minimax_resource_channel_id") != 0 || c.Request.URL.Path == taskdto.WanCreatePath || (c.GetBool("task_paid_dispatched") && !c.GetBool("task_submission_definite_failure")) {
 		return false
 	}

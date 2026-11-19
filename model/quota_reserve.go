@@ -141,22 +141,52 @@ func persistTokenQuotaDelta(id int, delta int, batch bool) error {
 	return nil
 }
 
-func reserveUserQuotaDB(id int, quota int) (bool, error) {
-	result := DB.Model(&User{}).
+func reserveUserQuotaDB(tx *gorm.DB, id int, quota int) (bool, error) {
+	result := tx.Model(&User{}).
 		Where("id = ? AND quota >= ?", id, quota).
 		Update("quota", gorm.Expr("quota - ?", quota))
 	return result.RowsAffected == 1, result.Error
 }
 
-func reserveTokenQuotaDB(id int, quota int) (bool, error) {
-	result := DB.Model(&Token{}).
-		Where("id = ? AND remain_quota >= ?", id, quota).
+func reserveTokenQuotaDB(tx *gorm.DB, id int, quota int, unlimited bool) (bool, error) {
+	query := tx.Model(&Token{}).Where("id = ?", id)
+	if unlimited {
+		query = query.Where("unlimited_quota = ? OR remain_quota >= ?", true, quota)
+	} else {
+		query = query.Where("remain_quota >= ?", quota)
+	}
+	result := query.
 		Updates(map[string]interface{}{
 			"remain_quota":  gorm.Expr("remain_quota - ?", quota),
 			"used_quota":    gorm.Expr("used_quota + ?", quota),
 			"accessed_time": common.GetTimestamp(),
 		})
 	return result.RowsAffected == 1, result.Error
+}
+
+func reserveDurableQuota(debit func(*gorm.DB) (bool, error), reserveCache func() (cacheQuotaResult, error)) (bool, error) {
+	if !common.RedisEnabled {
+		return debit(DB)
+	}
+	insufficient := errors.New("insufficient quota")
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		reserved, err := debit(tx)
+		if err != nil {
+			return err
+		}
+		if !reserved {
+			return insufficient
+		}
+		result, err := reserveCache()
+		if err == nil && result == cacheQuotaInsufficient {
+			return insufficient
+		}
+		return err
+	})
+	if errors.Is(err, insufficient) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // TryReserveUserQuota atomically checks and deducts a user's wallet quota.
@@ -173,8 +203,11 @@ func ReserveUserQuota(id int, quota int, durable bool) (bool, error) {
 	if quota == 0 {
 		return true, nil
 	}
+	if durable {
+		return reserveDurableQuota(func(tx *gorm.DB) (bool, error) { return reserveUserQuotaDB(tx, id, quota) }, func() (cacheQuotaResult, error) { return cacheTryReserveUserQuota(id, int64(quota)) })
+	}
 	if !common.RedisEnabled {
-		return reserveUserQuotaDB(id, quota)
+		return reserveUserQuotaDB(DB, id, quota)
 	}
 
 	result, err := cacheTryReserveUserQuota(id, int64(quota))
@@ -187,12 +220,12 @@ func ReserveUserQuota(id int, quota int, durable bool) (bool, error) {
 		if err != nil {
 			common.SysLog("user quota cache reserve unavailable, falling back to database: " + err.Error())
 		}
-		return reserveUserQuotaDB(id, quota)
+		return reserveUserQuotaDB(DB, id, quota)
 	}
 	if result == cacheQuotaInsufficient {
 		return false, nil
 	}
-	if err = persistUserQuotaDelta(id, -quota, common.BatchUpdateEnabled && !durable); err != nil {
+	if err = persistUserQuotaDelta(id, -quota, common.BatchUpdateEnabled); err != nil {
 		compensated, compensateErr := cacheApplyUserQuotaDelta(id, int64(quota))
 		if compensateErr != nil || compensated != cacheQuotaOK {
 			common.SysError(fmt.Sprintf("failed to compensate reserved user quota: result=%d error=%v", compensated, compensateErr))
@@ -215,14 +248,19 @@ func ReserveTokenQuota(id int, key string, quota int, unlimited, durable bool) (
 	if quota == 0 {
 		return true, nil
 	}
+	if durable {
+		return reserveDurableQuota(func(tx *gorm.DB) (bool, error) { return reserveTokenQuotaDB(tx, id, quota, unlimited) }, func() (cacheQuotaResult, error) {
+			if unlimited {
+				return cacheApplyTokenQuotaDelta(id, key, -int64(quota))
+			}
+			return cacheTryReserveTokenQuota(id, key, int64(quota))
+		})
+	}
 	if unlimited {
-		if durable {
-			return true, ApplyTokenQuotaDelta(id, key, -quota)
-		}
 		return true, DecreaseTokenQuota(id, key, quota)
 	}
 	if !common.RedisEnabled {
-		return reserveTokenQuotaDB(id, quota)
+		return reserveTokenQuotaDB(DB, id, quota, false)
 	}
 
 	result, err := cacheTryReserveTokenQuota(id, key, int64(quota))
@@ -235,12 +273,12 @@ func ReserveTokenQuota(id int, key string, quota int, unlimited, durable bool) (
 		if err != nil {
 			common.SysLog("token quota cache reserve unavailable, falling back to database: " + err.Error())
 		}
-		return reserveTokenQuotaDB(id, quota)
+		return reserveTokenQuotaDB(DB, id, quota, false)
 	}
 	if result == cacheQuotaInsufficient {
 		return false, nil
 	}
-	if err = persistTokenQuotaDelta(id, -quota, common.BatchUpdateEnabled && !durable); err != nil {
+	if err = persistTokenQuotaDelta(id, -quota, common.BatchUpdateEnabled); err != nil {
 		compensated, compensateErr := cacheApplyTokenQuotaDelta(id, key, int64(quota))
 		if compensateErr != nil || compensated != cacheQuotaOK {
 			common.SysError(fmt.Sprintf("failed to compensate reserved token quota: result=%d error=%v", compensated, compensateErr))

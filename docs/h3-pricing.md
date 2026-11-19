@@ -66,7 +66,13 @@ so consumers must not use it to fill a missing receipt. Existing historical
 rows retain their original data and receive no receipt backfill.
 
 New H3 video and Context IR submissions record whether their reservation was
-confirmed. The task's terminal transition saves the intended net amount. The
+confirmed. Before a paid POST, FlowAPI saves the public ID, the reservation and
+the selected route under `DISPATCHING`. If saving the provider acknowledgement
+fails, HTTP 202 returns the same `id` and `task_id`. Poll that ID. The worker
+uses the configured task timeout for an unresolved dispatch and refunds it.
+Deleting the channel or revoking the submitting token does not remove this
+record. An active token of the same user can still read the receipt.
+The task's terminal transition saves the intended net amount. The
 poller then commits the task receipt, wallet or subscription adjustment, token
 adjustment and usage counters in one main-database transaction. A failed write
 leaves the decision pending and all balances unchanged. A subsequent polling
@@ -75,7 +81,10 @@ apply each decision once. The existing refund activity log is emitted after
 the commit and may live in a separate log database.
 
 The task migration adds nullable integer columns `pending_quota` (indexed) and
-`settled_quota`. Upgrade the main database and polling workers together before
+`settled_quota`. Users and tokens also carry the cumulative H3 refund in
+`h3_refund_total`. Redis fills carry the same total so publishing a committed
+refund can credit only the difference and can reject older cold fills.
+Upgrade the main database and polling workers together before
 enabling receipt consumers. The router regression submits, polls and reads the
 receipt through authenticated HTTP using isolated SQLite and a fixture provider.
 It exercises unchanged success, a resolution downgrade, full refund, and a failed

@@ -44,6 +44,9 @@ jobs:
       - name: Vet root module
         run: go vet ./...
 
+      - name: H3 HTTP, recovery and quota regressions
+        run: go test -v -count=1 ./router ./model -run 'TestH3(FinalQuotaHTTP|RefundColdFillAndDelayedSnapshots|AdmissionRequiresBothDurableAndCachedBalance)$'
+
       - name: Vet relaykit independently
         working-directory: relaykit
         run: go vet ./...

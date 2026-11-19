@@ -33,13 +33,14 @@ func (t TaskStatus) ToVideoStatus() string {
 }
 
 const (
-	TaskStatusNotStart   TaskStatus = "NOT_START"
-	TaskStatusSubmitted             = "SUBMITTED"
-	TaskStatusQueued                = "QUEUED"
-	TaskStatusInProgress            = "IN_PROGRESS"
-	TaskStatusFailure               = "FAILURE"
-	TaskStatusSuccess               = "SUCCESS"
-	TaskStatusUnknown               = "UNKNOWN"
+	TaskStatusDispatching TaskStatus = "DISPATCHING"
+	TaskStatusNotStart    TaskStatus = "NOT_START"
+	TaskStatusSubmitted              = "SUBMITTED"
+	TaskStatusQueued                 = "QUEUED"
+	TaskStatusInProgress             = "IN_PROGRESS"
+	TaskStatusFailure                = "FAILURE"
+	TaskStatusSuccess                = "SUCCESS"
+	TaskStatusUnknown                = "UNKNOWN"
 )
 
 // TaskRefundLegacyCutoff separates tasks created before timeout refunds were
@@ -365,7 +366,7 @@ func GetAllUnFinishSyncTasks(limit int) []*Task {
 	var tasks []*Task
 	var err error
 	// get all tasks progress is not 100%
-	err = DB.Where("progress != ?", "100%").Where("status != ?", TaskStatusFailure).Where("status != ?", TaskStatusSuccess).Limit(limit).Order("id").Find(&tasks).Error
+	err = DB.Where("progress != ?", "100%").Where("status NOT IN ?", []TaskStatus{TaskStatusFailure, TaskStatusSuccess, TaskStatusDispatching}).Limit(limit).Order("id").Find(&tasks).Error
 	if err != nil {
 		return nil
 	}
@@ -458,7 +459,7 @@ func (task *Task) insertWithUsage(tx *gorm.DB) error {
 	if task.Quota == 0 {
 		return nil
 	}
-	return requireAccountingRow(tx.Model(&Channel{}).Where("id = ?", task.ChannelId).Update("used_quota", gorm.Expr("used_quota + ?", task.Quota)))
+	return tx.Model(&Channel{}).Where("id = ?", task.ChannelId).Update("used_quota", gorm.Expr("used_quota + ?", task.Quota)).Error
 }
 
 type taskSnapshot struct {

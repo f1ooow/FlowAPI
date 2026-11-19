@@ -259,3 +259,71 @@ func TestTokenCacheInitPreservesLiveQuotaAndFenceBlocksStaleSnapshot(t *testing.
 	require.NoError(t, err)
 	assert.Equal(t, 100, cached.RemainQuota)
 }
+
+func TestH3RefundColdFillAndDelayedSnapshots(t *testing.T) {
+	truncateTables(t)
+	useUserCacheMiniRedis(t)
+	user := createReserveTestUser(t, 70)
+	token := createReserveTestToken(t, 70)
+	token.UserId, token.UsedQuota = user.Id, 30
+	require.NoError(t, DB.Save(&token).Error)
+	require.NoError(t, DB.Model(&user).Update("used_quota", 30).Error)
+	confirmed, final := true, 0
+	task := Task{UserId: user.Id, TaskID: "h3-refund", ChannelId: 234, Quota: 30, Status: TaskStatusFailure, FinishTime: 1, PendingQuota: &final,
+		PrivateData: TaskPrivateData{TokenId: token.Id, BillingSource: "wallet", H3ReservationConfirmed: &confirmed}}
+	require.NoError(t, DB.Create(&task).Error)
+	won, err := task.FinalizeH3Quota()
+	require.NoError(t, err)
+	require.True(t, won)
+	require.NoError(t, populateUserCache(user))
+	_, err = cacheGetUserBase(user.Id)
+	require.Error(t, err)
+	code, err := cacheInitToken(token)
+	require.NoError(t, err)
+	require.Zero(t, code)
+	_, err = GetUserCache(user.Id)
+	require.NoError(t, err)
+	_, err = GetTokenByKey(token.Key, false)
+	require.NoError(t, err)
+	publishH3Refund(getUserCacheKey(user.Id), user.Id, "Quota", 30)
+	publishH3Refund(getTokenCacheKey(token.Key), token.Id, "RemainQuota", 30)
+	cachedUser, err := cacheGetUserBase(user.Id)
+	require.NoError(t, err)
+	require.Equal(t, 100, cachedUser.Quota)
+	cachedToken, err := cacheGetTokenByKey(token.Key)
+	require.NoError(t, err)
+	require.Equal(t, 100, cachedToken.RemainQuota)
+	require.Zero(t, cachedToken.UsedQuota)
+}
+
+func TestH3AdmissionRequiresBothDurableAndCachedBalance(t *testing.T) {
+	truncateTables(t)
+	useUserCacheMiniRedis(t)
+	user := createReserveTestUser(t, 9)
+	token := createReserveTestToken(t, 9)
+	user.Quota, token.RemainQuota = 100, 100
+	require.NoError(t, populateUserCache(user))
+	_, err := cacheInitToken(token)
+	require.NoError(t, err)
+	check := func() {
+		t.Helper()
+		ok, err := ReserveUserQuota(user.Id, 10, true)
+		require.NoError(t, err)
+		require.False(t, ok)
+		ok, err = ReserveTokenQuota(token.Id, token.Key, 10, false, true)
+		require.NoError(t, err)
+		require.False(t, ok)
+	}
+	check()
+	require.Equal(t, 9, getUserQuotaFromDB(t, user.Id))
+	require.Equal(t, 9, getTokenFromDB(t, token.Id).RemainQuota)
+	require.NoError(t, DB.Model(&user).Update("quota", 100).Error)
+	require.NoError(t, DB.Model(&token).Update("remain_quota", 100).Error)
+	_, err = cacheApplyUserQuotaDelta(user.Id, -91)
+	require.NoError(t, err)
+	_, err = cacheApplyTokenQuotaDelta(token.Id, token.Key, -91)
+	require.NoError(t, err)
+	check()
+	require.Equal(t, 100, getUserQuotaFromDB(t, user.Id))
+	require.Equal(t, 100, getTokenFromDB(t, token.Id).RemainQuota)
+}

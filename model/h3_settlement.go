@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -29,6 +30,7 @@ func (task *Task) FinalizeH3Quota() (bool, error) {
 	refund := task.Quota - final
 	var won bool
 	var token Token
+	var walletTotal int64
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		result := tx.Model(&Task{}).Where("id = ? AND status = ? AND quota = ? AND pending_quota = ? AND settled_quota IS NULL", task.ID, task.Status, task.Quota, final).
 			Updates(map[string]any{"quota": final, "pending_quota": nil, "settled_quota": final})
@@ -42,6 +44,7 @@ func (task *Task) FinalizeH3Quota() (bool, error) {
 		case "wallet":
 			user = user.Where("quota <= ?", common.MaxWalletQuota-refund)
 			updates["quota"] = gorm.Expr("quota + ?", refund)
+			updates["h3_refund_total"] = gorm.Expr("h3_refund_total + ?", refund)
 		case "subscription":
 			if err := requireAccountingRow(tx.Model(&UserSubscription{}).Where("id = ? AND user_id = ? AND amount_used >= ?", task.PrivateData.SubscriptionId, task.UserId, refund).
 				Update("amount_used", gorm.Expr("amount_used - ?", refund))); err != nil {
@@ -54,17 +57,26 @@ func (task *Task) FinalizeH3Quota() (bool, error) {
 		if err := requireAccountingRow(user.Updates(updates)); err != nil {
 			return err
 		}
-		if task.PrivateData.TokenId > 0 {
-			if err := tx.Where("id = ? AND user_id = ?", task.PrivateData.TokenId, task.UserId).First(&token).Error; err != nil {
-				return err
-			}
-			if err := requireAccountingRow(tx.Model(&token).Updates(map[string]any{
-				"remain_quota": gorm.Expr("remain_quota + ?", refund), "used_quota": gorm.Expr("used_quota - ?", refund), "accessed_time": common.GetTimestamp(),
-			})); err != nil {
+		if common.RedisEnabled && task.PrivateData.BillingSource == "wallet" {
+			if err := tx.Model(&User{}).Where("id = ?", task.UserId).Pluck("h3_refund_total", &walletTotal).Error; err != nil {
 				return err
 			}
 		}
-		return requireAccountingRow(tx.Model(&Channel{}).Where("id = ?", task.ChannelId).Update("used_quota", gorm.Expr("used_quota - ?", refund)))
+		if task.PrivateData.TokenId > 0 {
+			owner := tx.Unscoped().Model(&Token{}).Where("id = ? AND user_id = ?", task.PrivateData.TokenId, task.UserId)
+			if err := requireAccountingRow(owner.Updates(map[string]any{
+				"h3_refund_total": gorm.Expr("h3_refund_total + ?", refund),
+				"remain_quota":    gorm.Expr("remain_quota + ?", refund), "used_quota": gorm.Expr("used_quota - ?", refund), "accessed_time": common.GetTimestamp(),
+			})); err != nil {
+				return err
+			}
+			if common.RedisEnabled {
+				if err := tx.Unscoped().First(&token, task.PrivateData.TokenId).Error; err != nil {
+					return err
+				}
+			}
+		}
+		return tx.Model(&Channel{}).Where("id = ?", task.ChannelId).Update("used_quota", gorm.Expr("used_quota - ?", refund)).Error
 	})
 	if err != nil || !won {
 		return false, err
@@ -72,15 +84,28 @@ func (task *Task) FinalizeH3Quota() (bool, error) {
 	task.Quota, task.PendingQuota, task.SettledQuota = final, nil, &final
 	if refund > 0 && common.RedisEnabled {
 		if task.PrivateData.BillingSource == "wallet" {
-			if err := cacheIncrUserQuota(task.UserId, int64(refund)); err != nil {
-				common.SysError("refresh H3 wallet quota: " + err.Error())
-			}
+			publishH3Refund(getUserCacheKey(task.UserId), task.UserId, "Quota", walletTotal)
 		}
-		if token.Id > 0 {
-			if _, err := cacheApplyTokenQuotaDelta(token.Id, token.Key, int64(refund)); err != nil {
-				common.SysError("refresh H3 token quota: " + err.Error())
-			}
+		if token.Id > 0 && !token.DeletedAt.Valid {
+			publishH3Refund(getTokenCacheKey(token.Key), token.Id, "RemainQuota", token.H3RefundTotal)
 		}
 	}
 	return true, nil
+}
+
+func publishH3Refund(key string, id int, field string, total int64) {
+	const script = `
+local total = tonumber(ARGV[3])
+local floor = tonumber(redis.call('GET', KEYS[2]) or '0')
+if total > floor then redis.call('SET', KEYS[2], ARGV[3]) end
+if redis.call('HGET', KEYS[1], 'Id') ~= ARGV[1] or redis.call('HEXISTS', KEYS[1], ARGV[2]) == 0 then return 0 end
+local delta = total - tonumber(redis.call('HGET', KEYS[1], 'H3RefundTotal') or '0')
+if delta <= 0 then return 0 end
+redis.call('HINCRBY', KEYS[1], ARGV[2], delta)
+if ARGV[2] == 'RemainQuota' then redis.call('HINCRBY', KEYS[1], 'UsedQuota', -delta) end
+redis.call('HSET', KEYS[1], 'H3RefundTotal', ARGV[3])
+return 1`
+	if err := common.RDB.Eval(context.Background(), script, []string{key, key + ":h3-refunded"}, id, field, total).Err(); err != nil {
+		common.SysError("publish H3 refund: " + err.Error())
+	}
 }

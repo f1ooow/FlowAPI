@@ -10,7 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 )
 
-func failH3PollingTask(ctx context.Context, task *model.Task, reason string) {
+func FailH3Task(ctx context.Context, task *model.Task, reason string) {
 	previous := task.Status
 	if previous == model.TaskStatusSuccess || previous == model.TaskStatusFailure {
 		return

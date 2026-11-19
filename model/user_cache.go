@@ -18,6 +18,7 @@ type UserBase struct {
 	Group          string `json:"group"`
 	Email          string `json:"email"`
 	Quota          int    `json:"quota"`
+	H3RefundTotal  int64  `json:"-"`
 	UnlimitedQuota bool   `json:"unlimited_quota"`
 	Status         int    `json:"status"`
 	Role           int    `json:"role"`

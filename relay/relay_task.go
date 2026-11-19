@@ -288,6 +288,20 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		c.Set("task_submission_dispatched", true)
 		c.Set("task_submission_uncertain", true)
 	}
+	if info.H3Billing {
+		task := model.InitTask(platform, info)
+		task.Status, task.Action, task.Quota = model.TaskStatusDispatching, info.Action, info.PriceData.Quota
+		confirmed := service.H3ReservationConfirmed(info, nil)
+		task.PrivateData.H3ReservationConfirmed = &confirmed
+		task.PrivateData.BillingSource, task.PrivateData.SubscriptionId = info.BillingSource, info.SubscriptionId
+		task.PrivateData.TokenId, task.PrivateData.NodeName = info.TokenId, common.NodeName
+		task.PrivateData.BillingContext = model.NewTaskBillingContext(info)
+		task.PrivateData.BillingContext.InputVideoDuration = c.GetFloat64(relaycommon.TaskInputVideoSecondsKey)
+		if err := task.Insert(); err != nil {
+			return nil, service.TaskErrorWrapperLocal(err, "task_persistence_failed", http.StatusInternalServerError)
+		}
+		c.Set("h3_dispatch", task)
+	}
 	c.Set("task_paid_dispatched", true)
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {

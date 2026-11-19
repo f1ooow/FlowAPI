@@ -189,7 +189,7 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 			upstreamID := task.GetUpstreamTaskID()
 			if upstreamID == "" {
 				if task.PrivateData.H3ReservationConfirmed != nil {
-					failH3PollingTask(ctx, task, "missing task id")
+					FailH3Task(ctx, task, "missing task id")
 					continue
 				}
 				// 统计失败的未完成任务
@@ -437,6 +437,9 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 		return nil
 	}
 	cacheGetChannel, err := model.CacheGetChannel(channelId)
+	if err != nil && common.MemoryCacheEnabled {
+		cacheGetChannel, err = model.GetChannelById(channelId, true)
+	}
 	if err != nil {
 		// Collect DB primary key IDs for bulk update (taskIds are upstream IDs, not task_id column values)
 		var failedIDs []int64
@@ -444,7 +447,7 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 			if t, ok := taskM[upstreamID]; ok {
 				if t.PrivateData.H3ReservationConfirmed != nil {
 					if errors.Is(err, gorm.ErrRecordNotFound) {
-						failH3PollingTask(ctx, t, fmt.Sprintf("channel %d missing", channelId))
+						FailH3Task(ctx, t, fmt.Sprintf("channel %d missing", channelId))
 					}
 					continue
 				}
