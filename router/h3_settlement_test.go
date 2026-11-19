@@ -278,6 +278,33 @@ func TestH3FinalQuotaHTTP(t *testing.T) {
 		refunds++
 		ledger(t)
 	})
+	t.Run("acknowledged provider outage reaches configured timeout", func(t *testing.T) {
+		upstreamID = "provider-query-unavailable"
+		oldTimeout := constant.TaskTimeoutMinutes
+		constant.TaskTimeoutMinutes = 1
+		accountTiers = map[string]string{}
+		t.Cleanup(func() { constant.TaskTimeoutMinutes, accountTiers = oldTimeout, nil })
+		beforePosts, beforeQueries := posts, queries
+		id := call(t, "POST", "/v1/videos", token.Key, payload, 200)["id"].(string)
+		service.RunTaskPollingOnce(t.Context(), nil)
+		data := fetch(t, id)
+		require.NotContains(t, data, "settled_quota")
+		require.Equal(t, beforeQueries+1, queries)
+		expired := time.Now().Add(-2 * time.Minute).Unix()
+		require.NoError(t, db.Model(&model.Task{}).Where("task_id = ?", id).UpdateColumns(map[string]any{"submit_time": expired, "updated_at": expired}).Error)
+		service.RunTaskPollingOnce(t.Context(), nil)
+		service.RunTaskPollingOnce(t.Context(), nil)
+		data = fetch(t, id)
+		require.Equal(t, "FAILURE", data["status"])
+		require.Equal(t, float64(0), data["settled_quota"])
+		require.NotContains(t, data, "settlement_pending")
+		require.Equal(t, beforePosts+1, posts)
+		require.Equal(t, beforeQueries+1, queries)
+		require.False(t, model.HasUnfinishedSyncTasks())
+		requests++
+		refunds++
+		ledger(t)
+	})
 	for _, scenario := range []struct{ name, code string }{
 		{"ack and promotion unavailable", "provider_acknowledgement_unrecorded"},
 		{"connection lost after dispatch", "provider_acceptance_unknown"},
