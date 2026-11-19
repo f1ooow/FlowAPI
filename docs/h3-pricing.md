@@ -114,6 +114,9 @@ committed change once.
 Ordinary wallet and token debits also reach SQL before returning, including in
 batch mode. A Redis eviction cannot hide an outstanding debit from a later H3
 admission. Credits and usage counters can still use the existing batch updater.
+Ordinary settlement debits advance the same SQL sequence as H3 changes. A
+wallet or token cache filled after the debit already contains that sequence,
+so later publication leaves its balance intact.
 Before enabling H3 on an upgrade, drain outstanding quota batches on every old
 writer and switch all writers to the new debit path.
 When Redis publication is interrupted, the poller replays the committed sequence

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -272,6 +273,65 @@ func (*h3PublicationBarrier) BeforeProcessPipeline(ctx context.Context, _ []redi
 	return ctx, nil
 }
 func (*h3PublicationBarrier) AfterProcessPipeline(context.Context, []redis.Cmder) error { return nil }
+
+func TestH3AdmissionAfterOrdinaryDebitColdFill(t *testing.T) {
+	for _, account := range []string{"wallet", "limited token"} {
+		t.Run(account, func(t *testing.T) {
+			truncateTables(t)
+			useUserCacheMiniRedis(t)
+			user := createReserveTestUser(t, 100)
+			token := createReserveTestToken(t, 100)
+			token.UserId = user.Id
+			require.NoError(t, DB.Save(&token).Error)
+			key := getUserCacheKey(user.Id)
+			debit := func() error { return DecreaseUserQuota(user.Id, 30, false) }
+			if account == "limited token" {
+				key = getTokenCacheKey(token.Key)
+				debit = func() error { return DecreaseTokenQuota(token.Id, token.Key, 30) }
+			}
+			barrier := &h3PublicationBarrier{key: key, entered: make(chan struct{}), resume: make(chan struct{})}
+			common.RDB.AddHook(barrier)
+			done := make(chan error, 1)
+			go func() { done <- debit() }()
+			select {
+			case err := <-done:
+				t.Fatalf("debit returned before versioned publication: %v", err)
+			case <-barrier.entered:
+			}
+			unblock := sync.OnceFunc(func() { close(barrier.resume); require.NoError(t, <-done) })
+			defer unblock()
+			wallet, err := GetUserCache(user.Id)
+			require.NoError(t, err)
+			limited, err := GetTokenByKey(token.Key, false)
+			require.NoError(t, err)
+			walletBalance, tokenBalance := 70, 100
+			if account == "limited token" {
+				walletBalance, tokenBalance = 100, 70
+			}
+			require.Equal(t, walletBalance, wallet.Quota)
+			require.Equal(t, tokenBalance, limited.RemainQuota)
+			unblock()
+			checkBalances := func(walletBalance, tokenBalance int) {
+				t.Helper()
+				cached, err := cacheGetUserBase(user.Id)
+				require.NoError(t, err)
+				limited, err := cacheGetTokenByKey(token.Key)
+				require.NoError(t, err)
+				assert.Equal(t, walletBalance, cached.Quota)
+				assert.Equal(t, walletBalance, getUserQuotaFromDB(t, user.Id))
+				assert.Equal(t, tokenBalance, limited.RemainQuota)
+				assert.Equal(t, 100-tokenBalance, limited.UsedQuota)
+				stored := getTokenFromDB(t, token.Id)
+				assert.Equal(t, tokenBalance, stored.RemainQuota)
+				assert.Equal(t, 100-tokenBalance, stored.UsedQuota)
+			}
+			checkBalances(walletBalance, tokenBalance)
+			task := newH3AdmissionTask(user.Id, token.Id, 50)
+			require.NoError(t, task.ReserveH3Dispatch(token.Key, false))
+			checkBalances(walletBalance-50, tokenBalance-50)
+		})
+	}
+}
 
 func TestH3OverlappingReservationsKeepCommittedGenericDebits(t *testing.T) {
 	truncateTables(t)

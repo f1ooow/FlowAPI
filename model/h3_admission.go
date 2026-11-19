@@ -24,14 +24,33 @@ type h3QuotaAccount struct {
 	id         int
 	key, field string
 	seq, net   int64
+	accessedAt int64
 }
 
 func (user *User) h3Wallet() h3QuotaAccount {
-	return h3QuotaAccount{user.Id, getUserCacheKey(user.Id), "Quota", user.H3QuotaSeq, user.H3QuotaNet}
+	return h3QuotaAccount{id: user.Id, key: getUserCacheKey(user.Id), field: "Quota", seq: user.H3QuotaSeq, net: user.H3QuotaNet}
 }
 
 func (token *Token) h3Token() h3QuotaAccount {
-	return h3QuotaAccount{token.Id, getTokenCacheKey(token.Key), "RemainQuota", token.H3QuotaSeq, token.H3QuotaNet}
+	return h3QuotaAccount{id: token.Id, key: getTokenCacheKey(token.Key), field: "RemainQuota", seq: token.H3QuotaSeq, net: token.H3QuotaNet, accessedAt: token.AccessedTime}
+}
+
+func (account h3QuotaAccount) debit(row any, quota int, changes map[string]any) error {
+	changes["h3_quota_seq"] = gorm.Expr("h3_quota_seq + 1")
+	changes["h3_quota_net"] = gorm.Expr("h3_quota_net - ?", quota)
+	query := DB.Model(row).Where("id = ?", account.id).Session(&gorm.Session{})
+	result := query.Updates(changes)
+	if result.Error != nil || result.RowsAffected == 0 || !common.RedisEnabled {
+		return result.Error
+	}
+	var committed struct{ Seq, Net int64 }
+	if err := query.Select("h3_quota_seq AS seq, h3_quota_net AS net").Take(&committed).Error; err != nil {
+		common.SysError("read committed quota for cache publication: " + err.Error())
+		return nil
+	}
+	account.seq, account.net = committed.Seq, committed.Net
+	account.publishCommitted("")
+	return nil
 }
 
 const h3CacheFloorLua = `
@@ -86,7 +105,12 @@ if not older(seq, floor) then
   if redis.call('HGET', KEYS[1], 'Id') == ARGV[1] and older(cached, seq) and redis.call('HEXISTS', KEYS[1], ARGV[2]) == 1 then
     if (redis.call('HGET', KEYS[1], 'H3QuotaNet') or '0') ~= ARGV[5] then return 0 end
     redis.call('HINCRBY', KEYS[1], ARGV[2], ARGV[6])
-    if ARGV[2] == 'RemainQuota' then redis.call('HINCRBY', KEYS[1], 'UsedQuota', ARGV[7]) end
+    if ARGV[2] == 'RemainQuota' then
+      redis.call('HINCRBY', KEYS[1], 'UsedQuota', ARGV[7])
+      if tonumber(ARGV[9]) > tonumber(redis.call('HGET', KEYS[1], 'AccessedTime') or '0') then
+        redis.call('HSET', KEYS[1], 'AccessedTime', ARGV[9])
+      end
+    end
     redis.call('HSET', KEYS[1], 'H3QuotaSeq', seq, 'H3QuotaNet', ARGV[4])
   end
   if older(floor, seq) then redis.call('SET', KEYS[2], seq) end
@@ -101,7 +125,7 @@ return 1`
 		}
 		delta := decimal.NewFromInt(account.net).Sub(decimal.NewFromInt(cachedNet))
 		result, err := common.RDB.Eval(ctx, script, []string{account.key, account.key + ":h3-seq", account.key + ":h3-pending"},
-			account.id, account.field, account.seq, account.net, cachedNet, delta.String(), delta.Neg().String(), ticket).Int()
+			account.id, account.field, account.seq, account.net, cachedNet, delta.String(), delta.Neg().String(), ticket, account.accessedAt).Int()
 		if err != nil || result == 1 {
 			return err
 		}
